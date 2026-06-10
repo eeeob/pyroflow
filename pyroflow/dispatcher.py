@@ -86,7 +86,7 @@ class Dispatcher(PyroDispatcher):
         self.is_started = False
     
 
-    async def start(self, *args, **kw) -> None:
+    async def start(self, *args, **kw):
         """
         Start the dispatcher and all registered listeners, coordinators and histories.
 
@@ -95,7 +95,7 @@ class Dispatcher(PyroDispatcher):
             **kw: Passed directly to the original dispatcher.
         """
 
-        await self.oldstart(*args, **kw)
+        r = await self.oldstart(*args, **kw)
 
         self.is_started = True
 
@@ -109,7 +109,9 @@ class Dispatcher(PyroDispatcher):
             return_exc=True
         )
 
-    async def stop(self, *args, **kw) -> None:
+        return r
+
+    async def stop(self, *args, **kw):
         """
         Stop the dispatcher and all registered listeners, coordinators and histories.
 
@@ -118,7 +120,7 @@ class Dispatcher(PyroDispatcher):
             **kw: Passed directly to the original dispatcher.
         """
 
-        await self.oldstop(*args, **kw)
+        r = await self.oldstop(*args, **kw)
 
         self.is_started = False
 
@@ -131,6 +133,8 @@ class Dispatcher(PyroDispatcher):
             for history in self.histories.values()), 
             return_exc=True
         )
+
+        return r
 
         
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
