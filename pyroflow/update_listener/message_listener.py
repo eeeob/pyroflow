@@ -17,6 +17,7 @@ class MessageListener(UpdateListener[Message]):
             duplicate_policy = None, 
             is_listenable_func = None, 
             extract_key_func = None, 
+            timeout = None, 
             **kw
             ):
 
@@ -26,7 +27,7 @@ class MessageListener(UpdateListener[Message]):
             if extract_key_func is None:
                 extract_key_func = self._extract_key
 
-            super().__init__(coordinator_factory, duplicate_policy, is_listenable_func, extract_key_func, **kw)
+            super().__init__(coordinator_factory, duplicate_policy, is_listenable_func, extract_key_func, timeout, **kw)
 
 
     async def _is_listenable(self, update):

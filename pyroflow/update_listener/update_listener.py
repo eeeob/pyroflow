@@ -67,6 +67,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             :meth:`extract_key`. If ``None``, the method must be
             overridden in a subclass.
 
+        timeout:
+            Optional timeout in seconds for listeners. If provided,
+            it is used as the default duration after which a listener
+            may be cancelled or expire.
+
         **kw:
             Passed to the next class in the MRO.
     """
@@ -77,6 +82,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         duplicate_policy: Optional[DuplicatePolicy] = None, 
         is_listenable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None, 
         extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], ListenerKey]] = None, 
+        timeout: Optional[Number] = None, 
         **kw
         ) -> None:
 
@@ -93,6 +99,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.is_listenable_func = is_listenable_func
         self.extract_key_func = extract_key_func
+
+        self.timeout = timeout
 
         # Local listeners currently owned by this process.
         # Cross-process coordination is handled by the coordinator.
@@ -235,6 +243,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             # without removing a newer registration.
             coordinator_id = await self.coordinator.register(key)
             self.listeners[key] = listener
+        
+        if timeout is None:
+            timeout = self.timeout
 
         try:
             # Wait until the listener is resolved or cancelled.
