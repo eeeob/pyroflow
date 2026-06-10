@@ -1,7 +1,7 @@
 # pyroflow
 
-[![PyPI version](https://img.shields.io/pypi/v/pyroflow?dummy=1)](https://pypi.org/project/pyroflow/)
-[![Python versions](https://img.shields.io/pypi/pyversions/pyroflow?dummy=1)](https://pypi.org/project/pyroflow/)
+[![PyPI version](https://img.shields.io/pypi/v/pyroflow)](https://pypi.org/project/pyroflow/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pyroflow)](https://pypi.org/project/pyroflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Conversation-oriented Pyrogram extension with per-update listeners and multi-session coordination.**
