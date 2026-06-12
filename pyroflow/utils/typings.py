@@ -2,7 +2,7 @@ from typing import (
     Collection as TCollection, Generator, Union, Reversible, 
     Sequence, AbstractSet, Mapping, List, Any, Dict, 
     Callable, Coroutine, Awaitable, TypeVar, 
-    Literal, Type, TYPE_CHECKING, 
+    Literal, TYPE_CHECKING, 
 )
 
 from enum import Enum
@@ -17,7 +17,7 @@ else:
 if sys.version_info >= (3, 11):
     from enum import EnumType
 else:
-    EnumType: TypeAlias = Type[Enum]
+    EnumType = type(Enum)
 
 from pyrogram.types import Update as PyroUpdate
 
