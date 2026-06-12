@@ -40,8 +40,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "cachetools",
-    "kurigram>=2.2.0",
+    "cachetools", 
+    "kurigram>=2.2.0", 
+    "typing_extensions>=4.6.0; python_version < '3.10'",
 ]
 
 
