@@ -19,8 +19,21 @@ def is_exception(obj: Any) -> TypeIs[BaseException]:
 def is_container(obj: Any) -> TypeIs[Union['Container[_T]', Any]]:
     return isinstance(obj, Container) and not isinstance(obj, NotContainer)
 
-def iscoroutinefunction_wrapped(f: Any) -> bool:
-    return inspect.iscoroutinefunction(inspect.unwrap(f))
+def iscoroutinefunction_wrapped(f):
+    is_coro = False
+
+    def _stop(func):
+        nonlocal is_coro
+
+        if inspect.iscoroutinefunction(func):
+            is_coro = True
+            return True
+        
+        return False
+
+    unwrapped = inspect.unwrap(f, stop=_stop)
+    return is_coro or inspect.iscoroutinefunction(unwrapped)
+
 
 
 __all__ = (
