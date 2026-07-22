@@ -62,6 +62,13 @@ redis = [
     "redis>=4.2.0",
 ]
 
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "redis>=4.2.0",
+    "tomli; python_version < '3.11'",
+]
+
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -78,3 +85,11 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 ignore-vcs = true
 packages = ["pyroflow"]
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
