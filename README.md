@@ -197,10 +197,10 @@ client.run()
 A `UpdateHistory` records which handlers ran successfully for each update. This enables features like `back` buttons that replay or inspect previous processing steps.
 
 ```python
-from pyroflow import Client, MessageHistory
+from pyroflow import Client, CallbackQueryHistory
 
 client = Client("my_session")
-client.register_history(MessageHistory())
+client.register_history(CallbackQueryHistory())
 
 client.run()
 ```
@@ -212,7 +212,7 @@ They can also be removed at runtime:
 ```python
 await client.unregister_listener(Message)
 await client.unregister_coordinated(Message)
-await client.unregister_history(Message)
+await client.unregister_history(CallbackQueryHistory)
 ```
 
 ---

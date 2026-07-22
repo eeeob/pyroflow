@@ -28,4 +28,4 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
         return (update.id, )
     
     async def _is_coordinatable(self, update):
-        True
+        return True
