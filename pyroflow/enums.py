@@ -6,8 +6,10 @@ else:
     from enum import Enum
     
     class StrEnum(str, Enum):
-        def _generate_next_value_(self, *args):
-            return self.lower()
+        def _generate_next_value_(name, *args):
+            return name.lower()
+        def __str__(self):
+            return str(self.value)
 
 from enum import IntEnum, auto
 
