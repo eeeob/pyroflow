@@ -62,3 +62,30 @@ def test_update_record_defaults():
     assert rec.handler == "H"
     assert rec.data is None
     assert isinstance(rec.created_at, float)
+
+
+async def test_models_still_instantiate_and_reject_unknown_attrs_when_slotted():
+    """Regression guard for the C5 CI failure: dataclass(slots=True) is
+    3.10+ only. models.py must build the ``slots`` kwarg conditionally
+    (via a dict passed as ``**_SLOTS_KW``) rather than passing a literal
+    ``slots=`` keyword, so it never crashes on import on Python 3.9."""
+    import sys
+
+    key = ListenerKey(1, 2, 3)
+    # ListenerModel's default `future` field needs a running event loop.
+    model = ListenerModel(key)
+    rec = UpdateRecord(handler="H")
+
+    # Basic behaviour must hold regardless of whether slots were applied.
+    assert model.key == key
+    assert rec.handler == "H"
+
+    if sys.version_info >= (3, 10):
+        # slots=True actually took effect: no __dict__, unknown attrs rejected.
+        assert not hasattr(model, "__dict__")
+        with pytest.raises(AttributeError):
+            model.unknown_attr = 1
+        with pytest.raises(AttributeError):
+            rec.unknown_attr = 1
+    # On < 3.10 the fallback drops slots silently; only import/behaviour is
+    # asserted above (no __dict__ absence claim from the constructor mock).

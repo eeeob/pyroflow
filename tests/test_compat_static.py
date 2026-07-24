@@ -64,6 +64,42 @@ def test_no_match_statement(path):
 
 
 @pytest.mark.parametrize("path", PY_FILES, ids=FILE_IDS)
+def test_no_unguarded_dataclass_slots_literal(path):
+    """``dataclasses.dataclass(slots=True)`` is 3.10+ (regression guard for
+    the C5 CI failure: 'dataclass() got an unexpected keyword argument
+    slots' on Python 3.9, since the parameter doesn't exist there at all).
+
+    A *literal* ``slots=`` keyword on a call to something named
+    ``dataclass`` is only safe if the same file also branches on
+    ``sys.version_info`` (the pattern models.py now uses: build a
+    ``{"slots": True}`` kwargs dict conditionally and pass it via
+    ``**kwargs``, which this check allows since it carries no literal
+    ``slots=`` keyword at all).
+    """
+    tree = _parse(path)
+
+    literal_slots_calls = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, (ast.Name, ast.Attribute))
+        and (node.func.id if isinstance(node.func, ast.Name) else node.func.attr) == "dataclass"
+        and any(kw.arg == "slots" for kw in node.keywords)
+    ]
+    if not literal_slots_calls:
+        return
+
+    has_version_guard = any(
+        isinstance(node, ast.Attribute) and node.attr == "version_info"
+        for node in ast.walk(tree)
+    )
+    assert has_version_guard, (
+        f"literal dataclass(slots=...) at {path}:{literal_slots_calls} with no "
+        f"sys.version_info guard in the file — breaks Python < 3.10"
+    )
+
+
+@pytest.mark.parametrize("path", PY_FILES, ids=FILE_IDS)
 def test_no_pep604_union_in_runtime_annotations(path):
     """``X | Y`` unions evaluate at runtime and fail on < 3.10 unless the
     module opts into ``from __future__ import annotations``."""
