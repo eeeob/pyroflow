@@ -1,16 +1,5 @@
-from typing import Union, List, Optional, Awaitable, Tuple, overload
+from typing import Union, List, Callable, Optional, Awaitable, Tuple, overload
 from concurrent.futures import ThreadPoolExecutor
-
-import sys
-
-# typing.Callable only knows how to substitute a stdlib ParamSpec from
-# Python 3.10 onward; pairing it with a typing_extensions ParamSpec (used
-# here via _P) on older versions raises "Parameters to generic types must
-# be types" when Callable[_P, _T] is constructed (see audit finding C5).
-if sys.version_info >= (3, 10):
-    from typing import Callable
-else:
-    from typing_extensions import Callable
 
 from .typings import NestedContainer, MaybeAwaitable, _True, _False, _P, _T
 from .validate_tools import is_exception, iscoroutinefunction_wrapped

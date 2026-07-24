@@ -1,17 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Tuple, TYPE_CHECKING
+from typing import Optional, Union, Tuple, TypeAlias, TYPE_CHECKING
 
 
 from ..utils.typings import AsyncLockProto
 from ..typings import ListenerCoordinatorIdT
 from ..models import ListenerKey
-
-import sys
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 if TYPE_CHECKING:
     from ..update_listener import UpdateListener

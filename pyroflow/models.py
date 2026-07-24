@@ -5,17 +5,10 @@ from pyrogram.handlers import Handler as PyroHandler
 from .utils.typings import JsonValueT, Number
 
 import asyncio
-import sys
 import time
 
 
-# dataclasses.dataclass() only accepts a `slots` keyword on Python 3.10+;
-# on 3.9 the parameter doesn't exist at all, so it must be omitted entirely
-# rather than passed as slots=False.
-_SLOTS_KW = {"slots": True} if sys.version_info >= (3, 10) else {}
-
-
-@dataclass(frozen=True, eq=False, **_SLOTS_KW)
+@dataclass(frozen=True, slots=True, eq=False)
 class ListenerKey:
     chat_id: int
     user_id: Optional[int] = None
@@ -45,7 +38,7 @@ class ListenerKey:
     def __eq__(self, value):
         return isinstance(value, ListenerKey) and self.to_tuple == value.to_tuple
 
-@dataclass(**_SLOTS_KW)
+@dataclass(slots=True)
 class ListenerModel:
     key: ListenerKey
     meta: Optional[JsonValueT] = None
@@ -61,7 +54,7 @@ class ListenerModel:
     def done(self) -> bool:
         return self.future.done()
 
-@dataclass(**_SLOTS_KW)
+@dataclass(slots=True)
 class UpdateRecord:
     handler: PyroHandler
     data: Optional[Any] = None

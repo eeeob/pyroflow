@@ -6,10 +6,8 @@ import inspect
 
 if sys.version_info >= (3, 13):
     from typing import TypeIs
-elif sys.version_info >= (3, 10):
-    from typing_extensions import TypeIs
 else:
-    from typing_extensions import TypeGuard as TypeIs
+    from typing_extensions import TypeIs
 
 from .typings import Container, NotContainer, _T
 

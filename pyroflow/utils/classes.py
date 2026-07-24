@@ -1,17 +1,11 @@
 from abc import ABC
-from typing import Generic, Type
+from typing import Generic, Type, ClassVar
 
 from pyrogram.types import Update as PyroUpdate
 from .typings import UpdateType
 
 import asyncio
-import sys
 
-
-if sys.version_info >= (3, 10):
-    from typing import ClassVar
-else:
-    from typing_extensions import ClassVar
 
 class AsyncioLock(asyncio.Lock):
     async def release(self):

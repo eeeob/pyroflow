@@ -3,20 +3,12 @@ from typing import (
     Sequence, AbstractSet, Mapping, List, Any, Dict,
     Coroutine, Awaitable, TypeVar,
     Literal, TYPE_CHECKING,
+    ParamSpec, TypeAlias, Protocol, Callable,
 )
 
 from enum import Enum
 
 import sys
-
-if sys.version_info >= (3, 10):
-    # typing.Callable only knows how to substitute a stdlib ParamSpec from
-    # 3.10 onward; pairing it with a typing_extensions ParamSpec on older
-    # versions raises "Parameters to generic types must be types" at
-    # Callable[P, ...] substitution time (see audit finding C5).
-    from typing import ParamSpec, TypeAlias, Protocol, Callable
-else:
-    from typing_extensions import ParamSpec, TypeAlias, Protocol, Callable
 
 if sys.version_info >= (3, 11):
     from enum import EnumType

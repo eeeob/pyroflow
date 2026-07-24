@@ -36,7 +36,7 @@ pyroflow solves all three problems:
 
 ## Installation
 
-**Minimum requirements:** Python 3.9+
+**Minimum requirements:** Python 3.10+
 
 ```
 pip install pyroflow          # core
