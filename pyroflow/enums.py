@@ -6,8 +6,8 @@ else:
     from enum import Enum
     
     class StrEnum(str, Enum):
-        def _generate_next_value_(self, *args):
-            return self.lower()
+        def _generate_next_value_(name, start, count, last_values):
+            return name.lower()
 
 from enum import IntEnum, auto
 
