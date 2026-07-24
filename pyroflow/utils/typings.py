@@ -1,8 +1,8 @@
 from typing import (
-    Collection as TCollection, Generator, Union, Reversible, 
-    Sequence, AbstractSet, Mapping, List, Any, Dict, 
-    Callable, Coroutine, Awaitable, TypeVar, 
-    Literal, TYPE_CHECKING, 
+    Collection as TCollection, Generator, Union, Reversible,
+    Sequence, AbstractSet, Mapping, List, Any, Dict,
+    Coroutine, Awaitable, TypeVar,
+    Literal, TYPE_CHECKING,
 )
 
 from enum import Enum
@@ -10,9 +10,13 @@ from enum import Enum
 import sys
 
 if sys.version_info >= (3, 10):
-    from typing import ParamSpec, TypeAlias, Protocol
+    # typing.Callable only knows how to substitute a stdlib ParamSpec from
+    # 3.10 onward; pairing it with a typing_extensions ParamSpec on older
+    # versions raises "Parameters to generic types must be types" at
+    # Callable[P, ...] substitution time (see audit finding C5).
+    from typing import ParamSpec, TypeAlias, Protocol, Callable
 else:
-    from typing_extensions import ParamSpec, TypeAlias, Protocol
+    from typing_extensions import ParamSpec, TypeAlias, Protocol, Callable
 
 if sys.version_info >= (3, 11):
     from enum import EnumType
@@ -74,15 +78,15 @@ UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
 
 
 __all__ = (
-    "Container", 
-    "NestedContainer", 
-    "NotContainer", 
-    "MaybeAwaitable", 
-    "Number", 
-    "MaybeCoroutineCallable", 
-    "AsyncLockProto", 
-    "JsonValueT", 
-    "UpdateType", 
-    "_P", "_T", "_CT", 
-    "_True", "_False", 
+    "Container",
+    "NestedContainer",
+    "NotContainer",
+    "MaybeAwaitable",
+    "Number",
+    "MaybeCoroutineCallable",
+    "AsyncLockProto",
+    "JsonValueT",
+    "UpdateType",
+    "_P", "_T", "_CT",
+    "_True", "_False",
 )

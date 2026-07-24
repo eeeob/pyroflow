@@ -64,6 +64,50 @@ def test_no_match_statement(path):
 
 
 @pytest.mark.parametrize("path", PY_FILES, ids=FILE_IDS)
+def test_paramspec_callable_uses_version_guarded_callable(path):
+    """Regression guard for C5: ``typing.Callable`` on Python < 3.10 does
+    not know how to re-substitute a generic alias built with a ParamSpec
+    (raises ``TypeError: Parameters to generic types must be types`` at
+    e.g. ``MaybeCoroutineCallable[[UpdateType], bool]``). Any file that
+    subscripts ``Callable`` directly with a bare ParamSpec name (``_P`` or
+    ``P``) must import ``Callable`` from a version-guarded block (falling
+    back to ``typing_extensions.Callable`` on < 3.10), not unconditionally
+    from stdlib ``typing``.
+    """
+    tree = _parse(path)
+
+    paramspec_names = {"_P", "P"}
+    subscripts_callable_with_paramspec = any(
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "Callable"
+        and (
+            (isinstance(node.slice, ast.Name) and node.slice.id in paramspec_names)
+            or (
+                isinstance(node.slice, ast.Tuple)
+                and node.slice.elts
+                and isinstance(node.slice.elts[0], ast.Name)
+                and node.slice.elts[0].id in paramspec_names
+            )
+        )
+        for node in ast.walk(tree)
+    )
+    if not subscripts_callable_with_paramspec:
+        return
+
+    callable_imported_unconditionally_from_typing = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "typing"
+        and any(alias.name == "Callable" for alias in node.names)
+        for node in tree.body  # module top level only, i.e. unguarded
+    )
+    assert not callable_imported_unconditionally_from_typing, (
+        f"{path} subscripts Callable[ParamSpec, ...] but imports Callable "
+        f"unconditionally from stdlib typing — breaks Python < 3.10 (C5)"
+    )
+
+
+@pytest.mark.parametrize("path", PY_FILES, ids=FILE_IDS)
 def test_no_unguarded_dataclass_slots_literal(path):
     """``dataclasses.dataclass(slots=True)`` is 3.10+ (regression guard for
     the C5 CI failure: 'dataclass() got an unexpected keyword argument

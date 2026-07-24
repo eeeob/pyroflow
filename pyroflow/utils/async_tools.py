@@ -1,5 +1,16 @@
-from typing import Union, List, Callable, Optional, Awaitable, Tuple, overload
+from typing import Union, List, Optional, Awaitable, Tuple, overload
 from concurrent.futures import ThreadPoolExecutor
+
+import sys
+
+# typing.Callable only knows how to substitute a stdlib ParamSpec from
+# Python 3.10 onward; pairing it with a typing_extensions ParamSpec (used
+# here via _P) on older versions raises "Parameters to generic types must
+# be types" when Callable[_P, _T] is constructed (see audit finding C5).
+if sys.version_info >= (3, 10):
+    from typing import Callable
+else:
+    from typing_extensions import Callable
 
 from .typings import NestedContainer, MaybeAwaitable, _True, _False, _P, _T
 from .validate_tools import is_exception, iscoroutinefunction_wrapped
@@ -10,9 +21,32 @@ import functools
 import logging
 import contextvars
 import inspect
+import traceback
 
 
 log = logging.getLogger(__file__)
+
+
+def _log_exc(
+    header: Optional[str],
+    caller_stack: List[traceback.FrameSummary],
+    exc: BaseException,
+    index: Optional[int] = None,
+) -> None:
+    exc_trace = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    caller_trace = traceback.format_list(caller_stack)
+
+    if header is None:
+        header = ""
+
+    if index is not None:
+        header = f"{header} [awaitable index={index}]" if header else f"[awaitable index={index}]"
+
+    log.error(
+        "%s\n%s",
+        header,
+        "".join(caller_trace) + "".join(exc_trace)
+    )
 
 
 @overload
@@ -37,25 +71,26 @@ async def to_thread(
     func,
     *args,
     executor = None,
-    log_exc = True, 
-    return_exc = False, 
+    log_exc = True,
+    return_exc = False,
     **kwargs,
     ):
-    
+    caller_stack = traceback.extract_stack()[:-1]
+
     loop = asyncio.get_running_loop()
     ctx = contextvars.copy_context()
     func = functools.partial(ctx.run, func, *args, **kwargs)
-    
-    
+
+
     try:
         return await loop.run_in_executor(executor, func)
     except Exception as e:
         if log_exc:
-            log.exception("error in to_thread")
-        
+            _log_exc("error in to_thread", caller_stack, e)
+
         if return_exc:
             return e
-        
+
         raise
 
 
@@ -77,12 +112,14 @@ async def gather_helper(
     log_exc = True,
     ):
 
+    caller_stack = traceback.extract_stack()[:-1]
+
     results = await asyncio.gather(*flat_cont(coros), return_exceptions=return_exc)
 
     if log_exc:
-        for r in results:
+        for i, r in enumerate(results):
             if is_exception(r):
-                log.error("error in gather_helper", exc_info=r)
+                _log_exc("error in gather_helper", caller_stack, r, index=i)
 
     return results
 
@@ -130,15 +167,24 @@ async def safe_await(
     log_exc = True,
     ):
 
-    results = []
+    caller_stack = traceback.extract_stack()[:-1]
 
-    for coro in flat_cont(coros):
+    results = []
+    flat_coros = flat_cont(coros)
+    is_multi = len(flat_coros) > 1
+
+    for i, coro in enumerate(flat_coros):
         try:
             result = await coro
         except Exception as e:
             if log_exc:
-                log.exception("Error in safe_await")
-                
+                _log_exc(
+                    "error in safe_await",
+                    caller_stack,
+                    e,
+                    index=i if is_multi else None,
+                )
+
             result = e
 
         if is_exception(result):
@@ -172,21 +218,21 @@ async def maybe_awaitable(
 async def maybe_awaitable(
     awaitable_or_callable,
     *args,
-    executor = None, 
-    return_exc = False, 
+    executor = None,
+    return_exc = False,
     log_exc = True,
     **kwargs,
 ):
-    
+
     if inspect.isawaitable(awaitable_or_callable):
         if args or kwargs:
             raise TypeError(
                 "Cannot pass args/kwargs to an already-created awaitable"
             )
         return await safe_await(
-            awaitable_or_callable, 
-            return_exc=return_exc, 
-            log_exc=log_exc, 
+            awaitable_or_callable,
+            return_exc=return_exc,
+            log_exc=log_exc,
         )
     elif iscoroutinefunction_wrapped(awaitable_or_callable):
         return await safe_await(
@@ -209,12 +255,9 @@ async def maybe_awaitable(
         )
 
 
-
-
-
 __all__ = [
-    "to_thread", 
-    "gather_helper", 
-    "safe_await", 
+    "to_thread",
+    "gather_helper",
+    "safe_await",
     "maybe_awaitable"
 ]
