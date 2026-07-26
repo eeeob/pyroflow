@@ -1,8 +1,24 @@
-from typing import List, overload, Any, Generator
+from typing import List, Generator, Any, overload
+
 
 from .typings import NestedContainer, _T
 from .validate_tools import is_container
 
+
+
+
+@overload
+def iter_flat_cont(*containers: None) -> Generator[Any, None, None]: ...
+@overload
+def iter_flat_cont(*containers: NestedContainer[None]) -> Generator[Any, None, None]: ...
+@overload
+def iter_flat_cont(*containers: NestedContainer[_T]) -> Generator[_T, None, None]: ...
+def iter_flat_cont(*containers):
+    for item in containers:
+        if is_container(item):
+            yield from iter_flat_cont(*item)
+        elif item is not None:
+            yield item
 
 @overload
 def flat_cont(*containers: None) -> List: ...
@@ -11,22 +27,11 @@ def flat_cont(*containers: NestedContainer[None]) -> List: ...
 @overload
 def flat_cont(*containers: NestedContainer[_T]) -> List[_T]: ...
 def flat_cont(*containers):
-
-    def _flat_generator(item: Any) -> Generator[Any, None, None]:
-        if is_container(item):
-            for i in item:
-                yield from _flat_generator(i)
-        elif item is not None:
-            yield item
-
-    result = []
-    
-    for item in containers:
-        result.extend(_flat_generator(item))
-        
-    return result
+    return list(iter_flat_cont(*containers))
 
 
 __all__ = (
+    "iter_flat_cont", 
     "flat_cont", 
+    
 )

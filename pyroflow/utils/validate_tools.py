@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any, Union, get_args
 
 import sys
 import inspect
@@ -11,13 +11,16 @@ else:
 
 from .typings import Container, NotContainer, _T
 
+_CONTAINER_TYPES = get_args(Container)
+_NOT_CONTAINER_TYPES = get_args(NotContainer)
+
 def is_exception(obj: Any) -> TypeIs[BaseException]:
     return isinstance(obj, BaseException)
 
 def is_container(obj: Any) -> TypeIs[Union['Container[_T]', Any]]:
-    return isinstance(obj, Container) and not isinstance(obj, NotContainer)
+    return isinstance(obj, _CONTAINER_TYPES) and not isinstance(obj, _NOT_CONTAINER_TYPES)
 
-def iscoroutinefunction_wrapped(f):
+def iscoroutinefunction_wrapped(f) -> bool:
     is_coro = False
 
     def _stop(func):
