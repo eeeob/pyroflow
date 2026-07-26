@@ -44,7 +44,12 @@ pip install pyroflow[redis]   # + Redis coordinator support
 pip install pyroflow[dev]     # + development tools (hatch, twine)
 ```
 
----
+To get the latest, unreleased changes straight from GitHub instead of the last PyPI release:
+
+```
+pip install git+https://github.com/eeeob/pyroflow.git --force-reinstall
+```
+
 
 ## Quick start
 

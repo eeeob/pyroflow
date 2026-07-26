@@ -12,7 +12,7 @@ from pyrogram.types import Update as PyroUpdate
 from .utils.typings import UpdateType
 from .utils import maybe_awaitable, gather_helper, patch_cls
 
-from .errors import UnresolvedUpdate
+from .errors import UnresolvedUpdate, UnhandledUpdate
 from .enums import UpdateLockState
 from .update_listener import UpdateListener
 from .update_coordinated import UpdateCoordinated
@@ -374,7 +374,7 @@ class Dispatcher(PyroDispatcher):
                         *args, 
                         executor=self.client.executor
                     )
-                except StopPropagation:
+                except (StopPropagation, UnhandledUpdate):
                     raise
                 except ContinuePropagation:
                     continue
@@ -501,7 +501,7 @@ class Dispatcher(PyroDispatcher):
                 async with lock:
                     await self.handle_update(packet, parsed_update, handler_type)
 
-            except StopPropagation:
+            except (StopPropagation, UnhandledUpdate):
                 pass
             except Exception:
                 log.exception("Unexpected error in handler_worker")
