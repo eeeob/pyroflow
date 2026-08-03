@@ -1,8 +1,13 @@
 from typing import TYPE_CHECKING, Optional, Union, Literal, List, Type, Any, overload, cast
 from datetime import datetime
 
+
 from pyrogram import types as pyro_types, enums as pyro_enums
-from pyrogram.types import Message as PyroMessage, CallbackQuery as PyroCallbackQuery
+from pyrogram.types import (
+    Message as PyroMessage, 
+    CallbackQuery as PyroCallbackQuery, 
+    User as PyroUser
+) 
 
 from .utils.typings import Number, JsonValueT, UpdateType
 from .utils import patch_cls
@@ -12,13 +17,23 @@ if TYPE_CHECKING:
     from .client import Client
 
 
+@patch_cls
+class User(PyroUser):
+    _client: "Client"
 
+    @property
+    def lang_code(self) -> Optional[str]:
+        return lang.split("-")[0].lower() if (lang := self.language_code) else None
+
+        
+        
     
 
 
 @patch_cls
 class Message(PyroMessage):
     _client: "Client"
+    from_user: Optional["User"]
 
     @overload
     async def ask(
@@ -301,4 +316,4 @@ class Message(PyroMessage):
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
     _client: "Client"
-    message: "Message"
+    message: Optional["Message"]
