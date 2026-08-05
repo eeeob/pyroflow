@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Type, Dict, List, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Type, Dict, List, Optional, Tuple, Union, overload
 from datetime import datetime
 
 from pyrogram import (
@@ -24,6 +24,11 @@ ErrorHandlersT = Dict[
     Union[Type[Exception], Tuple[Type[Exception], ...]],
     MaybeCoroutineCallable[[Exception, Message], Any],
 ]
+
+# Either an explicit message id, or a synchronous callable receiving the
+# sent/edited message (m) and returning the id to listen for (or None).
+# Must be fast and non-blocking: it is called inline, not via to_thread.
+ListenMessageIdT = Union[int, Callable[[Message], Optional[int]]]
 
 
 @patch_cls
@@ -234,7 +239,7 @@ class Client(PyroClient):
         ]] = None, 
         # listen params
         listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[int] = None,
+        listen_message_id: Optional[ListenMessageIdT] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
@@ -257,7 +262,7 @@ class Client(PyroClient):
         reply_markup: Optional[pyro_types.InlineKeyboardMarkup] = None,
         # listen params
         listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[int] = None,
+        listen_message_id: Optional[ListenMessageIdT] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
@@ -295,7 +300,7 @@ class Client(PyroClient):
         suggested_post_parameters: Optional[pyro_types.SuggestedPostParameters] = None,
         # listen params
         listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[int] = None,
+        listen_message_id: Optional[ListenMessageIdT] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
@@ -337,11 +342,14 @@ class Client(PyroClient):
 
             listen_user_id:             Filter the awaited update by user.
             listen_message_id:          Filter the awaited update by message.
-                                        ``0`` is a sentinel meaning "the
-                                        message right after the one just
-                                        sent/edited" — resolved internally
-                                        to ``m.id + 1`` (never a real
-                                        Telegram message id itself).
+                                        Either an explicit id, or a
+                                        synchronous callable receiving the
+                                        sent/edited message (``m``) and
+                                        returning the id to filter by (or
+                                        ``None`` for no filtering). The
+                                        callable must be fast and
+                                        non-blocking — it runs inline on
+                                        the event loop, not in a thread.
             meta:                       Metadata attached to the listener.
             timeout:                    Seconds to wait before raising
                                         :class:`ListenerTimeout`.
@@ -422,11 +430,10 @@ class Client(PyroClient):
             if "message_id" not in meta and m:
                 meta["message_id"] = m.id
 
-        if listen_message_id == 0 and m:
-            # 0 is never a real Telegram message id, so it's repurposed as a
-            # sentinel: listen for the message right after the one ask()
-            # just sent/edited (m), rather than a specific known id.
-            listen_message_id = m.id + 1
+        if callable(listen_message_id):
+            # Must be a fast, synchronous, non-blocking call — it runs
+            # inline on the event loop, not through to_thread/maybe_awaitable.
+            listen_message_id = listen_message_id(m)
 
         final_chat_id = m.chat.id if (m and m.chat) else chat_id
         

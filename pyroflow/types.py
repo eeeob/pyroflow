@@ -14,7 +14,7 @@ from .utils import patch_cls
 
 
 if TYPE_CHECKING:
-    from .client import Client, ErrorHandlersT
+    from .client import Client, ErrorHandlersT, ListenMessageIdT
 
 
 @patch_cls
@@ -47,7 +47,7 @@ class Message(PyroMessage):
         reply_markup: Optional[pyro_types.InlineKeyboardMarkup] = None,
         # listen params
         listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[int] = None,
+        listen_message_id: Optional["ListenMessageIdT"] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
@@ -83,7 +83,7 @@ class Message(PyroMessage):
         ]] = None,
         # listen params
         listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[int] = None,
+        listen_message_id: Optional["ListenMessageIdT"] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
@@ -119,7 +119,7 @@ class Message(PyroMessage):
         ]] = None,
         # listen params
         listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[int] = None,
+        listen_message_id: Optional["ListenMessageIdT"] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
@@ -211,11 +211,12 @@ class Message(PyroMessage):
             listen_user_id (``int``, *optional*):
                 Filter the awaited update to listen only to a specific user ID.
 
-            listen_message_id (``int``, *optional*):
+            listen_message_id (``int`` | ``Callable[[Message], Optional[int]]``, *optional*):
                 Filter the awaited update to listen only to a specific message ID.
-                Pass ``0`` as a sentinel to mean "the message right after
-                the one this ``ask()`` call just sent/edited" — resolved
-                internally to that message's ``id + 1``.
+                Can also be a synchronous callable receiving the sent/edited
+                message and returning the id to filter by (or ``None`` for
+                no filtering) — e.g. ``lambda m: m.id + 1``. Must be fast
+                and non-blocking: it runs inline on the event loop.
 
             meta (``JsonValueT``, *optional*):
                 Metadata to attach to the created listener.
