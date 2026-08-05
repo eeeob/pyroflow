@@ -14,7 +14,7 @@ from .utils import patch_cls
 
 
 if TYPE_CHECKING:
-    from .client import Client
+    from .client import Client, ErrorHandlersT
 
 
 @patch_cls
@@ -51,6 +51,7 @@ class Message(PyroMessage):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
+        error_handlers: Optional["ErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
         ...
@@ -86,6 +87,7 @@ class Message(PyroMessage):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
+        error_handlers: Optional["ErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
         ...
@@ -121,9 +123,10 @@ class Message(PyroMessage):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
+        error_handlers: Optional["ErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
-        
+
         """
         Send a new message or edit the current one, then wait for a matching update.
 
@@ -210,6 +213,9 @@ class Message(PyroMessage):
 
             listen_message_id (``int``, *optional*):
                 Filter the awaited update to listen only to a specific message ID.
+                Pass ``0`` as a sentinel to mean "the message right after
+                the one this ``ask()`` call just sent/edited" — resolved
+                internally to that message's ``id + 1``.
 
             meta (``JsonValueT``, *optional*):
                 Metadata to attach to the created listener.
@@ -219,8 +225,16 @@ class Message(PyroMessage):
                 ``ListenerTimeout``.
 
             update_type (Type[``UpdateType``], *optional*):
-                The expected class type of the update to listen for. 
+                The expected class type of the update to listen for.
                 Defaults to :obj:`~pyrogram.types.Message`.
+
+            error_handlers (``ErrorHandlersT``, *optional*):
+                ``{exc_type_or_tuple: handler}`` mapping. If listening raises
+                before completing, the dict is scanned in order and the
+                handler for the first key matching ``isinstance(exc, key)``
+                is awaited as ``handler(exc, m)``, where ``m`` is the
+                sent/edited message. The original exception is still
+                re-raised afterwards.
 
             **kw (``Any``):
                 Additional keyword arguments passed directly down to the underlying client.
@@ -306,6 +320,7 @@ class Message(PyroMessage):
             meta=meta,
             timeout=timeout,
             update_type=update_type,
+            error_handlers=error_handlers,
             **kw
         )
 

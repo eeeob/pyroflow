@@ -1,21 +1,29 @@
-from typing import TYPE_CHECKING, Type, Dict, List, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, Type, Dict, List, Optional, Tuple, Union, overload
 from datetime import datetime
 
 from pyrogram import (
-    Client as PyroClient, 
-    enums as pyro_enums, 
-    types as pyro_types, 
+    Client as PyroClient,
+    enums as pyro_enums,
+    types as pyro_types,
     utils as pyro_ut
 )
 
-from .utils.typings import Number, JsonValueT, UpdateType
-from .utils import patch_cls
+from .utils.typings import Number, JsonValueT, UpdateType, MaybeCoroutineCallable
+from .utils import patch_cls, maybe_awaitable
 
 from .types import Message, CallbackQuery
 
 from .dispatcher import Dispatcher
 from .update_listener import UpdateListener
 
+
+# Maps one or more exception types to a handler invoked with (exc, message)
+# when that error occurs while awaiting the listener in ask(), before
+# listening finishes.
+ErrorHandlersT = Dict[
+    Union[Type[Exception], Tuple[Type[Exception], ...]],
+    MaybeCoroutineCallable[[Exception, Message], Any],
+]
 
 
 @patch_cls
@@ -225,33 +233,35 @@ class Client(PyroClient):
             pyro_types.ForceReply,
         ]] = None, 
         # listen params
-        listen_user_id: Optional[int] = None, 
-        listen_message_id: Optional[int] = None, 
-        meta: Optional[JsonValueT] = None, 
-        timeout: Optional[Number] = None, 
-        update_type: Type[UpdateType] = Message, 
+        listen_user_id: Optional[int] = None,
+        listen_message_id: Optional[int] = None,
+        meta: Optional[JsonValueT] = None,
+        timeout: Optional[Number] = None,
+        update_type: Type[UpdateType] = Message,
+        error_handlers: Optional[ErrorHandlersT] = None,
         **kw
     ) -> UpdateType: ...
 
     @overload
     async def ask(
-        self, 
-        chat_id: Union[int, str], 
-        text: str, 
-        message_id: int, 
+        self,
+        chat_id: Union[int, str],
+        text: str,
+        message_id: int,
         *,
-        parse_mode: Optional[pyro_enums.ParseMode] = None, 
-        entities: Optional[List[pyro_types.MessageEntity]] = None, 
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None, 
-        schedule_date: Optional[datetime] = None, 
-        business_connection_id: Optional[str] = None, 
-        reply_markup: Optional[pyro_types.InlineKeyboardMarkup] = None, 
+        parse_mode: Optional[pyro_enums.ParseMode] = None,
+        entities: Optional[List[pyro_types.MessageEntity]] = None,
+        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None,
+        schedule_date: Optional[datetime] = None,
+        business_connection_id: Optional[str] = None,
+        reply_markup: Optional[pyro_types.InlineKeyboardMarkup] = None,
         # listen params
         listen_user_id: Optional[int] = None,
         listen_message_id: Optional[int] = None,
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = Message, 
+        update_type: Type[UpdateType] = Message,
+        error_handlers: Optional[ErrorHandlersT] = None,
         **kw
     ) -> UpdateType: ...
 
@@ -289,6 +299,7 @@ class Client(PyroClient):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
+        error_handlers: Optional[ErrorHandlersT] = None,
         **kw
     ) -> UpdateType:
         """
@@ -326,11 +337,25 @@ class Client(PyroClient):
 
             listen_user_id:             Filter the awaited update by user.
             listen_message_id:          Filter the awaited update by message.
+                                        ``0`` is a sentinel meaning "the
+                                        message right after the one just
+                                        sent/edited" — resolved internally
+                                        to ``m.id + 1`` (never a real
+                                        Telegram message id itself).
             meta:                       Metadata attached to the listener.
             timeout:                    Seconds to wait before raising
                                         :class:`ListenerTimeout`.
             update_type:                The update type to wait for.
                                         Determines the return type.
+            error_handlers:              Optional ``{exc_type_or_tuple: handler}``
+                                        mapping. If listening raises before
+                                        completing, the dict is scanned in
+                                        order and the handler for the first
+                                        key matching ``isinstance(exc, key)``
+                                        is awaited as ``handler(exc, m)``,
+                                        where ``m`` is the sent/edited
+                                        message. The original exception is
+                                        still re-raised afterwards.
             **kw: Additional keyword arguments passed directly to
                   :meth:`send_message` or :meth:`edit_message_text`
                   depending on which operation is performed.
@@ -396,7 +421,13 @@ class Client(PyroClient):
             meta = {} if meta is None else meta.copy()
             if "message_id" not in meta and m:
                 meta["message_id"] = m.id
-        
+
+        if listen_message_id == 0 and m:
+            # 0 is never a real Telegram message id, so it's repurposed as a
+            # sentinel: listen for the message right after the one ask()
+            # just sent/edited (m), rather than a specific known id.
+            listen_message_id = m.id + 1
+
         final_chat_id = m.chat.id if (m and m.chat) else chat_id
         
         if isinstance(final_chat_id, str):
@@ -404,10 +435,18 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)
             )
             
-        return await listener(
-            chat_id=final_chat_id,
-            user_id=listen_user_id,
-            message_id=listen_message_id,
-            meta=meta,
-            timeout=timeout,
-        )
+        try:
+            return await listener(
+                chat_id=final_chat_id,
+                user_id=listen_user_id,
+                message_id=listen_message_id,
+                meta=meta,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            if error_handlers:
+                for exc_types, handler in error_handlers.items():
+                    if isinstance(exc, exc_types):
+                        await maybe_awaitable(handler, exc, m, return_exc=True)
+                        break
+            raise
