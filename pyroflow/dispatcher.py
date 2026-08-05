@@ -38,7 +38,7 @@ class _CoordinatedRelease:
     overwritten by the automatic one a moment later.
     """
 
-    __slots__ = ("_coordinated", "_update", "_loop", "_early")
+    __slots__ = ("_coordinated", "_update", "_loop", "_early", "_released")
 
     def __init__(
         self,

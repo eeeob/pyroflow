@@ -5,6 +5,7 @@ was previously untested — both audit findings C1 and H3 lived here.
 """
 
 import asyncio
+import contextvars
 import gc
 from types import SimpleNamespace
 
@@ -12,7 +13,7 @@ import pytest
 
 from pyrogram.types import Message
 
-from pyroflow.dispatcher import Dispatcher, mark_handled
+from pyroflow.dispatcher import Dispatcher, _CoordinatedRelease, mark_handled
 from pyroflow.enums import UpdateLockState
 from pyroflow.errors import UnhandledUpdate
 from pyroflow.update_coordinated import MessageCoordinated
@@ -31,9 +32,18 @@ def make_coordinated(**kw):
     )
 
 
+def fake_dispatcher(**kw):
+    """A minimal stand-in exposing only what handle_update() touches.
+
+    `client.loop` is among those: the early-release path schedules onto it.
+    """
+    return SimpleNamespace(
+        client=SimpleNamespace(loop=asyncio.get_event_loop()), **kw
+    )
+
+
 def make_dispatcher(coordinated, handle_result):
-    """A minimal stand-in exposing only what handle_update() touches."""
-    fake = SimpleNamespace(coordinateds={Message: coordinated})
+    fake = fake_dispatcher(coordinateds={Message: coordinated})
 
     async def _handle_update(packet, parsed_update, handler_type):
         if isinstance(handle_result, Exception):
@@ -120,7 +130,7 @@ async def test_update_owned_by_a_peer_is_skipped():
         ran = True
         return (1, 0)
 
-    fake = SimpleNamespace(coordinateds={Message: coordinated})
+    fake = fake_dispatcher(coordinateds={Message: coordinated})
     fake._handle_update = _handle_update
 
     await Dispatcher.handle_update(fake, PACKET, msg, type(None))
@@ -128,7 +138,7 @@ async def test_update_owned_by_a_peer_is_skipped():
 
 
 async def test_uncoordinated_update_type_passes_straight_through():
-    fake = SimpleNamespace(coordinateds={})
+    fake = fake_dispatcher(coordinateds={})
     seen = []
 
     async def _handle_update(packet, parsed_update, handler_type):
@@ -168,7 +178,7 @@ def make_marking_dispatcher(coordinated, body):
     `peer` probes the lock from *inside* the handler, while it is still
     running — which is the whole window this feature is about.
     """
-    fake = SimpleNamespace(coordinateds={Message: coordinated})
+    fake = fake_dispatcher(coordinateds={Message: coordinated})
 
     async def _handle_update(packet, parsed_update, handler_type):
         return await body(lambda: peer_view(coordinated, parsed_update))
@@ -278,6 +288,61 @@ async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
 
     assert result["marked"] is True
     assert await _can_another_session_take(coordinated, msg) is False
+
+
+def count_releases(coordinated):
+    """Record every release() the dispatcher performs on this coordinated."""
+    calls = []
+    original = coordinated.release
+
+    async def counting(update, state):
+        calls.append(state)
+        return await original(update, state)
+
+    coordinated.release = counting
+    return calls
+
+
+async def test_a_leaked_context_cannot_release_the_lock_twice():
+    """A handler that spawns background work leaks its context — and with it a
+    live reference to the releaser — well past its own return. A late
+    mark_handled() from there must not release a second time: by then the key
+    may have been re-acquired by a *later* update, and the stray release would
+    hand that update's lock away while it is still being processed."""
+    coordinated = make_coordinated()
+    calls = count_releases(coordinated)
+    msg = coordinatable_message()
+    escaped = {}
+
+    async def body(peer):
+        escaped["ctx"] = contextvars.copy_context()    # as create_task() does
+        return (1, 0)
+
+    await Dispatcher.handle_update(
+        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+    )
+    assert calls == [UpdateLockState.HANDLED]
+
+    # The background task finally gets round to marking.
+    assert escaped["ctx"].run(mark_handled) is False
+    await asyncio.sleep(0.05)
+
+    assert calls == [UpdateLockState.HANDLED], "the lock was released twice"
+
+
+async def test_settle_twice_releases_once():
+    """The releaser is a one-shot regardless of who calls it or how often."""
+    coordinated = make_coordinated()
+    calls = count_releases(coordinated)
+    msg = coordinatable_message()
+
+    release = _CoordinatedRelease(coordinated, msg, asyncio.get_event_loop())
+    await coordinated.acquire(msg)
+
+    await release.settle(UpdateLockState.HANDLED)
+    await release.settle(UpdateLockState.HANDLED)
+
+    assert calls == [UpdateLockState.HANDLED]
 
 
 async def test_mark_handled_outside_update_processing_is_a_noop():
