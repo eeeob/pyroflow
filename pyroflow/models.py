@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pyrogram.handlers import Handler as PyroHandler
 
 from .utils.typings import JsonValueT, Number
+from .typings import ListenerCoordinatorIdT
 
 import asyncio
 import time
@@ -43,6 +44,14 @@ class ListenerModel:
     key: ListenerKey
     meta: Optional[JsonValueT] = None
     future: asyncio.Future = field(default_factory=asyncio.Future)
+
+    # Ownership token handed out by the coordinator at registration time.
+    # A ListenerKey names *which* conversation slot this is; the id names
+    # *which generation* of it. Cancellation travels between sessions
+    # asynchronously, so a key alone cannot tell a live listener apart from
+    # one that was superseded while a signal was still in flight — both
+    # resolve() and _cancel() compare this token to stay on the right one.
+    coordinator_id: Optional[ListenerCoordinatorIdT] = None
 
 
     def resolve(self, update) -> None:

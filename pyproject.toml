@@ -69,6 +69,11 @@ test = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
     "redis>=4.2.0",
+    # Cross-session coordination tests run against an in-process Redis.
+    # lupa is required for its Lua support — the coordinator's atomic
+    # register/unregister/cancel all go through EVAL.
+    "fakeredis>=2.20",
+    "lupa",
     "tomli; python_version < '3.11'",
 ]
 

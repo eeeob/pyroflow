@@ -1,8 +1,8 @@
 """Tests for the update-history subsystem.
 
-Covers the in-memory store (TTL + capacity), the generic UpdateHistory
-record/get/pop flow via injected extractors, the working CallbackQueryHistory,
-and documents the still-open C4 gap in MessageHistory as an xfail.
+Covers the in-memory store (TTL, per-key capacity and key-space bounds), the
+generic UpdateHistory record/get/pop flow via injected extractors, and the
+concrete Message/CallbackQuery histories.
 """
 
 import time
@@ -56,6 +56,30 @@ async def test_store_drops_expired_records():
     now = time.time()
     await store.update(("k",), UpdateRecord(handler="old", created_at=now - 1000))
     assert await store.get(("k",)) == []
+
+
+async def test_store_bounds_the_key_space():
+    """Per-record TTL is enforced lazily on access, so it can never reclaim a
+    key that is written once and never read again. Without a cap on the key
+    space itself, a long-running bot accumulates one entry per conversation
+    forever (audit finding H3)."""
+    store = MemoryUpdateHistoryStore(
+        Message, ttl=3600, max_history_len=2, max_keys=100
+    )
+    for i in range(5000):
+        await store.update((100, 7, i), UpdateRecord(handler="h"))
+
+    assert len(store.histories) <= 100
+
+
+async def test_store_expires_idle_keys_never_read_again():
+    store = MemoryUpdateHistoryStore(Message, ttl=0.05, max_history_len=2)
+    for i in range(50):
+        await store.update((1, 2, i), UpdateRecord(handler="h"))
+    assert len(store.histories) > 0
+
+    time.sleep(0.12)
+    assert len(store.histories) == 0, "idle keys must not stay resident forever"
 
 
 async def test_store_pop_and_delete():

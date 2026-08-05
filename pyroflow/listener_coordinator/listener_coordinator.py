@@ -21,9 +21,29 @@ class ListenerCoordinator(ABC):
     unregistration and lookup semantics appropriate for their storage
     backend (in-memory, Redis, etc.).
 
-    All mutating operations on the same chat should be performed under
-    the lock returned by :meth:`lock` to prevent races between
-    listener coordinator, cancellation and update resolution.
+    Locking contract
+    ----------------
+    Operations on the same chat are serialised under the lock returned by
+    :meth:`lock`, which prevents races between registration, cancellation
+    and update resolution. **The caller acquires that lock, not you.**
+
+    :class:`UpdateListener` already holds ``lock(key.chat_id)`` when it calls
+    :meth:`register`, :meth:`unregister`, :meth:`registered` and
+    :meth:`cancel`. Since the lock is a plain :class:`asyncio.Lock` and
+    therefore not reentrant, an implementation that takes it again inside
+    those methods deadlocks the worker permanently, with no timeout to
+    recover from:
+
+    .. code-block:: python
+
+        async def registered(self, key, coordinator_id=None):
+            async with self.lock(key.chat_id):   # DEADLOCK — caller holds it
+                ...
+
+    Implement them as plain critical-section bodies and rely on the caller's
+    lock for mutual exclusion. Only guard state that the lock does not
+    already cover — e.g. a connection pool shared across chats — and use a
+    *separate* lock for it.
 
     Parameters:
         listener: The :class:`UpdateListener` that owns this listener coordinator.

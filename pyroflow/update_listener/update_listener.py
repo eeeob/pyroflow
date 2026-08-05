@@ -16,6 +16,7 @@ from ..errors import (
 
 from ..enums import DuplicatePolicy
 from ..models import ListenerModel, ListenerKey
+from ..typings import ListenerCoordinatorIdT
 from ..listener_coordinator import ListenerCoordinator, MemoryListenerCoordinator
 
 import logging
@@ -126,7 +127,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 list(self.listeners.keys())
                 )
         
-    async def _cancel(self, key: ListenerKey, cancel_coordinator: bool = True) -> None:
+    async def _cancel(
+        self,
+        key: ListenerKey,
+        cancel_coordinator: bool = True,
+        is_duplicate: bool = False,
+        coordinator_id: Optional[ListenerCoordinatorIdT] = None,
+        ) -> bool:
         """
         Cancel a listener by key, setting a :class:`ListenerCancelled`
         exception on its future.
@@ -135,15 +142,49 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             key:             The key identifying the listener to cancel.
             cancel_coordinator: If ``True``, also cancel the distributed
                              coordinator entry.
+            is_duplicate:    Marks the cancellation as caused by a newer
+                             listener replacing this one, surfaced on the
+                             raised :class:`ListenerCancelled`.
+            coordinator_id:  If given, only cancel when the local listener
+                             still holds this exact ownership token. Cancel
+                             signals cross sessions asynchronously and can
+                             arrive after the listener they targeted has
+                             already finished and been replaced — without
+                             this check a stale signal would cancel a newer,
+                             perfectly valid listener that merely reuses the
+                             same key.
+
+        Returns:
+            ``True`` if a local listener was cancelled, ``False`` if the key
+            held nothing or held a different generation.
         """
 
-        if (listener := self.listeners.pop(key, None)) is not None:
-            listener.set_exc(ListenerCancelled(key))
-        
+        listener = self.listeners.get(key)
+
+        if listener is not None:
+            if coordinator_id is not None and listener.coordinator_id != coordinator_id:
+                # A newer generation owns this key now — leave it running.
+                log.debug(
+                    "Ignoring stale cancel for %s: signal targets %r but %r is registered",
+                    key, coordinator_id, listener.coordinator_id,
+                )
+                return False
+
+            self.listeners.pop(key, None)
+            listener.set_exc(ListenerCancelled(key, is_duplicate=is_duplicate))
+
         if cancel_coordinator:
             await self.coordinator.cancel(key)
 
-    async def cancel(self, key: ListenerKey, cancel_coordinator: bool = True) -> None:
+        return True
+
+    async def cancel(
+        self,
+        key: ListenerKey,
+        cancel_coordinator: bool = True,
+        is_duplicate: bool = False,
+        coordinator_id: Optional[ListenerCoordinatorIdT] = None,
+        ) -> bool:
         """
         Safely cancel a listener under the chat lock.
 
@@ -154,10 +195,17 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             key:             The key identifying the listener to cancel.
             cancel_coordinator: If ``True``, also cancel the distributed
                              coordinator entry.
+            is_duplicate:    See :meth:`_cancel`.
+            coordinator_id:  See :meth:`_cancel`.
+
+        Returns:
+            ``True`` if a local listener was cancelled.
         """
 
         async with self.coordinator.lock(key.chat_id):
-            await self._cancel(key, cancel_coordinator)
+            return await self._cancel(
+                key, cancel_coordinator, is_duplicate, coordinator_id
+            )
 
     def _cleanup_listen(self, key: ListenerKey, f: asyncio.Future) -> None:
         """
@@ -225,7 +273,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 if self.duplicate_policy == DuplicatePolicy.REJECT:
                     raise ListenerAlreadyExists(key)
                 elif self.duplicate_policy == DuplicatePolicy.REPLACE:
-                    await self._cancel(key)
+                    await self._cancel(key, is_duplicate=True)
                 else:
                     raise TypeError(f"Unknown {self.duplicate_policy} duplicate_policy")
                 
@@ -238,10 +286,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             listener = ListenerModel(key, meta, fut)
             
-            # Acquire distributed ownership of this key.
-            # coordinator_id is later used to safely unregister
-            # without removing a newer registration.
+            # Acquire distributed ownership of this key. coordinator_id is
+            # the generation token: it is later used to safely unregister
+            # without removing a newer registration, to reject cancel signals
+            # aimed at an older generation, and to prove ownership before
+            # resolving an update (see _cancel and resolve).
             coordinator_id = await self.coordinator.register(key)
+            listener.coordinator_id = coordinator_id
             self.listeners[key] = listener
         
         if timeout is None:
@@ -309,6 +360,21 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             for sub in key.sub_keys():
                 if listener := listeners.get(sub):
+                    # A local listener is not proof of ownership. Another
+                    # session may have taken this key over, and its cancel
+                    # signal travels asynchronously — resolving on the strength
+                    # of local state alone would let both sessions deliver the
+                    # same update. Confirm we still hold the registration
+                    # before handing the update over; this is the check that
+                    # makes correctness independent of signal delivery.
+                    if not await self.coordinator.registered(sub, listener.coordinator_id):
+                        log.debug(
+                            "Discarding superseded listener for %s (token %r)",
+                            sub, listener.coordinator_id,
+                        )
+                        await self._cancel(sub, cancel_coordinator=False)
+                        continue
+
                     listener.resolve(update)
                     return
 
@@ -321,6 +387,25 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Override to implement custom behaviour such as queuing or logging.
         By default raises :class:`UnresolvedUpdate`.
+
+        .. warning::
+            **This hook runs while the chat lock for ``key.chat_id`` is
+            already held.** The lock is a plain :class:`asyncio.Lock`, so it
+            is *not* reentrant: calling any public method of **this same
+            listener** that takes the lock again — :meth:`cancel`,
+            :meth:`listen`, :meth:`resolve` — deadlocks the worker
+            permanently, with no timeout to recover from.
+
+            Use the lock-free internals instead (:meth:`_cancel`), which is
+            what this class does for its own bookkeeping. Calling into a
+            *different* listener instance is safe: it owns a separate lock.
+
+            .. code-block:: python
+
+                async def on_unresolved(self, key, update):
+                    await self._cancel(key)          # correct — no re-lock
+                    # await self.cancel(key)         # DEADLOCK
+                    return await super().on_unresolved(key, update)
 
         Parameters:
             key:    The extracted key that had no matching listener.
