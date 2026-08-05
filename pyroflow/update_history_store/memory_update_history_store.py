@@ -1,6 +1,7 @@
-from typing import Dict, Optional, Union, List
+from typing import MutableMapping, Optional, Union, List
 from sortedcontainers import SortedList
 from functools import partial
+from cachetools import TTLCache
 
 from ..utils.typings import Number
 from ..utils.enums import TimeUnit
@@ -14,11 +15,29 @@ import time
 
 
 class MemoryUpdateHistoryStore(UpdateHistoryStore):
+    """
+    In-memory history store bounded by both age and key count.
+
+    Per-record ``ttl`` is enforced lazily, on access to that key. That alone
+    cannot reclaim a key that is written once and never read again, so the
+    key space itself is additionally capped by ``max_keys`` (LRU) and the
+    same ``ttl`` — otherwise a long-running bot accumulates one entry per
+    conversation, forever.
+
+    Parameters:
+        update_type:     The Pyrogram update class this store handles.
+        ttl:             Seconds a record (and an idle key) stays valid.
+        max_history_len: Max records kept per key.
+        max_keys:        Max distinct keys retained; least-recently-used
+                         keys are evicted past this bound.
+    """
+
     def __init__(
-        self, 
-        update_type, 
-        ttl: Number = TimeUnit.DAY / 2, 
-        max_history_len: int = 2, 
+        self,
+        update_type,
+        ttl: Number = TimeUnit.DAY / 2,
+        max_history_len: int = 2,
+        max_keys: int = 10_000,
         **kw
     ):
         super().__init__(update_type, **kw)
@@ -27,7 +46,11 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         self.max_history_len = max_history_len
 
         self.s_list_factory = partial(SortedList, key=lambda r: r.created_at)
-        self.histories: Dict[UpdateHistoryKeyT, SortedList] = {}
+        # TTLCache bounds the key space; per-record expiry is still handled
+        # by _clean_up, since records within one key expire independently.
+        self.histories: MutableMapping[UpdateHistoryKeyT, SortedList] = TTLCache(
+            maxsize=max_keys, ttl=ttl
+        )
 
     def _expires_at(self, record: UpdateRecord) -> Number:
         return record.created_at + self.ttl

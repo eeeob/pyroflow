@@ -34,8 +34,7 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
         m = update.message
 
         return (
-            m 
-            and m.chat is not None
+            m and m.chat is not None
         )
     
 

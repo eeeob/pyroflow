@@ -1,10 +1,9 @@
 from itertools import count
 
-from ..utils import AsyncioLock
+from ..utils import AsyncioLock, DefaultWeakValueDict
 from .listener_coordinator import ListenerCoordinator
 
 import logging
-import weakref
 
 log = logging.getLogger(__name__)
 
@@ -13,18 +12,12 @@ class MemoryListenerCoordinator(ListenerCoordinator):
     def __init__(self, listener):
         super().__init__(listener)
 
-        self.locks = weakref.WeakValueDictionary()
+        self.locks = DefaultWeakValueDict(AsyncioLock)
         self.data = {}
         self.counter = count()
     
     def lock(self, key):
-        _lock = self.locks.get(key)
-        
-        if _lock is None:
-            _lock = AsyncioLock()
-            self.locks[key] = _lock
-            
-        return _lock
+        return self.locks[key]
     
 
     def _register(self, key):

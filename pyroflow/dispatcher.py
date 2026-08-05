@@ -48,10 +48,13 @@ class Dispatcher(PyroDispatcher):
        :class:`UpdateCoordinated` is registered, a distributed lock is
        acquired before processing. This guarantees that the same update
        is handled by exactly one session across multiple servers.
-       The lock is released with :attr:`UpdateLockState.HANDLED` only
-       if at least one handler executed without raising an exception;
-       otherwise it is released with ``None`` so another session can
-       retry.
+       The lock is released with :attr:`UpdateLockState.HANDLED` if at
+       least one handler *ran* for this update — whether it returned
+       normally or raised. A raising handler still counts as handled:
+       the update reached its owner, so replaying it on another session
+       would duplicate work rather than recover. The lock is released
+       with ``None`` only when no handler ran at all, so another session
+       can retry.
 
     3. **Handler groups** (:meth:`_handle_update`) — iterates Pyrogram's
        normal handler groups. The first matching handler per group is
@@ -415,9 +418,10 @@ class Dispatcher(PyroDispatcher):
         :meth:`_handle_update` immediately.
 
         If the lock is acquired, the update is processed and the lock
-        is released with ``HANDLED`` if at least one handler succeeded
-        without exceptions, or with ``None`` (allowing retry by another
-        session) otherwise.
+        is released with ``HANDLED`` if at least one handler ran —
+        counting handlers that raised, since the update did reach its
+        owner. It is released with ``None`` (allowing retry by another
+        session) only when no handler ran at all.
 
         If the lock is already held by another session, or acquiring
         the lock times out, the update is skipped silently.
@@ -464,9 +468,13 @@ class Dispatcher(PyroDispatcher):
             raise
 
         finally:
+            # sum() counts exc_count on purpose: a handler that raised still
+            # *ran*, so the update reached its owner. Retrying it elsewhere
+            # would duplicate work instead of recovering. Only a fully
+            # untouched update (0 handled, 0 raised) is left for retry.
             if state is None and sum(result) >= 1:
                 state = UpdateLockState.HANDLED
-            
+
             await coordinated.release(parsed_update, state)
         
 

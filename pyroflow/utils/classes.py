@@ -1,11 +1,14 @@
 from abc import ABC
-from typing import Generic, Type, ClassVar
+from typing import Generic, Type, ClassVar, Callable, TypeVar
 
 from pyrogram.types import Update as PyroUpdate
 from .typings import UpdateType
 
 import asyncio
+import weakref
 
+_KT = TypeVar("_KT")
+_VT = TypeVar("_VT")
 
 class AsyncioLock(asyncio.Lock):
     async def release(self):
@@ -88,7 +91,40 @@ class UpdateBound(Generic[UpdateType]):
                 f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}"
             )
 
+class KeyDefaultWeakValueDict(weakref.WeakValueDictionary[_KT, _VT]):
+    def __init__(self, default_factory: Callable[[_KT], _VT]) -> None:
+        if not callable(default_factory):
+            raise TypeError("default_factory must be callable")
+        
+        super().__init__()
+
+        self.default_factory = default_factory
+
+    def __getitem__(self, key: _KT) -> _VT:
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            value = self.default_factory(key)
+            self[key] = value
+            return value
+    
+    __call__ = __getitem__
+
+class DefaultWeakValueDict(KeyDefaultWeakValueDict[_KT, _VT]):
+    def __init__(self, default_factory: Callable[[], _VT]) -> None:
+        if not callable(default_factory):
+            raise TypeError("default_factory must be callable")
+
+        def wrapper(_: _KT) -> _VT:
+            return default_factory()
+
+        super().__init__(wrapper)
+
+
 __all__ = (
     "AsyncioLock", 
     "UpdateBound", 
+    "KeyDefaultWeakValueDict", 
+    "DefaultWeakValueDict", 
+
 )

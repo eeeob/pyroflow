@@ -192,8 +192,10 @@ client.run()
 
 **Lock states:**
 
-- `HANDLED` — at least one handler completed without error; lock is released and other sessions skip the update.
-- `None` — no handler ran successfully; lock is released so another session may retry.
+- `HANDLED` — at least one handler *ran* for the update, whether it returned normally or raised; the lock is released and other sessions skip the update. A raising handler still counts: the update reached its owner, so replaying it elsewhere would duplicate work rather than recover.
+- `None` — no handler ran at all; the lock is released so another session may retry.
+
+To hand an update back for another session to retry, raise `UnhandledUpdate` from your handler — it stops processing on the current session and leaves the lock unclaimed.
 
 ---
 

@@ -10,6 +10,7 @@ from ..typings import UpdateCoordinatorKeyT
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
 
 import logging
+import weakref
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.is_coordinatable_func = is_coordinatable_func
         self.extract_key_func = extract_key_func
 
+        # Keyed by id(update) because Pyrogram update types are unhashable
+        # (they define value-based __eq__), so a WeakKeyDictionary is not an
+        # option. Every entry is therefore paired with a weakref finalizer in
+        # extract_key() that drops it the moment the update is collected —
+        # see the comment there for why that is load-bearing, not just tidy.
         self._key_cache: Dict[int, Optional[UpdateCoordinatorKeyT]] = {}
 
 
@@ -131,10 +137,18 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         if update_id not in self._key_cache:
             self._key_cache[update_id] = await maybe_awaitable(
-                self.extract_key_func,
-                update,
+                self.extract_key_func, update, 
                 executor=self._get_executor(update),
             )
+
+            # CPython reuses id() values once an object is collected, and the
+            # dispatcher has skip paths (lock already held, acquire timeout)
+            # that never reach release()/_evict(). Without this finalizer a
+            # stale entry could be served to a *different* update that landed
+            # at the same address, locking it under the wrong key and silently
+            # dropping it as an already-handled duplicate. Tying eviction to
+            # the object's lifetime closes that window and bounds the cache.
+            weakref.finalize(update, self._key_cache.pop, update_id, None)
 
         return self._key_cache[update_id]
 
@@ -160,7 +174,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         """
 
         if not await self.is_coordinatable(update):
-            return None
+            return 
 
         return await self.coordinator.acquire(
             await self.extract_key(update)

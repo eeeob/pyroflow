@@ -6,15 +6,7 @@ from typing import (
     ParamSpec, TypeAlias, Protocol, Callable,
 )
 
-from enum import Enum
-
-import sys
-
-if sys.version_info >= (3, 11):
-    from enum import EnumType
-else:
-    EnumType = type(Enum)
-
+from enum import EnumMeta as EnumType
 from pyrogram.types import Update as PyroUpdate
 
 
