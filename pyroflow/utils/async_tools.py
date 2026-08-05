@@ -167,17 +167,15 @@ async def safe_await(
         try:
             result = await coro
         except Exception as e:
-            if log_exc:
-                _log_exc(
-                    "error in safe_await",
-                    caller_stack,
-                    e,
-                    index=i if is_multi else None,
-                )
-
             result = e
 
         if is_exception(result):
+            if log_exc:
+                _log_exc(
+                    "error in safe_await",
+                    caller_stack, result, 
+                    index=i if is_multi else None,
+                )
             if not return_exc:
                 raise result
 

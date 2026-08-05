@@ -25,11 +25,6 @@ class User(PyroUser):
     def lang_code(self) -> Optional[str]:
         return lang.split("-")[0].lower() if (lang := self.language_code) else None
 
-        
-        
-    
-
-
 @patch_cls
 class Message(PyroMessage):
     _client: "Client"
@@ -337,8 +332,6 @@ class Message(PyroMessage):
     def respond(self):
         return self.edit if self.editable else self.reply
         
-        
-
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
     _client: "Client"

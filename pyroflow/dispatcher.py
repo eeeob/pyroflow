@@ -1,4 +1,6 @@
 from typing import Dict, Tuple, Type, Optional, Callable
+from contextvars import ContextVar
+from concurrent.futures import Future
 
 from pyrogram import (
     StopPropagation, 
@@ -18,10 +20,152 @@ from .update_listener import UpdateListener
 from .update_coordinated import UpdateCoordinated
 from .update_history import UpdateHistory
 
+import asyncio
 import logging
 
 
 log = logging.getLogger(__name__)
+
+
+class _CoordinatedRelease:
+    """
+    Releases one update's coordinated lock, exactly once.
+
+    Two callers compete for that single release: the handler, through
+    :func:`mark_handled`, and :meth:`Dispatcher.handle_update` cleaning up once
+    the handler returns. Whichever arrives first wins and the other becomes a
+    no-op — which is what makes an early release *stick* instead of being
+    overwritten by the automatic one a moment later.
+    """
+
+    __slots__ = ("_coordinated", "_update", "_loop", "_early")
+
+    def __init__(
+        self,
+        coordinated: UpdateCoordinated,
+        update: Optional[PyroUpdate],
+        loop: asyncio.AbstractEventLoop,
+        ) -> None:
+
+        self._coordinated = coordinated
+        self._update = update
+        self._loop = loop
+        self._early: Optional[Future] = None
+        self._released: bool = False
+
+    def claim_early(self) -> bool:
+        """
+        Claim the release now and schedule it. Backs :func:`mark_handled`.
+
+        Synchronous out of necessity: the caller may be a sync handler running
+        in the client's executor, off the event loop, where awaiting is not an
+        option. Assigning ``_early`` *here* rather than inside the scheduled
+        coroutine is what makes the claim race-free — by the time :meth:`settle`
+        runs it already sees the release as spoken for, whether or not the loop
+        has got round to performing it yet.
+
+        Returns:
+            ``True`` if this call took the release, ``False`` if it was already
+            claimed.
+        """
+
+        if self._early is not None or self._released:
+            return False
+
+        self._early = asyncio.run_coroutine_threadsafe(
+            self._release(UpdateLockState.HANDLED), self._loop
+        )
+
+        return True
+
+    async def settle(self, state: Optional[UpdateLockState]) -> None:
+        """Release with ``state``, or wait out an early release if one won."""
+
+        if self._early is not None:
+            # Don't abandon a release that is only scheduled: the dispatcher
+            # may be stopped the moment the handler returns.
+            await asyncio.wrap_future(self._early)
+            return
+
+        await self._release(state)
+
+    async def _release(self, state: Optional[UpdateLockState]) -> None:
+        if self._released:
+            return
+
+        self._released = True
+        
+        # Logged, never raised. The early release runs detached from the
+        # handler, so an escaping exception would surface as a stray task error
+        # rather than anywhere the caller could act on it — and a failing
+        # backend should not produce two different outcomes depending on which
+        # of the two paths happened to win.
+
+        try:
+            await self._coordinated.release(self._update, state)
+        except Exception:
+            log.exception("Failed to release coordinated lock for %r", self._update)
+
+
+# Set for the duration of one coordinated update, to that update's
+# _CoordinatedRelease. A ContextVar rather than an attribute on the update
+# because copying the context is exactly what both `asyncio` tasks and
+# `to_thread` already do — so a sync handler running in the executor, and a
+# raw handler that never sees the parsed update at all, reach the same
+# releaser as an ordinary async handler.
+_handled_marker: ContextVar[Optional[_CoordinatedRelease]] = ContextVar(
+    "pyroflow_handled_marker", default=None
+)
+
+
+def mark_handled() -> bool:
+    """
+    Declare the current update handled *now*, without waiting for the handler
+    to return.
+
+    By default the coordinated lock is held for the whole lifetime of the
+    handler, and is only released — as :attr:`UpdateLockState.HANDLED` — once
+    it finishes. That is the safe default, but it ties lock hold time to
+    handler duration: a handler that runs a long job (a download, a
+    conversation, an external API) keeps the lock for all of it, and every
+    other session stays blocked on that chat meanwhile.
+
+    Calling this from inside a handler decouples the two. The lock is released
+    immediately with :attr:`UpdateLockState.HANDLED`, so peers stop waiting and
+    will not reprocess the update, while the handler carries on for as long as
+    it likes.
+
+    Callable from a sync handler too (those run in the client's executor):
+    the release is scheduled onto the event loop thread-safely rather than
+    awaited here, which is also why this is a plain function and not a
+    coroutine.
+
+    Idempotent — later calls, and the automatic release when the handler
+    returns, are no-ops.
+
+    Example:
+        .. code-block:: python
+
+            @app.on_message()
+            async def handler(client, message):
+                await message.reply("Working on it...")
+
+                mark_handled()          # peers are free from here on
+
+                await slow_job()        # may take minutes; lock is long gone
+
+    Returns:
+        ``True`` if this call performed the early release. ``False`` if the
+        update is not under a coordinator, its lock was already released, or
+        this was called outside of update processing entirely.
+    """
+
+    release = _handled_marker.get()
+
+    if release is None:
+        return False
+
+    return release.claim_early()
 
 
 @patch_cls(setter=setattr)
@@ -54,7 +198,10 @@ class Dispatcher(PyroDispatcher):
        the update reached its owner, so replaying it on another session
        would duplicate work rather than recover. The lock is released
        with ``None`` only when no handler ran at all, so another session
-       can retry.
+       can retry. A handler may cut the hold short by calling
+       :func:`mark_handled`, which releases the lock as ``HANDLED``
+       immediately and lets the handler keep running for as long as it
+       needs.
 
     3. **Handler groups** (:meth:`_handle_update`) — iterates Pyrogram's
        normal handler groups. The first matching handler per group is
@@ -423,6 +570,11 @@ class Dispatcher(PyroDispatcher):
         owner. It is released with ``None`` (allowing retry by another
         session) only when no handler ran at all.
 
+        A handler can release the lock ahead of its own completion by
+        calling :func:`mark_handled`; the automatic release then becomes a
+        no-op. This keeps lock hold time bounded by how long the update
+        takes to *claim*, not by how long it takes to *finish*.
+
         If the lock is already held by another session, or acquiring
         the lock times out, the update is skipped silently.
 
@@ -456,11 +608,16 @@ class Dispatcher(PyroDispatcher):
             return
 
         if not acquired:
-            return 
-        
+            return
+
         result = (0, 0)
         state = None
-        
+
+        release = _CoordinatedRelease(
+            coordinated, parsed_update, self.client.loop
+        )
+        token = _handled_marker.set(release)
+
         try:
             result = await self._handle_update(packet, parsed_update, handler_type)
         except StopPropagation:
@@ -468,6 +625,8 @@ class Dispatcher(PyroDispatcher):
             raise
 
         finally:
+            _handled_marker.reset(token)
+
             # sum() counts exc_count on purpose: a handler that raised still
             # *ran*, so the update reached its owner. Retrying it elsewhere
             # would duplicate work instead of recovering. Only a fully
@@ -475,8 +634,11 @@ class Dispatcher(PyroDispatcher):
             if state is None and sum(result) >= 1:
                 state = UpdateLockState.HANDLED
 
-            await coordinated.release(parsed_update, state)
-        
+            # A no-op for `state` if the handler already claimed the release
+            # through mark_handled().
+            await release.settle(state)
+
+
 
     async def handler_worker(self, lock):
         """

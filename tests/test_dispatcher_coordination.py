@@ -12,7 +12,7 @@ import pytest
 
 from pyrogram.types import Message
 
-from pyroflow.dispatcher import Dispatcher
+from pyroflow.dispatcher import Dispatcher, mark_handled
 from pyroflow.enums import UpdateLockState
 from pyroflow.errors import UnhandledUpdate
 from pyroflow.update_coordinated import MessageCoordinated
@@ -139,6 +139,166 @@ async def test_uncoordinated_update_type_passes_straight_through():
     msg = coordinatable_message()
     await Dispatcher.handle_update(fake, PACKET, msg, type(None))
     assert seen == [msg]
+
+
+# --- early release via mark_handled() ------------------------------------
+
+
+async def peer_view(coordinated, msg):
+    """What a peer session sees if it tries this update *right now*.
+
+    The three outcomes are exactly the three lock states that matter:
+
+    ``"blocked"``  the lock is still held — the peer waits, then times out
+    ``"claimed"``  released as HANDLED — the peer knows to skip it
+    ``"free"``     released without a state — the peer may retry it
+    """
+    try:
+        acquired = await coordinated.coordinator.acquire(
+            await coordinated.extract_key(msg)
+        )
+    except TimeoutError:
+        return "blocked"
+    return "free" if acquired else "claimed"
+
+
+def make_marking_dispatcher(coordinated, body):
+    """A dispatcher whose _handle_update runs `body(peer)`.
+
+    `peer` probes the lock from *inside* the handler, while it is still
+    running — which is the whole window this feature is about.
+    """
+    fake = SimpleNamespace(coordinateds={Message: coordinated})
+
+    async def _handle_update(packet, parsed_update, handler_type):
+        return await body(lambda: peer_view(coordinated, parsed_update))
+
+    fake._handle_update = _handle_update
+    return fake
+
+
+async def test_lock_is_held_for_the_whole_handler_by_default():
+    """The baseline the feature departs from: without mark_handled() a slow
+    handler keeps peers blocked for its entire duration."""
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    async def body(peer):
+        await asyncio.sleep(0)
+        assert await peer() == "blocked"
+        return (1, 0)
+
+    await Dispatcher.handle_update(
+        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+    )
+
+
+async def test_mark_handled_frees_peers_before_the_handler_returns():
+    """The point of the feature: lock hold time tracks how long the update
+    takes to *claim*, not how long the handler takes to *finish*."""
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    async def body(peer):
+        assert mark_handled() is True
+        # Give the scheduled release a chance to run, as any awaiting handler
+        # inevitably would.
+        await asyncio.sleep(0)
+
+        # Still inside the handler, yet the update is already settled: a peer
+        # neither waits on us nor reprocesses it.
+        assert await peer() == "claimed"
+
+        await asyncio.sleep(0.05)       # the "slow job"
+        return (0, 0)
+
+    await Dispatcher.handle_update(
+        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+    )
+
+    # (0, 0) would normally hand the update back for retry. The early mark
+    # must win over that.
+    assert await _can_another_session_take(coordinated, msg) is False
+
+
+async def test_mark_handled_is_idempotent():
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    async def body(peer):
+        assert mark_handled() is True
+        assert mark_handled() is False, "second call must not release twice"
+        return (1, 0)
+
+    await Dispatcher.handle_update(
+        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+    )
+    assert await _can_another_session_take(coordinated, msg) is False
+
+
+async def test_mark_handled_survives_a_raising_handler():
+    """Already released as HANDLED — an exception afterwards must not hand the
+    update back to a peer that would redo the part already done."""
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    async def body(peer):
+        mark_handled()
+        await asyncio.sleep(0)
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        await Dispatcher.handle_update(
+            make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+        )
+
+    assert await _can_another_session_take(coordinated, msg) is False
+
+
+async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
+    """Sync handlers run through to_thread, off the event loop. The release
+    has to be scheduled thread-safely rather than awaited, which is why
+    mark_handled() is a plain function."""
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+    result = {}
+
+    def sync_handler():
+        result["marked"] = mark_handled()
+
+    async def body(peer):
+        await asyncio.to_thread(sync_handler)     # copies the context
+        await asyncio.sleep(0)
+        assert await peer() == "claimed"
+        return (0, 0)
+
+    await Dispatcher.handle_update(
+        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+    )
+
+    assert result["marked"] is True
+    assert await _can_another_session_take(coordinated, msg) is False
+
+
+async def test_mark_handled_outside_update_processing_is_a_noop():
+    assert mark_handled() is False
+
+
+async def test_marker_does_not_leak_between_updates():
+    """The ContextVar is reset per update; a handler for update B must not be
+    able to release update A's lock."""
+    coordinated = make_coordinated()
+    first = coordinatable_message(message_id=1)
+
+    async def body(peer):
+        mark_handled()
+        return (1, 0)
+
+    await Dispatcher.handle_update(
+        make_marking_dispatcher(coordinated, body), PACKET, first, type(None)
+    )
+
+    assert mark_handled() is False, "marker outlived the update it belonged to"
 
 
 # --- key cache hygiene (audit finding C1) --------------------------------
