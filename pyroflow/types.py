@@ -242,11 +242,7 @@ class Message(PyroMessage):
         
         message_id = None
 
-        if not force_send and (
-            getattr(self.from_user, "is_self", False)
-            or 
-            getattr(self.sender_chat, "id", None) == self._client.me.id
-        ):
+        if not force_send and self.editable:
             message_id = self.id
         
         
@@ -312,7 +308,21 @@ class Message(PyroMessage):
             update_type=update_type,
             **kw
         )
+
+    @property
+    def editable(self) -> bool:
+        return (
+            getattr(self.from_user, "is_self", False)
+            or 
+            getattr(self.sender_chat, "id", None) == getattr(self._client.me, "id", 0)
+        )
+
+    @property
+    def respond(self):
+        return self.edit if self.editable else self.reply
         
+        
+
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
     _client: "Client"
