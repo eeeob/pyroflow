@@ -222,7 +222,7 @@ class Message(PyroMessage):
 
             update_type (Type[``UpdateType``], *optional*):
                 The expected class type of the update to listen for.
-                Defaults to :obj:`~pyrogram.types.Message`.
+                Defaults to :obj:`~pyroflow.types.Message`.
 
             error_handlers (``ErrorHandlersT``, *optional*):
                 ``{exc_type_or_tuple: handler}`` mapping. If listening raises
