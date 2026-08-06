@@ -66,6 +66,47 @@ async def test_resolve_matches_less_specific_key():
         await lis.stop()
 
 
+async def test_resolve_matches_a_message_only_listener():
+    """`listen(chat, None, message_id)` — "whoever answers *this* message,
+    regardless of who they are" — has always been registrable. Before the
+    combination-based sub_keys() it could never be reached: resolution only
+    tried prefixes, so (chat, None, message) was never among the candidates
+    and the listener sat there until it timed out."""
+    lis = await _started(MessageListener())
+    try:
+        task = asyncio.ensure_future(lis.listen(100, None, 5, timeout=5))
+        await asyncio.sleep(0.02)
+
+        # An update from a user the listener never named.
+        await lis.resolve(make_message(100, 7, 5))
+
+        got = await asyncio.wait_for(task, 1)
+        assert got.id == 5
+    finally:
+        await lis.stop()
+
+
+async def test_user_listener_still_outranks_a_message_only_one():
+    """Ordering is by specificity, then by field order: a (chat, user)
+    listener must keep winning over a (chat, None, message) one, so the new
+    rung cannot steal updates from listeners that already worked."""
+    lis = await _started(MessageListener())
+    try:
+        by_user = asyncio.ensure_future(lis.listen(100, 7, timeout=5))
+        by_message = asyncio.ensure_future(lis.listen(100, None, 5, timeout=5))
+        await asyncio.sleep(0.02)
+
+        await lis.resolve(make_message(100, 7, 5))
+
+        got = await asyncio.wait_for(by_user, 1)
+        assert got.id == 5
+        assert not by_message.done(), "the less specific listener was consumed"
+    finally:
+        by_message.cancel()
+        await asyncio.gather(by_message, return_exceptions=True)
+        await lis.stop()
+
+
 async def test_listen_timeout_raises():
     lis = await _started(MessageListener())
     try:

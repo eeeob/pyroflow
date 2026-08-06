@@ -13,12 +13,42 @@ def test_listener_key_to_tuple():
 
 
 def test_listener_key_sub_keys_most_to_least_specific():
+    """Candidates are the combinations of the components present, not just the
+    prefixes: (chat, message) is reachable without a user_id."""
     key = ListenerKey(10, 20, 30)
     assert list(key.sub_keys()) == [
         ListenerKey(10, 20, 30),
         ListenerKey(10, 20),
+        ListenerKey(10, None, 30),
         ListenerKey(10),
     ]
+
+
+def test_listener_key_sub_keys_reaches_a_message_only_listener():
+    """A listener on (chat, None, message) — "whoever answers *this* message" —
+    is registrable, so resolution has to be able to find it. Prefix truncation
+    never produced this key, leaving such listeners permanently unmatchable."""
+    assert ListenerKey(10, None, 30) in list(ListenerKey(10, 20, 30).sub_keys())
+
+
+def test_listener_key_sub_keys_never_repeats_a_key():
+    """Truncating a tuple with trailing Nones used to yield the same key twice,
+    costing an extra lookup on every resolve."""
+    for key in (
+        ListenerKey(10, 20, 30),
+        ListenerKey(10, 20),
+        ListenerKey(10, None, 30),
+        ListenerKey(10),
+    ):
+        subs = list(key.sub_keys())
+        assert len(subs) == len(set(subs)), f"{key} yielded a duplicate"
+
+
+def test_listener_key_sub_keys_never_invents_a_component():
+    """A key without a user_id must not produce candidates that have one."""
+    for sub in ListenerKey(10, None, 30).sub_keys():
+        assert sub.user_id is None
+        assert sub.chat_id == 10
 
 
 def test_listener_key_sub_keys_respects_min_dep():
@@ -26,7 +56,9 @@ def test_listener_key_sub_keys_respects_min_dep():
     assert list(key.sub_keys(min_dep=2)) == [
         ListenerKey(10, 20, 30),
         ListenerKey(10, 20),
+        ListenerKey(10, None, 30),
     ]
+    assert list(key.sub_keys(min_dep=3)) == [ListenerKey(10, 20, 30)]
 
 
 def test_listener_key_hash_and_eq():

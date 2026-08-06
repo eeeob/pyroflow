@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Generic, Type, ClassVar, Callable, TypeVar
+from typing import Generic, Type, ClassVar, Callable, TypeVar, Dict
 
 from pyrogram.types import Update as PyroUpdate
 from .typings import UpdateType
@@ -120,11 +120,20 @@ class DefaultWeakValueDict(KeyDefaultWeakValueDict[_KT, _VT]):
 
         super().__init__(wrapper)
 
+class KeyDefaultDict(Dict[_KT, _VT]):
+    def __init__(self, default_factory: Callable[[_KT], _VT]) -> None:
+        super().__init__()
+        self.default_factory = default_factory
+
+    def __missing__(self, key: _KT) -> _VT:
+        value = self.default_factory(key)
+        self[key] = value
+        return value
 
 __all__ = (
     "AsyncioLock", 
     "UpdateBound", 
     "KeyDefaultWeakValueDict", 
     "DefaultWeakValueDict", 
-
+    "KeyDefaultDict", 
 )

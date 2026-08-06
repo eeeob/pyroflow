@@ -332,7 +332,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         match it against registered listeners using progressively less
         specific keys:
 
-            (chat_id, user_id, message_id) → (chat_id, user_id) → (chat_id)
+            (chat_id, user_id, message_id)
+            → (chat_id, user_id)
+            → (chat_id, message_id)
+            → (chat_id)
+
+        The candidates are the *combinations* of the components the key
+        carries, not merely its prefixes, so a listener registered as
+        ``(chat_id, None, message_id)`` — "whoever answers this message" —
+        is reachable. See :meth:`ListenerKey.sub_keys`.
 
         Parameters:
             update: The incoming Pyrogram update.
@@ -353,10 +361,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         # cancellation and update resolution.
         async with self.coordinator.lock(key.chat_id):
 
-            # Attempt progressively less specific matches:
-            # (chat_id, user_id, message_id)
-            # (chat_id, user_id)
-            # (chat_id)
+            # Attempt progressively less specific matches, most specific
+            # first — every combination of the components this key carries,
+            # not just its prefixes. See ListenerKey.sub_keys().
 
             for sub in key.sub_keys():
                 if listener := listeners.get(sub):
