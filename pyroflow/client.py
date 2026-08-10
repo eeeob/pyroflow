@@ -31,6 +31,41 @@ ErrorHandlersT = Dict[
 ListenMessageIdT = Union[int, Callable[[Message], Optional[int]]]
 
 
+async def _handle_ask_error(
+    exc: Exception,
+    m: Message,
+    call_handlers: Optional[ErrorHandlersT],
+    client_handlers: Optional[ErrorHandlersT],
+    ) -> bool:
+    """Route an exception raised while listening in :meth:`Client.ask` to
+    whichever error handler applies.
+
+    ``call_handlers`` (the ``error_handlers`` argument to that specific call)
+    takes precedence; ``client_handlers`` (:attr:`Client.ask_error_handlers`)
+    only runs when ``call_handlers`` had no match — including when the call
+    passed none at all.
+
+    A dict merge of the two would not reliably give the call precedence: for
+    keys that overlap by subclassing rather than by being identical (e.g. the
+    client registers ``Exception``, the call registers a narrower
+    ``ValueError``), whichever key a merged dict happens to order first wins,
+    which is not always the call's.
+    """
+
+    for hdlrs in (call_handlers, client_handlers):
+        if not hdlrs:
+            continue
+
+        for exc_types, handler in hdlrs.items():
+            if isinstance(exc, exc_types):
+                await maybe_awaitable(handler, exc, m, return_exc=True)
+                return True
+        
+    return False
+
+
+
+
 @patch_cls
 class Client(PyroClient):
     """
@@ -160,6 +195,12 @@ class Client(PyroClient):
     """
 
     dispatcher: Dispatcher
+    ask_error_handlers: ErrorHandlersT
+
+    if not TYPE_CHECKING: #for typehints
+        def __init__(self, *args, **kw):
+            self.old__init__(*args, **kw)
+            self.ask_error_handlers = {}
 
     @property
     def listeners(self) -> Dict[Type[UpdateType], UpdateListener[UpdateType]]:
@@ -208,7 +249,47 @@ class Client(PyroClient):
         
         async def unregister_history(self, *args, **kw):
             return await self.dispatcher.unregister_history(*args, **kw)
-    
+
+    def register_ask_error_handler(
+        self, 
+        exc_types: Union[Type[Exception], Tuple[Type[Exception], ...]], 
+        handler: MaybeCoroutineCallable[[Exception, Message], Any], 
+        ) -> None:
+        """
+        Add or replace a client-wide entry in :attr:`ask_error_handlers`.
+
+        Unlike :meth:`register_listener`/:meth:`register_coordinated`/
+        :meth:`register_history`, this has no dispatcher lifecycle to respect:
+        it is a plain dict write, so it can be called at any time, before or
+        after the client starts, and re-registering an ``exc_types`` already
+        present replaces its handler rather than raising.
+
+        Parameters:
+            exc_types: One exception type, or a tuple of them, matched via
+                       ``isinstance(exc, exc_types)``.
+            handler:   Awaited as ``handler(exc, m)`` — see :attr:`ask_error_handlers`.
+        """
+
+        self.ask_error_handlers[exc_types] = handler
+
+    def unregister_ask_error_handler(
+        self,
+        exc_types: Union[Type[Exception], Tuple[Type[Exception], ...]],
+        ) -> bool:
+        """
+        Remove the client-wide entry registered under ``exc_types``, if any.
+
+        ``exc_types`` must match the exact key a handler was registered
+        under — a tuple is not decomposed, so unregistering ``ValueError``
+        does not remove an entry registered as ``(ValueError, TypeError)``.
+
+        Returns:
+            ``True`` if an entry was removed, ``False`` if none was registered
+            under that exact key.
+        """
+
+        return self.ask_error_handlers.pop(exc_types, None) is not None
+
 
     @overload
     async def ask(
@@ -362,8 +443,11 @@ class Client(PyroClient):
                                         key matching ``isinstance(exc, key)``
                                         is awaited as ``handler(exc, m)``,
                                         where ``m`` is the sent/edited
-                                        message. The original exception is
-                                        still re-raised afterwards.
+                                        message. If nothing here matches,
+                                        :attr:`Client.ask_error_handlers`
+                                        is tried the same way. The original
+                                        exception is still re-raised
+                                        afterwards either way.
             **kw: Additional keyword arguments passed directly to
                   :meth:`send_message` or :meth:`edit_message_text`
                   depending on which operation is performed.
@@ -427,7 +511,7 @@ class Client(PyroClient):
         
         if meta is None or isinstance(meta, dict):
             meta = {} if meta is None else meta.copy()
-            if "message_id" not in meta and m:
+            if "message_id" not in meta:
                 meta["message_id"] = m.id
 
         if callable(listen_message_id):
@@ -435,7 +519,7 @@ class Client(PyroClient):
             # inline on the event loop, not through to_thread/maybe_awaitable.
             listen_message_id = listen_message_id(m)
 
-        final_chat_id = m.chat.id if (m and m.chat) else chat_id
+        final_chat_id = m.chat.id if m.chat else chat_id
         
         if isinstance(final_chat_id, str):
             final_chat_id = pyro_ut.get_peer_id(
@@ -451,9 +535,5 @@ class Client(PyroClient):
                 timeout=timeout,
             )
         except Exception as exc:
-            if error_handlers:
-                for exc_types, handler in error_handlers.items():
-                    if isinstance(exc, exc_types):
-                        await maybe_awaitable(handler, exc, m, return_exc=True)
-                        break
+            await _handle_ask_error(exc, m, error_handlers, self.ask_error_handlers.copy())
             raise
