@@ -191,23 +191,23 @@ class Client(PyroClient):
         unregister_history = Dispatcher.unregister_history
     
     else:
-        def register_listener(self, value):
-            return self.dispatcher.register_listener(value)
+        def register_listener(self, *args, **kw):
+            return self.dispatcher.register_listener(*args, **kw)
         
-        def register_coordinated(self, value):
-            return self.dispatcher.register_coordinated(value)
+        def register_coordinated(self, *args, **kw):
+            return self.dispatcher.register_coordinated(*args, **kw)
         
-        def register_history(self, value):
-            return self.dispatcher.register_history(value)
+        def register_history(self, *args, **kw):
+            return self.dispatcher.register_history(*args, **kw)
         
-        async def unregister_listener(self, value):
-            return await self.dispatcher.unregister_listener(value)
+        async def unregister_listener(self, *args, **kw):
+            return await self.dispatcher.unregister_listener(*args, **kw)
         
-        async def unregister_coordinated(self, value):
-            return await self.dispatcher.unregister_coordinated(value)
+        async def unregister_coordinated(self, *args, **kw):
+            return await self.dispatcher.unregister_coordinated(*args, **kw)
         
-        async def unregister_history(self, value):
-            return await self.dispatcher.unregister_history(value)
+        async def unregister_history(self, *args, **kw):
+            return await self.dispatcher.unregister_history(*args, **kw)
     
 
     @overload
