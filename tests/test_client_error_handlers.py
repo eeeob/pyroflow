@@ -6,10 +6,13 @@ matching and precedence are tested by calling it directly rather than by
 reimplementing its routing logic in the test.
 """
 
+from types import SimpleNamespace
+
 import pyroflow
 import pytest
 
 from pyroflow.client import _handle_ask_error
+from pyroflow.types import CallbackQuery, Message
 
 
 class ExcA(Exception):
@@ -124,6 +127,95 @@ async def test_neither_mapping_matching_reports_false():
     assert ran is False
 
 
+# --- the update_type lookup ask()'s except block performs ------------------
+
+
+async def test_ask_error_handlers_lookup_is_scoped_to_the_calls_update_type():
+    """Reproduces exactly what ask()'s except block does:
+    `self.ask_error_handlers.get(update_type, {})` before calling
+    _handle_ask_error. A Message-registered handler must not leak into a
+    CallbackQuery-flavoured ask()."""
+    c = make_client()
+    calls = []
+    c.register_ask_error_handler(
+        ExcA, lambda exc, m: calls.append("message-handler"), update_type=Message
+    )
+
+    client_handlers = c.ask_error_handlers.get(CallbackQuery, {})
+    await _handle_ask_error(ExcA("boom"), "m", None, client_handlers)
+
+    assert calls == [], "Message's handler ran for a CallbackQuery-scoped ask()"
+
+
+async def test_ask_error_handlers_lookup_finds_the_matching_update_type():
+    c = make_client()
+    calls = []
+    c.register_ask_error_handler(
+        ExcA, lambda exc, m: calls.append("cb-handler"), update_type=CallbackQuery
+    )
+
+    client_handlers = c.ask_error_handlers.get(CallbackQuery, {})
+    await _handle_ask_error(ExcA("boom"), "m", None, client_handlers)
+
+    assert calls == ["cb-handler"]
+
+
+# --- ask() itself, end to end -----------------------------------------------
+#
+# The tests above pin _handle_ask_error() and the .get(update_type) lookup in
+# isolation, but neither proves ask()'s except block actually calls them the
+# way it's supposed to — a change to that one block (e.g. flattening the
+# per-update_type scoping back into one shared mapping) would slip past every
+# test above. These two go through Client.ask() itself, with send_message and
+# the listener faked out so no network is needed.
+
+
+class _RaisingListener:
+    """Stands in for a registered UpdateListener whose wait raised ExcA."""
+
+    async def __call__(self, **kw):
+        raise ExcA("boom")
+
+
+def _install_raising_ask(c, update_type=Message):
+    c.dispatcher.listeners[update_type] = _RaisingListener()
+
+    async def fake_send(**kw):
+        return SimpleNamespace(id=5, chat=None)
+
+    c.send_message = fake_send
+
+
+async def test_ask_routes_a_listening_error_to_the_scoped_client_handler():
+    c = make_client()
+    calls = []
+    _install_raising_ask(c, update_type=Message)
+
+    c.register_ask_error_handler(
+        ExcA, lambda exc, m: calls.append("message"), update_type=Message
+    )
+    c.register_ask_error_handler(
+        ExcA, lambda exc, m: calls.append("callback_query"), update_type=CallbackQuery
+    )
+
+    with pytest.raises(ExcA):
+        await c.ask(100, "hi")
+
+    assert calls == ["message"], (
+        "ask()'s except block did not scope its client_handlers lookup to "
+        "the call's own update_type"
+    )
+
+
+async def test_ask_still_re_raises_after_running_the_client_handler():
+    c = make_client()
+    _install_raising_ask(c)
+    c.register_ask_error_handler(ExcA, lambda exc, m: None)
+
+    with pytest.raises(ExcA):
+        await c.ask(100, "hi")
+
+
 # --- Client.ask_error_handlers attribute ------------------------------------
 
 
@@ -144,15 +236,43 @@ def test_ask_error_handlers_is_not_shared_between_instances():
 
 
 # --- register_ask_error_handler() / unregister_ask_error_handler() ---------
+#
+# ask_error_handlers is keyed by update_type: {Message: {...}, CallbackQuery:
+# {...}}. register_/unregister_ each default update_type to Message, matching
+# ask()'s own default.
 
 
-def test_register_ask_error_handler_adds_an_entry():
+def test_register_ask_error_handler_adds_an_entry_under_message_by_default():
     c = make_client()
     handler = lambda exc, m: None
 
     c.register_ask_error_handler(ExcA, handler)
 
-    assert c.ask_error_handlers == {ExcA: handler}
+    assert c.ask_error_handlers == {Message: {ExcA: handler}}
+
+
+def test_register_ask_error_handler_respects_an_explicit_update_type():
+    c = make_client()
+    handler = lambda exc, m: None
+
+    c.register_ask_error_handler(ExcA, handler, update_type=CallbackQuery)
+
+    assert c.ask_error_handlers == {CallbackQuery: {ExcA: handler}}
+
+
+def test_register_ask_error_handler_keeps_update_types_independent():
+    """A handler registered for Message must not become visible under
+    CallbackQuery, or vice versa — the two update types must not share a
+    single flat mapping."""
+    c = make_client()
+    msg_handler = lambda exc, m: None
+    cb_handler = lambda exc, m: None
+
+    c.register_ask_error_handler(ExcA, msg_handler, update_type=Message)
+    c.register_ask_error_handler(ExcA, cb_handler, update_type=CallbackQuery)
+
+    assert c.ask_error_handlers[Message] == {ExcA: msg_handler}
+    assert c.ask_error_handlers[CallbackQuery] == {ExcA: cb_handler}
 
 
 def test_register_ask_error_handler_replaces_an_existing_entry():
@@ -165,7 +285,7 @@ def test_register_ask_error_handler_replaces_an_existing_entry():
     c.register_ask_error_handler(ExcA, first)
     c.register_ask_error_handler(ExcA, second)
 
-    assert c.ask_error_handlers == {ExcA: second}
+    assert c.ask_error_handlers == {Message: {ExcA: second}}
 
 
 def test_register_ask_error_handler_accepts_a_tuple_key():
@@ -174,7 +294,7 @@ def test_register_ask_error_handler_accepts_a_tuple_key():
 
     c.register_ask_error_handler((ExcA, ExcB), handler)
 
-    assert c.ask_error_handlers == {(ExcA, ExcB): handler}
+    assert c.ask_error_handlers == {Message: {(ExcA, ExcB): handler}}
 
 
 def test_unregister_ask_error_handler_removes_an_entry_and_reports_true():
@@ -184,12 +304,19 @@ def test_unregister_ask_error_handler_removes_an_entry_and_reports_true():
     removed = c.unregister_ask_error_handler(ExcA)
 
     assert removed is True
-    assert c.ask_error_handlers == {}
+    assert c.ask_error_handlers == {Message: {}}
 
 
 def test_unregister_ask_error_handler_reports_false_when_nothing_registered():
     c = make_client()
     assert c.unregister_ask_error_handler(ExcA) is False
+
+
+def test_unregister_ask_error_handler_reports_false_for_an_unregistered_update_type():
+    """Nothing was ever registered for CallbackQuery, so the lookup must not
+    raise (e.g. via a bare `self.ask_error_handlers[update_type]`)."""
+    c = make_client()
+    assert c.unregister_ask_error_handler(ExcA, update_type=CallbackQuery) is False
 
 
 def test_unregister_ask_error_handler_requires_the_exact_key():
@@ -201,4 +328,16 @@ def test_unregister_ask_error_handler_requires_the_exact_key():
     removed = c.unregister_ask_error_handler(ExcA)
 
     assert removed is False
-    assert len(c.ask_error_handlers) == 1
+    assert len(c.ask_error_handlers[Message]) == 1
+
+
+def test_unregister_ask_error_handler_requires_the_exact_update_type():
+    """Registered under Message; unregistering the same exc_types under
+    CallbackQuery must not touch it."""
+    c = make_client()
+    c.register_ask_error_handler(ExcA, lambda exc, m: None, update_type=Message)
+
+    removed = c.unregister_ask_error_handler(ExcA, update_type=CallbackQuery)
+
+    assert removed is False
+    assert c.ask_error_handlers[Message] != {}
