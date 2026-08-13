@@ -639,8 +639,7 @@ class Dispatcher(PyroDispatcher):
             await release.settle(state)
 
 
-
-    async def handler_worker(self, lock):
+    async def handler_worker(self, lock: asyncio.Lock):
         """
         Worker coroutine that consumes updates from the queue and
         dispatches them.

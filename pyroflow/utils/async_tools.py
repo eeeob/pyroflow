@@ -55,7 +55,6 @@ async def to_thread(
     return_exc: _True,
     **kwargs: _P.kwargs,
 ) -> Union[_T, Exception]: ...
-
 async def to_thread(
     func,
     *args,
@@ -85,25 +84,23 @@ async def to_thread(
 
 @overload
 async def gather_helper(
-    *coros: NestedContainer[Awaitable[_T]],
+    *awaitables: "NestedContainer[Awaitable[_T]]",
     log_exc: bool = True,
 ) -> Tuple[_T, ...]: ...
 @overload
 async def gather_helper(
-    *coros: NestedContainer[Awaitable[_T]],
+    *awaitables: "NestedContainer[Awaitable[_T]]",
     return_exc: _True,
     log_exc: bool = True,
 ) -> Tuple[Union[_T, Exception], ...]: ...
-
 async def gather_helper(
-    *coros,
+    *awaitables,
     return_exc = False,
     log_exc = True,
     ):
 
     caller_stack = traceback.extract_stack()[:-1]
-
-    results = await asyncio.gather(*iter_flat_cont(coros), return_exceptions=return_exc)
+    results = await asyncio.gather(*iter_flat_cont(awaitables), return_exceptions=return_exc)
 
     if log_exc and return_exc:
         for i, r in enumerate(results):
@@ -114,46 +111,45 @@ async def gather_helper(
 
 @overload
 async def safe_await(
-    coro: Awaitable[_T],
+    awaitable: Awaitable[_T],
     *,
     log_exc: bool = True,
 ) -> Union[_T, Exception]: ...
 @overload
 async def safe_await(
-    coro: Awaitable[_T],
+    awaitable: Awaitable[_T],
     *,
     return_exc: _False,
     log_exc: bool = True,
 ) -> _T: ...
 @overload
 async def safe_await(
-    coro: NestedContainer[Awaitable[_T]],
+    awaitable: "NestedContainer[Awaitable[_T]]",
     *,
     log_exc: bool = True,
 ) -> List[Union[_T, Exception]]: ...
 @overload
 async def safe_await(
-    coro: NestedContainer[Awaitable[_T]],
+    awaitable: "NestedContainer[Awaitable[_T]]",
     *,
     return_exc: _False,
     log_exc: bool = True,
 ) -> List[_T]: ...
 @overload
 async def safe_await(
-    *coro: NestedContainer[Awaitable[_T]],
+    *awaitable: "NestedContainer[Awaitable[_T]]",
     log_exc: bool = True,
 ) -> List[Union[_T, Exception]]: ...
 @overload
 async def safe_await(
-    *coro: NestedContainer[Awaitable[_T]],
+    *awaitable: "NestedContainer[Awaitable[_T]]",
     return_exc: _False,
     log_exc: bool = True,
 ) -> List[_T]: ...
-
 async def safe_await(
-    *coros,
-    return_exc = True,
-    log_exc = True,
+    *awaitables, 
+    return_exc = True, 
+    log_exc = True, 
     ):
 
     caller_stack = traceback.extract_stack()[:-1]
@@ -161,11 +157,11 @@ async def safe_await(
     results = []
     is_multi = False
 
-    for i, coro in enumerate(iter_flat_cont(coros)):
+    for i, awaitable in enumerate(iter_flat_cont(awaitables)):
         if not is_multi and i > 0:
             is_multi = True
         try:
-            result = await coro
+            result = await awaitable
         except Exception as e:
             result = e
 
@@ -202,7 +198,6 @@ async def maybe_awaitable(
     log_exc: bool = True,
     **kwargs: _P.kwargs,
 ) -> Union[_T, Exception]: ...
-
 async def maybe_awaitable(
     awaitable_or_callable,
     *args,
