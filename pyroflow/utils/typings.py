@@ -1,9 +1,9 @@
 from typing import (
-    Collection as TCollection, Generator, Union, Reversible,
-    Sequence, AbstractSet, Mapping, List, Any, Dict,
-    Coroutine, Awaitable, TypeVar,
-    Literal, TYPE_CHECKING,
-    ParamSpec, TypeAlias, Protocol, Callable,
+    Collection as TCollection, Generator, Union, Reversible, 
+    Sequence, AbstractSet, Mapping, List, Any, Dict, 
+    Coroutine, Awaitable, TypeVar, 
+    Literal, ParamSpec, TypeAlias, Protocol, Callable, 
+    TYPE_CHECKING, 
 )
 
 from enum import EnumMeta as EnumType
@@ -16,10 +16,6 @@ _CT = TypeVar("_CT", bound=type)
 
 _True = Literal[True]
 _False = Literal[False]
-
-P = ParamSpec("P")
-R = TypeVar("R")
-I = TypeVar("I")
 
 
 if TYPE_CHECKING:
@@ -35,12 +31,12 @@ else:
         filter, enumerate, zip
     ]
 
-NestedContainer: TypeAlias = Union[I, "Container[NestedContainer[I]]"]
-
-MaybeCoroutineCallable: TypeAlias = Callable[P, Union[Coroutine[Any, Any, R], R]]
-MaybeAwaitable: TypeAlias = Union[MaybeCoroutineCallable[P, R], Awaitable[R]]
-
+NestedContainer: TypeAlias = Union[_T, "Container[NestedContainer[_T]]"]
 NotContainer: TypeAlias = Union[bytearray, bytes, str, memoryview, EnumType]
+
+MaybeCoroutineCallable: TypeAlias = Callable[_P, Union[Coroutine[Any, Any, _T], _T]]
+MaybeAwaitable: TypeAlias = Union[MaybeCoroutineCallable[_P, _T], Awaitable[_T]]
+
 Number: TypeAlias = Union[int, float]
 
 JsonValueT: TypeAlias = Union[
