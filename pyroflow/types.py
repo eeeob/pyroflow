@@ -336,3 +336,11 @@ class Message(PyroMessage):
 class CallbackQuery(PyroCallbackQuery):
     _client: "Client"
     message: Optional["Message"]
+
+
+
+__all__ = (
+    "User", 
+    "Message", 
+    "CallbackQuery", 
+)

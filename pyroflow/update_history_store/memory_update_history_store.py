@@ -1,6 +1,4 @@
-from typing import MutableMapping, Optional, Union, List
-from sortedcontainers import SortedList
-from functools import partial
+from typing import List, Optional
 from cachetools import TTLCache
 
 from ..utils.typings import Number
@@ -11,6 +9,7 @@ from ..models import UpdateRecord
 
 from .update_history_store import UpdateHistoryStore
 
+import heapq
 import time
 
 
@@ -37,7 +36,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         update_type,
         ttl: Number = TimeUnit.DAY / 2,
         max_history_len: int = 2,
-        max_keys: int = 10_000,
+        max_keys: int = 1000,
         **kw
     ):
         super().__init__(update_type, **kw)
@@ -45,10 +44,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         self.ttl = ttl
         self.max_history_len = max_history_len
 
-        self.s_list_factory = partial(SortedList, key=lambda r: r.created_at)
-        # TTLCache bounds the key space; per-record expiry is still handled
-        # by _clean_up, since records within one key expire independently.
-        self.histories: MutableMapping[UpdateHistoryKeyT, SortedList] = TTLCache(
+        self.histories: TTLCache[UpdateHistoryKeyT, List[UpdateRecord]] = TTLCache(
             maxsize=max_keys, ttl=ttl
         )
 
@@ -56,72 +52,42 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         return record.created_at + self.ttl
     
     def _is_expired(self, record: UpdateRecord, now: Optional[Number] = None) -> bool:
+        return (time.time() if now is None else now) >= self._expires_at(record)
+
+    def _clean_up(self, heap: List[UpdateRecord], now: Optional[Number] = None) -> List[UpdateRecord]:
         if now is None:
             now = time.time()
-        
-        return now >= self._expires_at(record)
 
-    def _clean_up(
-        self, 
-        records: Union[SortedList, List], 
-        just_copy: bool = False, 
-        now: Optional[Number] = None
-        ) -> Union[SortedList, List]:
+        while heap and self._is_expired(heap[0], now):
+            heapq.heappop(heap)
 
-        if now is None:
-            now = time.time()
-        
-        if just_copy:
-            return [
-                r for r in records
-                if not self._is_expired(r, now)
-            ]
-
-        i = 0
-
-        while i < len(records):
-            if self._is_expired(records[i], now):
-                records.pop(i)
-            else:
-                i += 1
-        
-        return records
+        return heap
 
 
     def _update(self, key, *records):
-        s_list = self.histories.get(key)
+        heap = self.histories.setdefault(key, [])
 
-        if s_list is None:
-            s_list = self.s_list_factory()
-            self.histories[key] = s_list
+        for record in records:
+            heapq.heappush(heap, record)
 
-        s_list.update(records)
-        s_list = self._clean_up(s_list, False)
+        heap = self._clean_up(heap)
 
-        while len(s_list) > self.max_history_len:
-            s_list.pop(0)
-        
-        if not s_list:
+        while len(heap) > self.max_history_len:
+            heapq.heappop(heap)
+
+        if not heap:
             self._delete(key)
 
     def _get(self, key):
-        s_list = self._clean_up(
-            self.histories.get(key, []), 
-            True
-            )
+        records = sorted(self._clean_up(self.histories.get(key, [])))
 
-        if not s_list:
+        if not records:
             self._delete(key)
-        
-        return s_list
+
+        return records
 
     def _pop(self, key):
-        s_list = self._clean_up(
-            self.histories.pop(key, []), 
-            True
-            )
-        
-        return s_list
+        return sorted(self._clean_up(self.histories.pop(key, [])))
 
     def _delete(self, key):
         self.histories.pop(key, None)

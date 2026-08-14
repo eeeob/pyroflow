@@ -1,13 +1,24 @@
 from abc import ABC
-from typing import Generic, Type, ClassVar, Callable, TypeVar, Dict
+from typing import (
+    Generic, Type, ClassVar, 
+    Callable, TypeVar, Dict, 
+    Hashable, Optional, Any, 
+    overload
+)
 
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+
+from functools import partial
 from pyrogram.types import Update as PyroUpdate
-from .typings import UpdateType
+from .typings import UpdateType, _T
 
 import asyncio
 import weakref
 
-_KT = TypeVar("_KT")
+_KT = TypeVar("_KT", bound=Hashable)
 _VT = TypeVar("_VT")
 
 class AsyncioLock(asyncio.Lock):
@@ -130,10 +141,102 @@ class KeyDefaultDict(Dict[_KT, _VT]):
         self[key] = value
         return value
 
+class KeyDefaultWeakKeyDict(weakref.WeakKeyDictionary[_KT, _VT]):
+    def __init__(self, default_factory: Callable[[_KT], _VT]) -> None:
+        if not callable(default_factory):
+            raise TypeError("default_factory must be callable")
+
+        super().__init__()
+        self.default_factory = default_factory
+
+    def __getitem__(self, key: _KT) -> _VT:
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            value = self.default_factory(key)
+            self[key] = value
+            return value
+
+    __call__ = __getitem__
+
+
+class classproperty(Generic[_T, _VT]):
+    """Like @property, but the getter receives the class instead of an
+    instance, and works when accessed on the class itself (`Cls.attr`, not
+    just `Cls().attr`).
+
+    Can be used bare (`@classproperty`) or called with kwargs first
+    (`@classproperty(cached=True)`) -- __new__ tells the two apart by
+    whether `fget` was passed positionally: no `fget` means it was invoked
+    as `classproperty(...)`, so a `functools.partial` standing in for the
+    decorator is returned instead of an instance, to be called again once
+    the actual getter function is available.
+
+    `cached=True` memoizes the getter's return value per owning class in
+    `_cache`, keyed by the class itself -- so a subclass gets its own cached
+    computation rather than inheriting the base class's cached value.
+    """
+
+    __slots__ = "call", "doc"
+
+    @overload
+    def __new__(
+        cls, 
+        fget: Callable[[Type[_T]], _VT], 
+        *, 
+        doc: Optional[str] = None, 
+        cached: bool = False 
+    ) -> "classproperty[_T, _VT]": ...
+    @overload
+    def __new__(
+        cls, 
+        fget: None = None, 
+        *,
+        doc: Optional[str] = None, 
+        cached: bool = False 
+    ) -> Callable[[Callable[[Type[_T]], _VT]], "classproperty[_T, _VT]"]: ...
+    def __new__(cls, fget = None, *, doc = None, cached = False): 
+        if fget is None:
+            return partial(cls, doc=doc, cached=cached)
+
+        return super().__new__(cls)
+
+    def __init__(
+        self, 
+        fget: Callable[[Type[_T]], _VT], 
+        *, 
+        doc: Optional[str] = None, 
+        cached: bool = False 
+    ) -> None:
+        
+        self.call = KeyDefaultWeakKeyDict(fget) if cached else fget
+        self.doc = fget.__doc__ if doc is None else doc
+
+    @property
+    def __doc__(self) -> str:
+        return self.doc
+
+    @overload
+    def __get__(self, _: Any, owner: None) -> Self: ...
+    @overload
+    def __get__(self, _: Any, owner: Type[_T]) -> _VT: ...
+    def __get__(self, _, owner):
+        if owner is None:
+            return self
+
+        value = self.call(owner)
+        try:
+            return value
+        finally:
+            if value is self and isinstance(self.call, KeyDefaultWeakKeyDict):
+                self.call.pop(owner, None)
+
 __all__ = (
     "AsyncioLock", 
     "UpdateBound", 
     "KeyDefaultWeakValueDict", 
     "DefaultWeakValueDict", 
     "KeyDefaultDict", 
+    "KeyDefaultWeakKeyDict", 
+    "classproperty", 
 )

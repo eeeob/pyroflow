@@ -1,14 +1,15 @@
-from typing import ClassVar, Tuple, Optional, Any, Generator
-from dataclasses import dataclass, field
-from itertools import combinations
+from typing import ClassVar, Tuple, Optional, Any, Generator, Dict, TYPE_CHECKING
+from dataclasses import dataclass, field, fields, is_dataclass, Field
+from itertools import combinations, count
 from pyrogram.handlers import Handler as PyroHandler
 
 from .utils.typings import JsonValueT, Number
-from .utils import KeyDefaultDict
+from .utils import KeyDefaultDict, classproperty
 from .typings import ListenerCoordinatorIdT
 
 import asyncio
 import time
+import weakref
 
 
 def _get_plan(mask: int) -> Tuple[int, ...]:
@@ -27,9 +28,17 @@ def _get_plan(mask: int) -> Tuple[int, ...]:
     return tuple(plan)
 
 
-@dataclass(frozen=True, slots=True, eq=False)
+@dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
 class ListenerKey:
     PLANS: ClassVar[KeyDefaultDict[int, Tuple[int, ...]]] = KeyDefaultDict(_get_plan)
+    FIELDS: ClassVar[Tuple[Field[Any], ...]]
+
+    if not TYPE_CHECKING:
+        @classproperty(cached=True)
+        def FIELDS(cls):
+            if not is_dataclass(cls):
+                return cls.__dict__["FIELDS"]
+            return fields(cls)
 
     chat_id: int
     user_id: Optional[int] = None
@@ -37,10 +46,9 @@ class ListenerKey:
 
     @property
     def to_tuple(self) -> Tuple[int, Optional[int], Optional[int]]:
-        return (
-            self.chat_id,
-            self.user_id,
-            self.message_id
+        return tuple(
+            getattr(self, f.name)
+            for f in self.FIELDS
         )
 
     def sub_keys(self, min_dep: int = 1) -> Generator["ListenerKey", None, None]:
@@ -99,11 +107,6 @@ class ListenerKey:
                 )
             )
 
-    def __hash__(self):
-        return hash(self.to_tuple)
-
-    def __eq__(self, value):
-        return isinstance(value, ListenerKey) and self.to_tuple == value.to_tuple
 
 @dataclass(slots=True)
 class ListenerModel:
@@ -129,10 +132,42 @@ class ListenerModel:
     def done(self) -> bool:
         return self.future.done()
 
+
+class _WeakSlots:
+    __slots__ = "__weakref__",
+
+
 @dataclass(slots=True)
-class UpdateRecord:
+class UpdateRecord(_WeakSlots):
+    _SEQ: ClassVar[int] = count()
+    _SEQ_IDS: ClassVar[Dict[int, int]] = {}
+
     handler: PyroHandler
     data: Optional[Any] = None
-
     created_at: Number = field(default_factory=time.time)
+
+    def __post_init__(self):
+        cls = type(self)
+        cls._SEQ_IDS[id(self)] = next(cls._SEQ)
+        weakref.finalize(self, cls._SEQ_IDS.pop, id(self), None)
+
+    def __lt__(self, other: "UpdateRecord") -> bool:
+        return (
+            (self.created_at, type(self)._SEQ_IDS[id(self)])
+            < (other.created_at, type(other)._SEQ_IDS[id(other)])
+        )
+    def __gt__(self, other: "UpdateRecord") -> bool:
+        return (
+            (self.created_at, type(self)._SEQ_IDS[id(self)])
+            > (other.created_at, type(other)._SEQ_IDS[id(other)])
+        )
+
+
+
+__all__ = (
+    "ListenerKey", 
+    "ListenerModel", 
+    "UpdateRecord", 
+)
+
 
