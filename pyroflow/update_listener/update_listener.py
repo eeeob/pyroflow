@@ -367,42 +367,43 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         key = await self.extract_key(update)
         listeners = self.listeners
 
-        # All listener operations for the same chat share
-        # a single lock to avoid races between registration,
-        # cancellation and update resolution.
-        async with self.coordinator.lock(key.chat_id):
+        if listeners:
+            # All listener operations for the same chat share
+            # a single lock to avoid races between registration,
+            # cancellation and update resolution.
+            async with self.coordinator.lock(key.chat_id):
 
-            # Attempt progressively less specific matches, most specific
-            # first — every combination of the components this key carries,
-            # not just its prefixes. See ListenerKey.sub_keys().
+                # Attempt progressively less specific matches, most specific
+                # first — every combination of the components this key carries,
+                # not just its prefixes. See ListenerKey.sub_keys().
 
-            for sub in key.sub_keys():
-                if listener := listeners.get(sub):
-                    # A local listener is not proof of ownership. Another
-                    # session may have taken this key over, and its cancel
-                    # signal travels asynchronously — resolving on the strength
-                    # of local state alone would let both sessions deliver the
-                    # same update. Confirm we still hold the registration
-                    # before handing the update over; this is the check that
-                    # makes correctness independent of signal delivery.
-                    if not await self.coordinator.registered(sub, listener.coordinator_id):
-                        log.debug("Discarding superseded listener for %s (token %r)", sub, listener.coordinator_id,)
-                        await self._cancel(sub, cancel_coordinator=False, coordinator_id=listener.coordinator_id)
-                        continue
+                for sub in key.sub_keys():
+                    if listener := listeners.get(sub):
+                        # A local listener is not proof of ownership. Another
+                        # session may have taken this key over, and its cancel
+                        # signal travels asynchronously — resolving on the strength
+                        # of local state alone would let both sessions deliver the
+                        # same update. Confirm we still hold the registration
+                        # before handing the update over; this is the check that
+                        # makes correctness independent of signal delivery.
+                        if not await self.coordinator.registered(sub, listener.coordinator_id):
+                            log.debug("Discarding superseded listener for %s (token %r)", sub, listener.coordinator_id,)
+                            await self._cancel(sub, cancel_coordinator=False, coordinator_id=listener.coordinator_id)
+                            continue
 
-                    if await self.is_bypass(update):
-                        # The update itself opts this listener out of
-                        # resolving it (e.g. the user sent a bot command
-                        # instead of the expected reply). Cancel the
-                        # listener and treat the update as unresolved so
-                        # handle_listen does not stop_propagation — the
-                        # update falls through to the normal handler
-                        # pipeline instead of being consumed here.
-                        await self._cancel(sub, coordinator_id=listener.coordinator_id)
-                        raise UnresolvedUpdate(update)
+                        if await self.is_bypass(update):
+                            # The update itself opts this listener out of
+                            # resolving it (e.g. the user sent a bot command
+                            # instead of the expected reply). Cancel the
+                            # listener and treat the update as unresolved so
+                            # handle_listen does not stop_propagation — the
+                            # update falls through to the normal handler
+                            # pipeline instead of being consumed here.
+                            await self._cancel(sub, coordinator_id=listener.coordinator_id)
+                            raise UnresolvedUpdate(update)
 
-                    listener.resolve(update)
-                    return
+                        listener.resolve(update)
+                        return
 
             # Called when no matching listener is found.
             await self.on_unresolved(key, update)
