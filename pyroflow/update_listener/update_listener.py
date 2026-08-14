@@ -68,6 +68,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             :meth:`extract_key`. If ``None``, the method must be
             overridden in a subclass.
 
+        bypass_func:
+            Optional callable ``(update) -> bool`` used by
+            :meth:`is_bypass`. Only consulted once a listener has
+            already matched the update's key; returning ``True``
+            cancels that listener instead of resolving it, letting the
+            update fall through to the normal handler pipeline. If
+            ``None`` (the default), matched listeners are always
+            resolved and never bypassed.
+
         timeout:
             Optional timeout in seconds for listeners. If provided,
             it is used as the default duration after which a listener
@@ -81,9 +90,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self, 
         coordinator_factory: Optional[Callable[["UpdateListener"], ListenerCoordinator]] = None, 
         duplicate_policy: Optional[DuplicatePolicy] = None, 
-        is_listenable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None, 
-        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], ListenerKey]] = None, 
-        timeout: Optional[Number] = None, 
+        is_listenable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None,
+        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], ListenerKey]] = None,
+        bypass_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None,
+        timeout: Optional[Number] = None,
         **kw
         ) -> None:
 
@@ -100,6 +110,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.is_listenable_func = is_listenable_func
         self.extract_key_func = extract_key_func
+        self.bypass_func = bypass_func
 
         self.timeout = timeout
 
@@ -375,12 +386,20 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                     # before handing the update over; this is the check that
                     # makes correctness independent of signal delivery.
                     if not await self.coordinator.registered(sub, listener.coordinator_id):
-                        log.debug(
-                            "Discarding superseded listener for %s (token %r)",
-                            sub, listener.coordinator_id,
-                        )
-                        await self._cancel(sub, cancel_coordinator=False)
+                        log.debug("Discarding superseded listener for %s (token %r)", sub, listener.coordinator_id,)
+                        await self._cancel(sub, cancel_coordinator=False, coordinator_id=listener.coordinator_id)
                         continue
+
+                    if await self.is_bypass(update):
+                        # The update itself opts this listener out of
+                        # resolving it (e.g. the user sent a bot command
+                        # instead of the expected reply). Cancel the
+                        # listener and treat the update as unresolved so
+                        # handle_listen does not stop_propagation — the
+                        # update falls through to the normal handler
+                        # pipeline instead of being consumed here.
+                        await self._cancel(sub, coordinator_id=listener.coordinator_id)
+                        raise UnresolvedUpdate(update)
 
                     listener.resolve(update)
                     return
@@ -489,6 +508,40 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return await maybe_awaitable(
             self.extract_key_func,
+            update,
+            executor=self._get_executor(update),
+        )
+
+    async def is_bypass(self, update: UpdateType) -> bool:
+        """
+        Determine whether a listener that already matched this update
+        should be cancelled instead of resolved with it.
+
+        Only called from :meth:`resolve`, after a listener has matched
+        the update's key — never as a substitute for :meth:`is_listenable`.
+        Returning ``True`` cancels the matched listener (raising
+        :class:`~pyroflow.errors.ListenerCancelled` on its waiter) and the
+        update is treated as unresolved, so :meth:`Dispatcher.handle_listen`
+        does not call ``stop_propagation()``: the update falls through to
+        the normal handler pipeline instead of being consumed here.
+
+        Parameters:
+            update: The incoming update object, already matched to a
+                    listener.
+
+        Returns:
+            ``True`` to bypass (cancel) the matched listener, ``False``
+            to resolve it normally. Always ``False`` if neither this
+            method is overridden nor ``bypass_func`` was provided.
+        """
+
+        if self.bypass_func is None:
+            return False
+
+        self.validate_update(update)
+
+        return await maybe_awaitable(
+            self.bypass_func,
             update,
             executor=self._get_executor(update),
         )

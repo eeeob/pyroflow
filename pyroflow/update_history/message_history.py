@@ -8,25 +8,19 @@ class MessageHistory(UpdateHistory[Message]):
     __update_type__ = Message
 
     if not TYPE_CHECKING:
-        def __init__(
-            self,
-            store_factory = None,
-            is_recordable_func = None,
-            extract_key_func = None,
-            extract_data_func = None,
-            **kw
-            ):
+        def __init__(self, *args, **kw):
+            super().__init__(*args, **kw)
+            
+            if self.is_recordable_func is None:
+                self.is_recordable_func = self._is_recordable
 
-            if is_recordable_func is None:
-                is_recordable_func = self._is_recordable
+            if self.extract_key_func is None:
+                self.extract_key_func = self._extract_key
 
-            if extract_key_func is None:
-                extract_key_func = self._extract_key
+            if self.extract_data_func is None:
+                self.extract_data_func = self._extract_data
 
-            if extract_data_func is None:
-                extract_data_func = self._extract_data
-
-            super().__init__(store_factory, is_recordable_func, extract_key_func, extract_data_func, **kw)
+            
 
     async def _is_recordable(self, update):
         return update.chat is not None

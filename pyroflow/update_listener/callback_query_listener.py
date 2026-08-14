@@ -11,23 +11,14 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
     __update_type__ = CallbackQuery
 
     if not TYPE_CHECKING:
-        def __init__(
-            self, 
-            coordinator_factory = None, 
-            duplicate_policy = None, 
-            is_listenable_func = None, 
-            extract_key_func = None, 
-            timeout = None, 
-            **kw
-            ):
+        def __init__(self, *args, **kw):
+            super().__init__(*args, **kw)
 
-            if is_listenable_func is None:
-                is_listenable_func = self._is_listenable
-            
-            if extract_key_func is None:
-                extract_key_func = self._extract_key
+            if self.is_listenable_func is None:
+                self.is_listenable_func = self._is_listenable
 
-            super().__init__(coordinator_factory, duplicate_policy, is_listenable_func, extract_key_func, timeout, **kw)
+            if self.extract_key_func is None:
+                self.extract_key_func = self._extract_key
 
 
     async def _is_listenable(self, update):

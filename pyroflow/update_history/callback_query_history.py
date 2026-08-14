@@ -10,25 +10,17 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
     __update_type__ = CallbackQuery
     
     if not TYPE_CHECKING:
-        def __init__(
-            self, 
-            store_factory = None, 
-            is_recordable_func = None, 
-            extract_key_func = None, 
-            extract_data_func = None, 
-            **kw
-            ):
-
-            if is_recordable_func is None:
-                is_recordable_func = self._is_recordable
+        def __init__(self, *args, **kw):
+            super().__init__(*args, **kw)
             
-            if extract_key_func is None:
-                extract_key_func = self._extract_key
-            
-            if extract_data_func is None:
-                extract_data_func = self._extract_data
+            if self.is_recordable_func is None:
+                self.is_recordable_func = self._is_recordable
 
-            super().__init__(store_factory, is_recordable_func, extract_key_func, extract_data_func, **kw)
+            if self.extract_key_func is None:
+                self.extract_key_func = self._extract_key
+
+            if self.extract_data_func is None:
+                self.extract_data_func = self._extract_data
     
     async def _is_recordable(self, update):
         m = update.message
