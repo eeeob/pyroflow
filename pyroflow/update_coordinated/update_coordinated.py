@@ -1,32 +1,49 @@
 from abc import ABC
-from typing import Optional, Callable, Type, Dict
+from typing import Optional, Callable, Type
 from concurrent.futures import ThreadPoolExecutor
 
-from ..utils.typings import UpdateType, MaybeCoroutineCallable
+from ..utils.typings import UpdateType, MaybeCoroutineCallable, AsyncLockProto
 from ..utils import UpdateBound, maybe_awaitable
 
-from ..enums import UpdateLockState
 from ..typings import UpdateCoordinatorKeyT
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
 
 import logging
-import weakref
 
 log = logging.getLogger(__name__)
 
+
 class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     """
-    Abstract base for update types that require distributed deduplication.
+    Abstract base for update types that are processed under coordination.
 
     Each subclass is bound to a single update type via ``__update_type__``
-    and defines whether an update should be coordinated and how to extract
-    its coordination key. The coordinator factory is responsible for all
-    locking details (backend, TTL, timeout).
+    and defines three things: whether an update should be coordinated at
+    all, what scope to serialise it under, and what identifies the update
+    itself. The coordinator factory owns all backend details (locking,
+    TTLs, timeouts).
 
-    Each of the two core behaviours — coordinatability check and key
-    extraction — can be provided either by overriding the corresponding
-    method in a subclass, or by passing a callable at construction time
-    via ``is_coordinatable_func`` or ``extract_key_func``.
+    The two keys are deliberately separate
+    -------------------------------------
+    :meth:`extract_key` decides **what is locked** — the scope processed one
+    update at a time. :meth:`extract_update_id` decides **what counts as
+    the same update** — the identity registered as handled so it is never
+    processed twice.
+
+    By default both return the same thing, so an update is locked and
+    deduplicated at exactly its own granularity: updates never block each
+    other, and each is handled once. That is the narrow, safe default.
+
+    Widening only :meth:`extract_key` is what buys ordering. Key the lock on
+    the chat and every update in that chat is processed strictly one at a
+    time, in arrival order, while :meth:`extract_update_id` keeps each one
+    individually deduplicated. This is why the identity may never be folded
+    into the lock's scope: a chat-wide *lock* serialises, but a chat-wide
+    *identity* would register the whole chat as handled after its first
+    update and silently drop every update that followed.
+
+    Nothing constrains the two to be related — the scope may be as wide or
+    narrow as the subclass wants, independently of the identity.
 
     Parameters:
         coordinator_factory:   Optional callable that receives the update type and
@@ -39,39 +56,36 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         extract_key_func:      Optional callable ``(update) -> UpdateCoordinatorKeyT``
                                used by :meth:`extract_key`. If ``None``, the method
                                must be overridden in a subclass.
+        extract_update_id_func: Optional callable ``(update) -> UpdateCoordinatorKeyT``
+                               used by :meth:`extract_update_id`. If ``None``, the
+                               method must be overridden in a subclass.
         **kw:                  Passed to the next class in the MRO.
     """
 
     def __init__(
         self,
-        coordinator_factory: Optional[Callable[[Type[UpdateType]], UpdateCoordinator]] = None, 
-        is_coordinatable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None, 
-        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]] = None, 
+        coordinator_factory: Optional[Callable[[Type[UpdateType]], UpdateCoordinator]] = None,
+        is_coordinatable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None,
+        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]] = None,
+        extract_update_id_func: Optional[MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]] = None,
         **kw,
     ) -> None:
-        
+
         super().__init__(**kw)
 
         if coordinator_factory is None:
             coordinator_factory = MemoryUpdateCoordinator
-        
+
         self.coordinator = coordinator_factory(self.__class__.__update_type__)
 
         self.is_coordinatable_func = is_coordinatable_func
         self.extract_key_func = extract_key_func
-
-        # Keyed by id(update) because Pyrogram update types are unhashable
-        # (they define value-based __eq__), so a WeakKeyDictionary is not an
-        # option. Every entry is therefore paired with a weakref finalizer in
-        # extract_key() that drops it the moment the update is collected —
-        # see the comment there for why that is load-bearing, not just tidy.
-        self._key_cache: Dict[int, Optional[UpdateCoordinatorKeyT]] = {}
-
+        self.extract_update_id_func = extract_update_id_func
 
     def _get_executor(self, update: UpdateType) -> Optional[ThreadPoolExecutor]:
         return getattr(
-            getattr(update, "_client", None), 
-            "executor", 
+            getattr(update, "_client", None),
+            "executor",
             None
         )
 
@@ -79,8 +93,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         """
         Determine whether this update should be coordinated.
 
-        Called before any key extraction or lock acquisition.
-        Return ``False`` to process the update normally without a lock.
+        Called before any key extraction or locking. Return ``False`` to
+        process the update normally, with no lock and no registration.
 
         Parameters:
             update: The incoming update object.
@@ -98,7 +112,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
                 f"{self.__class__.__name__} must either pass is_coordinatable_func "
                 f"or override is_coordinatable()"
             )
-        
+
         self.validate_update(update)
 
         return await maybe_awaitable(
@@ -109,98 +123,92 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
     async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT:
         """
-        Extract a unique coordination key from the update.
+        Extract the **lock scope** for this update.
 
-        Only called when :meth:`is_coordinatable` returns ``True``.
-        The result is cached for the lifetime of the update object.
+        Every update that yields the same key is processed one at a time, in
+        arrival order. Widen this to serialise a whole conversation; leave it
+        at the update's own granularity to let updates run concurrently.
+
+        This is not the update's identity — see :meth:`extract_update_id`.
 
         Parameters:
             update: The incoming update object.
 
         Returns:
-            A :data:`UpdateCoordinatorKeyT` that uniquely identifies
-            this update.
+            A :data:`UpdateCoordinatorKeyT` naming the scope to serialise.
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
                                  ``extract_key_func`` was provided.
         """
+
         if self.extract_key_func is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must either pass extract_key_func "
                 f"or override extract_key()"
             )
-        
+
         self.validate_update(update)
 
-        update_id = id(update)
+        return await maybe_awaitable(
+            self.extract_key_func, update,
+            executor=self._get_executor(update),
+        )
 
-        if update_id not in self._key_cache:
-            self._key_cache[update_id] = await maybe_awaitable(
-                self.extract_key_func, update, 
-                executor=self._get_executor(update),
-            )
-
-            # CPython reuses id() values once an object is collected, and the
-            # dispatcher has skip paths (lock already held, acquire timeout)
-            # that never reach release()/_evict(). Without this finalizer a
-            # stale entry could be served to a *different* update that landed
-            # at the same address, locking it under the wrong key and silently
-            # dropping it as an already-handled duplicate. Tying eviction to
-            # the object's lifetime closes that window and bounds the cache.
-            weakref.finalize(update, self._key_cache.pop, update_id, None)
-
-        return self._key_cache[update_id]
-
-    async def _evict(self, update: UpdateType) -> None:
-        """Remove the cached key for the given update."""
-        self._key_cache.pop(id(update), None)
-
-    async def acquire(self, update: UpdateType) -> Optional[bool]:
+    async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
         """
-        Acquire the lock for the given update.
+        Extract the **identity** of this update, for deduplication.
+
+        Registered once the update has been processed, and checked before
+        processing it, so the same update is never handled twice — including
+        across sessions, when the coordinator backend is shared.
+
+        Must stay unique per update. Unlike :meth:`extract_key`, widening
+        this does not serialise anything; it makes distinct updates look
+        like the same one, and every update after the first is dropped as an
+        already-handled duplicate.
 
         Parameters:
             update: The incoming update object.
 
         Returns:
-            bool | None:
-                - ``True``  — lock acquired, process the update then call release().
-                - ``False`` — already handled by another session, skip it.
-                - ``None``  — coordination not needed, process without release.
+            A :data:`UpdateCoordinatorKeyT` uniquely identifying this update.
 
         Raises:
-            TimeoutError: if waiting for the lock exceeds the allowed timeout.
+            NotImplementedError: If neither this method is overridden nor
+                                 ``extract_update_id_func`` was provided.
         """
 
-        if not await self.is_coordinatable(update):
-            return 
-
-        return await self.coordinator.acquire(
-            await self.extract_key(update)
+        if self.extract_update_id_func is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must either pass extract_update_id_func "
+                f"or override extract_update_id()"
             )
 
-    async def release(self, update: UpdateType, result: Optional[UpdateLockState] = None) -> None:
+        self.validate_update(update)
+
+        return await maybe_awaitable(
+            self.extract_update_id_func, update,
+            executor=self._get_executor(update),
+        )
+
+    async def lock(self, update: UpdateType) -> AsyncLockProto:
         """
-        Release the lock after processing and evict the cached key.
+        Build the lock serialising this update's scope.
+
+        Returned unacquired — the caller decides when to take it and, more
+        importantly, when to let it go (see :func:`~pyroflow.mark_handled`).
 
         Parameters:
-            update: The same update passed to :meth:`acquire`.
-            result: ``UpdateLockState.HANDLED`` if processing succeeded,
-                    ``None`` if it failed — key is deleted so another
-                    session can retry.
+            update: The incoming update object.
+
+        Returns:
+            An async lock compatible with ``async with``.
         """
 
-        try:
-            if not await self.is_coordinatable(update):
-                return
-
-            await self.coordinator.release(
-                await self.extract_key(update), 
-                result
-                )
-        finally:
-            await self._evict(update)
+        return self.coordinator.lock(
+            await self.extract_key(update)
+        )
 
     async def start(self) -> None:
         """Start the coordinator."""
@@ -209,10 +217,3 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     async def stop(self) -> None:
         """Stop the coordinator."""
         await self.coordinator.stop()
-
-        if self._key_cache:
-            log.warning(
-                "Clearing %d cached update keys after coordinator stop",
-                len(self._key_cache),
-            )
-            self._key_cache.clear()

@@ -11,12 +11,8 @@ else:
         def __str__(self):
             return str(self.value)
 
-from enum import IntEnum, auto
+from enum import auto
 
-
-class UpdateLockState(IntEnum):
-    PROCESSING = 0
-    HANDLED    = 1
 
 class DuplicatePolicy(StrEnum):
     REJECT = auto()
@@ -24,6 +20,5 @@ class DuplicatePolicy(StrEnum):
 
 
 __all__ = (
-    "UpdateLockState", 
-    "DuplicatePolicy", 
+    "DuplicatePolicy",
 )

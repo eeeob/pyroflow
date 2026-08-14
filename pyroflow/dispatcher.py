@@ -11,11 +11,11 @@ from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pyrogram.types import Update as PyroUpdate
 
-from .utils.typings import UpdateType
-from .utils import maybe_awaitable, gather_helper, patch_cls
+from .utils.typings import UpdateType, AsyncLockProto
+from .utils import maybe_awaitable, gather_helper, patch_cls, safe_await
 
 from .errors import UnresolvedUpdate, UnhandledUpdate
-from .enums import UpdateLockState
+from .typings import UpdateCoordinatorKeyT
 from .update_listener import UpdateListener
 from .update_coordinated import UpdateCoordinated
 from .update_history import UpdateHistory
@@ -29,82 +29,96 @@ log = logging.getLogger(__name__)
 
 class _CoordinatedRelease:
     """
-    Releases one update's coordinated lock, exactly once.
+    Settles one update's coordination, exactly once.
 
-    Two callers compete for that single release: the handler, through
+    Settling is two steps that always travel together: register the update as
+    handled (or don't), then release the lock it was processed under.
+
+    Two callers compete for that single settlement: the handler, through
     :func:`mark_handled`, and :meth:`Dispatcher.handle_update` cleaning up once
     the handler returns. Whichever arrives first wins and the other becomes a
-    no-op — which is what makes an early release *stick* instead of being
+    no-op — which is what makes an early settlement *stick* instead of being
     overwritten by the automatic one a moment later.
     """
 
-    __slots__ = ("_coordinated", "_update", "_loop", "_early", "_released")
+    __slots__ = ("_coordinated", "_lock", "_loop", "_early", "_released", "update_id")
 
     def __init__(
         self,
         coordinated: UpdateCoordinated,
-        update: Optional[PyroUpdate],
+        lock: AsyncLockProto,
         loop: asyncio.AbstractEventLoop,
         ) -> None:
 
         self._coordinated = coordinated
-        self._update = update
+        self._lock = lock
         self._loop = loop
         self._early: Optional[Future] = None
         self._released: bool = False
 
+        # Set once the update's identity is known, which happens after the
+        # lock is already held. Until then there is nothing to register, so a
+        # settlement in that window releases the lock and marks nothing.
+        self.update_id: Optional[UpdateCoordinatorKeyT] = None
+
     def claim_early(self) -> bool:
         """
-        Claim the release now and schedule it. Backs :func:`mark_handled`.
+        Claim the settlement now and schedule it. Backs :func:`mark_handled`.
 
         Synchronous out of necessity: the caller may be a sync handler running
         in the client's executor, off the event loop, where awaiting is not an
         option. Assigning ``_early`` *here* rather than inside the scheduled
         coroutine is what makes the claim race-free — by the time :meth:`settle`
-        runs it already sees the release as spoken for, whether or not the loop
-        has got round to performing it yet.
+        runs it already sees the settlement as spoken for, whether or not the
+        loop has got round to performing it yet.
 
         Returns:
-            ``True`` if this call took the release, ``False`` if it was already
-            claimed.
+            ``True`` if this call took the settlement, ``False`` if it was
+            already claimed.
         """
 
         if self._early is not None or self._released:
             return False
 
-        self._early = asyncio.run_coroutine_threadsafe(
-            self._release(UpdateLockState.HANDLED), self._loop
+        coro, loop = self._settle(True), self._loop
+
+        self._early = (
+            asyncio.create_task(coro) 
+            if asyncio._get_running_loop() is loop 
+            else asyncio.run_coroutine_threadsafe(coro, loop)
         )
 
         return True
 
-    async def settle(self, state: Optional[UpdateLockState]) -> None:
-        """Release with ``state``, or wait out an early release if one won."""
+    async def settle(self, handled: bool) -> None:
+        """Settle now, or wait out an early settlement if one won."""
 
         if self._early is not None:
-            # Don't abandon a release that is only scheduled: the dispatcher
+            # Don't abandon a settlement that is only scheduled: the dispatcher
             # may be stopped the moment the handler returns.
             await asyncio.wrap_future(self._early)
             return
 
-        await self._release(state)
+        await self._settle(handled)
 
-    async def _release(self, state: Optional[UpdateLockState]) -> None:
+    async def _settle(self, handled: bool) -> None:
         if self._released:
             return
 
         self._released = True
-        
-        # Logged, never raised. The early release runs detached from the
+
+        # Logged, never raised. The early settlement runs detached from the
         # handler, so an escaping exception would surface as a stray task error
         # rather than anywhere the caller could act on it — and a failing
         # backend should not produce two different outcomes depending on which
         # of the two paths happened to win.
 
         try:
-            await self._coordinated.release(self._update, state)
-        except Exception:
-            log.exception("Failed to release coordinated lock for %r", self._update)
+            if handled and self.update_id is not None:
+                await safe_await(self._coordinated.coordinator.mark_handled(self.update_id))
+        finally:
+            await safe_await(self._lock.release())
+            
 
 
 # Set for the duration of one coordinated update, to that update's
@@ -123,24 +137,32 @@ def mark_handled() -> bool:
     Declare the current update handled *now*, without waiting for the handler
     to return.
 
-    By default the coordinated lock is held for the whole lifetime of the
-    handler, and is only released — as :attr:`UpdateLockState.HANDLED` — once
-    it finishes. That is the safe default, but it ties lock hold time to
-    handler duration: a handler that runs a long job (a download, a
-    conversation, an external API) keeps the lock for all of it, and every
-    other session stays blocked on that chat meanwhile.
+    By default an update is settled only once its handler finishes: it is
+    registered as handled and its lock released together, at the end. That is
+    the safe default, but it ties lock hold time to handler duration — a
+    handler that runs a long job (a download, a conversation, an external API)
+    holds the lock for all of it, and everything else in that lock's scope
+    waits meanwhile.
 
-    Calling this from inside a handler decouples the two. The lock is released
-    immediately with :attr:`UpdateLockState.HANDLED`, so peers stop waiting and
-    will not reprocess the update, while the handler carries on for as long as
-    it likes.
+    Calling this from inside a handler settles it early instead. The update is
+    registered as handled and **the lock is released immediately**, so waiters
+    proceed and no peer will reprocess it, while this handler carries on for as
+    long as it likes.
 
-    Callable from a sync handler too (those run in the client's executor):
-    the release is scheduled onto the event loop thread-safely rather than
+    .. warning::
+        Releasing the lock early gives up the ordering it was providing. If the
+        lock's scope is wider than one update — a whole chat, say — the next
+        update in that scope starts as soon as this call returns, running
+        alongside the rest of this handler. Call it once the part that needed
+        serialising is genuinely done, not merely once the update is
+        acknowledged.
+
+    Callable from a sync handler too (those run in the client's executor): the
+    settlement is scheduled onto the event loop thread-safely rather than
     awaited here, which is also why this is a plain function and not a
     coroutine.
 
-    Idempotent — later calls, and the automatic release when the handler
+    Idempotent — later calls, and the automatic settlement when the handler
     returns, are no-ops.
 
     Example:
@@ -150,14 +172,14 @@ def mark_handled() -> bool:
             async def handler(client, message):
                 await message.reply("Working on it...")
 
-                mark_handled()          # peers are free from here on
+                mark_handled()          # lock released from here on
 
                 await slow_job()        # may take minutes; lock is long gone
 
     Returns:
-        ``True`` if this call performed the early release. ``False`` if the
-        update is not under a coordinator, its lock was already released, or
-        this was called outside of update processing entirely.
+        ``True`` if this call performed the early settlement. ``False`` if the
+        update is not under a coordinator, it was already settled, or this was
+        called outside of update processing entirely.
     """
 
     release = _handled_marker.get()
@@ -189,19 +211,25 @@ class Dispatcher(PyroDispatcher):
        2–3 entirely.
 
     2. **Coordinator** (:meth:`handle_update`) — if a
-       :class:`UpdateCoordinated` is registered, a distributed lock is
-       acquired before processing. This guarantees that the same update
-       is handled by exactly one session across multiple servers.
-       The lock is released with :attr:`UpdateLockState.HANDLED` if at
-       least one handler *ran* for this update — whether it returned
-       normally or raised. A raising handler still counts as handled:
-       the update reached its owner, so replaying it on another session
-       would duplicate work rather than recover. The lock is released
-       with ``None`` only when no handler ran at all, so another session
-       can retry. A handler may cut the hold short by calling
-       :func:`mark_handled`, which releases the lock as ``HANDLED``
-       immediately and lets the handler keep running for as long as it
-       needs.
+       :class:`UpdateCoordinated` is registered, the update's lock scope
+       is taken, and under it the update's identity is checked against
+       the handled registry. An update already registered by a peer is
+       dropped; otherwise it is processed here and registered, so it is
+       handled by exactly one session across multiple servers.
+
+       The lock's scope and the update's identity are chosen separately
+       (``extract_key`` and ``extract_update_id``), which is what lets a
+       whole chat be serialised while each of its updates stays
+       individually deduplicated.
+
+       The update is registered as handled if at least one handler *ran*
+       — whether it returned normally or raised. A raising handler still
+       counts: the update reached its owner, so replaying it on another
+       session would duplicate work rather than recover. It is left
+       unregistered only when no handler ran at all, so another session
+       can retry. A handler may settle early by calling
+       :func:`mark_handled`, which registers the update and releases the
+       lock immediately, letting the handler keep running.
 
     3. **Handler groups** (:meth:`_handle_update`) — iterates Pyrogram's
        normal handler groups. The first matching handler per group is
@@ -558,70 +586,81 @@ class Dispatcher(PyroDispatcher):
         ) -> None:
 
         """
-        Process a single update, acquiring a distributed lock if a
-        coordinator is registered for its type.
+        Process a single update under coordination, if a coordinator is
+        registered for its type.
 
-        If no coordinator is registered, falls through to
-        :meth:`_handle_update` immediately.
+        If none is registered — or the update is not coordinatable — falls
+        through to :meth:`_handle_update` immediately.
 
-        If the lock is acquired, the update is processed and the lock
-        is released with ``HANDLED`` if at least one handler ran —
-        counting handlers that raised, since the update did reach its
-        owner. It is released with ``None`` (allowing retry by another
-        session) only when no handler ran at all.
+        Otherwise the update's lock scope is taken first, and everything
+        below happens while holding it. That is what makes the checks that
+        follow meaningful: a peer cannot be halfway through the same update
+        while this one decides whether to process it.
 
-        A handler can release the lock ahead of its own completion by
-        calling :func:`mark_handled`; the automatic release then becomes a
-        no-op. This keeps lock hold time bounded by how long the update
-        takes to *claim*, not by how long it takes to *finish*.
+        Under the lock, the update's identity is checked against the handled
+        registry. A hit means a peer already processed it, and it is dropped.
+        A miss means it is processed here, then registered as handled if at
+        least one handler *ran* — counting handlers that raised, since the
+        update did reach its owner and replaying it elsewhere would duplicate
+        work rather than recover. A fully untouched update (0 handled, 0
+        raised) is left unregistered, so a peer may still pick it up.
 
-        If the lock is already held by another session, or acquiring
-        the lock times out, the update is skipped silently.
+        The lock is released as soon as the update is settled, either way. A
+        handler may settle early by calling :func:`mark_handled`, which
+        registers the update and releases the lock without waiting for the
+        handler to return; the automatic settlement then becomes a no-op.
 
-        If acquiring the lock raises an unexpected exception, the update
-        falls through to :meth:`_handle_update` without coordination.
+        If the lock cannot be taken within its blocking timeout, the update
+        is skipped. If setting coordination up raises, the update falls
+        through to :meth:`_handle_update` uncoordinated rather than being
+        lost.
 
         Parameters:
             packet:        The raw ``(update, users, chats)`` tuple from Pyrogram.
             parsed_update: The parsed Pyrogram update, or ``None``.
             handler_type:  The handler class expected to handle this update.
         """
-        
+
         coordinated = self.coordinateds.get(type(parsed_update))
 
         if coordinated is None:
             await self._handle_update(packet, parsed_update, handler_type)
             return
-        
-        acquired = None
+
+        release = None
 
         try:
-            acquired = await coordinated.acquire(parsed_update)
-        except TimeoutError:
-            acquired = False
-            log.warning("Timeout waiting for coordinated lock on %s", parsed_update)
-        except Exception:
-            log.exception("Error while attempting to acquire coordinated lock")
+            if await coordinated.is_coordinatable(parsed_update):
+                lock = await coordinated.lock(parsed_update)
 
-        if acquired is None:
+                if not await lock.acquire():
+                    log.error("Timeout waiting for coordinated lock on %r", parsed_update)
+                    return
+
+                # From here the lock is held, and only `release` gives it back.
+                release = _CoordinatedRelease(coordinated, lock, self.client.loop)
+        except Exception:
+            log.exception("Error while acquiring coordinated lock")
+
+        if release is None:
             await self._handle_update(packet, parsed_update, handler_type)
             return
 
-        if not acquired:
-            return
-
         result = (0, 0)
-        state = None
-
-        release = _CoordinatedRelease(
-            coordinated, parsed_update, self.client.loop
-        )
+        handled = False
         token = _handled_marker.set(release)
 
         try:
+            release.update_id = update_id = await coordinated.extract_update_id(parsed_update)
+
+            if await coordinated.coordinator.is_handled(update_id):
+                # A peer got there first. Nothing to do, and nothing to
+                # register — it is already registered.
+                return
+
             result = await self._handle_update(packet, parsed_update, handler_type)
         except StopPropagation:
-            state = UpdateLockState.HANDLED
+            handled = True
             raise
 
         finally:
@@ -630,13 +669,13 @@ class Dispatcher(PyroDispatcher):
             # sum() counts exc_count on purpose: a handler that raised still
             # *ran*, so the update reached its owner. Retrying it elsewhere
             # would duplicate work instead of recovering. Only a fully
-            # untouched update (0 handled, 0 raised) is left for retry.
-            if state is None and sum(result) >= 1:
-                state = UpdateLockState.HANDLED
+            # untouched update (0 handled, 0 raised) is left unregistered.
+            if not handled:
+                handled = sum(result) >= 1
 
-            # A no-op for `state` if the handler already claimed the release
-            # through mark_handled().
-            await release.settle(state)
+            # A no-op if the handler already claimed the settlement through
+            # mark_handled(). Always releases the lock.
+            await release.settle(handled)
 
 
     async def handler_worker(self, lock: asyncio.Lock):
