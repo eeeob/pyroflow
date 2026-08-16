@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, fields, is_dataclass, Field
 from itertools import combinations, count
 from pyrogram.handlers import Handler as PyroHandler
 
-from .utils.typings import JsonValueT, Number
+from .utils.typings import JsonValue as JsonValueT, Number
 from .utils import KeyDefaultDict, classproperty
 from .typings import ListenerCoordinatorIdT
 

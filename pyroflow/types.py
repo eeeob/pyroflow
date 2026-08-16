@@ -9,7 +9,7 @@ from pyrogram.types import (
     User as PyroUser
 ) 
 
-from .utils.typings import Number, JsonValueT, UpdateType
+from .utils.typings import Number, JsonValue as JsonValueT, UpdateType
 from .utils import patch_cls
 
 

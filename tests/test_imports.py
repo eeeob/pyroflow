@@ -42,13 +42,12 @@ MODULES = [
     "pyroflow.update_listener.message_listener",
     "pyroflow.update_listener.callback_query_listener",
     "pyroflow.utils",
-    "pyroflow.utils.async_tools",
     "pyroflow.utils.classes",
     "pyroflow.utils.enums",
-    "pyroflow.utils.iter_tools",
+    "pyroflow.utils.errors",
     "pyroflow.utils.misc_tools",
+    "pyroflow.utils.models",
     "pyroflow.utils.typings",
-    "pyroflow.utils.validate_tools",
 ]
 
 

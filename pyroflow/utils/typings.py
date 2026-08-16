@@ -1,49 +1,9 @@
-from typing import (
-    Collection as TCollection, Generator, Union, Reversible, 
-    Sequence, AbstractSet, Mapping, List, Any, Dict, 
-    Coroutine, Awaitable, TypeVar, 
-    Literal, ParamSpec, TypeAlias, Protocol, Callable, 
-    TYPE_CHECKING, 
-)
+from typing import Protocol, Any, TypeVar
 
-from enum import EnumMeta as EnumType
 from pyrogram.types import Update as PyroUpdate
 
-
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
-_CT = TypeVar("_CT", bound=type)
-
-_True = Literal[True]
-_False = Literal[False]
-
-
-if TYPE_CHECKING:
-    Container: TypeAlias = Union[
-        Generator[_T, Any, Any], TCollection[_T], Reversible[_T], 
-        Sequence[_T], AbstractSet[_T], Mapping[_T, Any], 
-        filter, enumerate, zip
-    ]
-else:
-    Container = Union[
-        Generator, TCollection, Reversible, 
-        Sequence, AbstractSet, Mapping, 
-        filter, enumerate, zip
-    ]
-
-NestedContainer: TypeAlias = Union[_T, "Container[NestedContainer[_T]]"]
-NotContainer: TypeAlias = Union[bytearray, bytes, str, memoryview, EnumType]
-
-MaybeCoroutineCallable: TypeAlias = Callable[_P, Union[Coroutine[Any, Any, _T], _T]]
-MaybeAwaitable: TypeAlias = Union[MaybeCoroutineCallable[_P, _T], Awaitable[_T]]
-
-Number: TypeAlias = Union[int, float]
-
-JsonValueT: TypeAlias = Union[
-    int, float, str, bool, None, 
-    List["JsonValueT"], 
-    Dict[str, "JsonValueT"]
-]
+from pytrove.typings import *
+from pytrove.typings import __all__ as _pytrove_all
 
 
 class AsyncLockProto(Protocol):
@@ -58,15 +18,7 @@ UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
 
 
 __all__ = (
-    "Container",
-    "NestedContainer",
-    "NotContainer",
-    "MaybeAwaitable",
-    "Number",
-    "MaybeCoroutineCallable",
+    *_pytrove_all,
     "AsyncLockProto",
-    "JsonValueT",
     "UpdateType",
-    "_P", "_T", "_CT",
-    "_True", "_False",
 )

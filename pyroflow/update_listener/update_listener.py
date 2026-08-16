@@ -3,7 +3,7 @@ from abc import ABC
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 
-from ..utils.typings import MaybeCoroutineCallable, Number, JsonValueT, UpdateType
+from ..utils.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT, UpdateType
 from ..utils import gather_helper, maybe_awaitable, UpdateBound
 
 from ..errors import (
