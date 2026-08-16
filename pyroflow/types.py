@@ -336,6 +336,7 @@ class Message(PyroMessage):
 class CallbackQuery(PyroCallbackQuery):
     _client: "Client"
     message: Optional["Message"]
+    from_user: "User"
 
 
 
