@@ -519,7 +519,16 @@ async def test_mark_handled_survives_a_raising_handler():
 async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
     """Sync handlers run through to_thread, off the event loop. The
     settlement has to be scheduled thread-safely rather than awaited, which
-    is why mark_handled() is a plain function."""
+    is why mark_handled() is a plain function.
+
+    Unlike the same-loop early-settlement path (create_task, one hop to its
+    first step), claim_early() off-loop goes through
+    run_coroutine_threadsafe: one hop for call_soon_threadsafe's callback to
+    create the task, then another for the task's own first step. A single
+    ``await asyncio.sleep(0)`` yields exactly one hop — enough for the
+    same-loop case, not guaranteed enough once a real OS thread and an extra
+    scheduling hop are both in the way. A short real sleep, not a bare tick,
+    is what actually waits the settlement out."""
     coordinated = make_coordinated()
     msg = coordinatable_message()
     result = {}
@@ -529,7 +538,7 @@ async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
 
     async def body(peer):
         await asyncio.to_thread(sync_handler)     # copies the context
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
 
         claimed, lock_free = await peer()
         assert claimed is True
