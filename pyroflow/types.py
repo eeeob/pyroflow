@@ -6,7 +6,8 @@ from pyrogram import types as pyro_types, enums as pyro_enums
 from pyrogram.types import (
     Message as PyroMessage, 
     CallbackQuery as PyroCallbackQuery, 
-    User as PyroUser
+    User as PyroUser, 
+    Update as PyroUpdate
 ) 
 
 from .utils.typings import Number, JsonValue as JsonValueT, UpdateType
@@ -15,6 +16,22 @@ from .utils import patch_cls
 
 if TYPE_CHECKING:
     from .client import Client, ErrorHandlersT, ListenMessageIdT
+
+
+@patch_cls
+class Update(PyroUpdate):
+    @property
+    def context(self) -> Optional[Any]:
+        try:
+            return self.__context
+        except AttributeError:
+            return
+    @context.setter
+    def context(self, value: Optional[Any] = None) -> None:
+        self.__context = value
+    @context.deleter
+    def context(self) -> None:
+        del self.__context
 
 
 @patch_cls
@@ -344,4 +361,5 @@ __all__ = (
     "User", 
     "Message", 
     "CallbackQuery", 
+    "Update", 
 )
