@@ -1,14 +1,21 @@
-from typing import TYPE_CHECKING, Optional, Union, Literal, List, Type, Any, overload, cast
+from typing import (
+    TYPE_CHECKING, Optional, Union, Literal, List, Dict,
+    Mapping, Iterable, Tuple, Type, Any, overload, cast,
+)
 from datetime import datetime
 
+try:
+    from typing import Self
+except ImportError:  # Python < 3.11
+    from typing_extensions import Self
 
 from pyrogram import types as pyro_types, enums as pyro_enums
 from pyrogram.types import (
-    Message as PyroMessage, 
-    CallbackQuery as PyroCallbackQuery, 
-    User as PyroUser, 
+    Message as PyroMessage,
+    CallbackQuery as PyroCallbackQuery,
+    User as PyroUser,
     Update as PyroUpdate
-) 
+)
 
 from .utils.typings import Number, JsonValue as JsonValueT, UpdateType
 from .utils import patch_cls
@@ -21,17 +28,33 @@ if TYPE_CHECKING:
 @patch_cls
 class Update(PyroUpdate):
     @property
-    def context(self) -> Optional[Any]:
+    def context(self) -> Dict[str, Any]:
         try:
             return self.__context
         except AttributeError:
-            return
+            self.__context = {}
+            return self.__context
     @context.setter
-    def context(self, value: Optional[Any] = None) -> None:
+    def context(self, value: Dict[str, Any]) -> None:
         self.__context = value
     @context.deleter
     def context(self) -> None:
         del self.__context
+
+    @overload
+    def with_ctx(self, __m: Mapping[str, Any], **kwargs: Any) -> Self: ...
+    @overload
+    def with_ctx(self, __m: Iterable[Tuple[str, Any]], **kwargs: Any) -> Self: ...
+    @overload
+    def with_ctx(self, **kwargs: Any) -> Self: ...
+    def with_ctx(self, *args: Any, **kwargs: Any) -> Self:
+        """
+        Merge into :attr:`context` (same arguments as ``dict.update``) and
+        return ``self``, for chaining right after the update is built.
+        """
+
+        self.context.update(*args, **kwargs)
+        return self
 
 
 @patch_cls
@@ -41,6 +64,11 @@ class User(PyroUser):
     @property
     def lang_code(self) -> Optional[str]:
         return lang.split("-")[0].lower() if (lang := self.language_code) else None
+
+if TYPE_CHECKING:
+    class User(User, Update):
+        pass
+
 
 @patch_cls
 class Message(PyroMessage):
@@ -348,14 +376,20 @@ class Message(PyroMessage):
     @property
     def respond(self):
         return self.edit if self.editable else self.reply
-        
+
+if TYPE_CHECKING:
+    class Message(Message, Update):
+        pass
+
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
     _client: "Client"
     message: Optional["Message"]
     from_user: "User"
 
-
+if TYPE_CHECKING:
+    class CallbackQuery(CallbackQuery, Update):
+        pass
 
 __all__ = (
     "User", 
