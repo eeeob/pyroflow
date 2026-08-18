@@ -46,9 +46,14 @@ pip install pyroflow[dev]     # + development tools (hatch, twine)
 
 To get the latest, unreleased changes straight from GitHub instead of the last PyPI release:
 
-```
+```bash
 pip install git+https://github.com/eeeob/pyroflow.git --force-reinstall
 ```
+### 🔹 Without Deps
+```bash
+pip install git+https://github.com/eeeob/pyroflow.git --force-reinstall --no-deps
+```
+---
 
 
 ## Quick start
