@@ -28,15 +28,20 @@ if TYPE_CHECKING:
 @patch_cls
 class Update(PyroUpdate):
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> Optional[Dict[str, Any]]:
         try:
             return self.__context
         except AttributeError:
-            self.__context = {}
-            return self.__context
+            return
     @context.setter
-    def context(self, value: Dict[str, Any]) -> None:
-        self.__context = value
+    def context(self, value: Optional[Dict[str, Any]]) -> None:
+        if value is None:
+            try:
+                del self.__context
+            except AttributeError:
+                pass
+        else:
+            self.__context = value
     @context.deleter
     def context(self) -> None:
         del self.__context
@@ -52,8 +57,11 @@ class Update(PyroUpdate):
         Merge into :attr:`context` (same arguments as ``dict.update``) and
         return ``self``, for chaining right after the update is built.
         """
-
-        self.context.update(*args, **kwargs)
+        context = self.context
+        if context is None:
+            self.context = context = {}
+        context.update(*args, **kwargs)
+        
         return self
 
 
