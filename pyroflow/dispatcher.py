@@ -298,10 +298,6 @@ class Dispatcher(PyroDispatcher):
             **kw: Passed directly to the original dispatcher.
         """
 
-        r = await self.oldstop(*args, **kw)
-
-        self.is_started = False
-
         await gather_helper(
             (listener.stop()
             for listener in self.listeners.values()), 
@@ -311,6 +307,10 @@ class Dispatcher(PyroDispatcher):
             for history in self.histories.values()), 
             return_exc=True
         )
+
+        r = await self.oldstop(*args, **kw)
+
+        self.is_started = False
 
         return r
 
