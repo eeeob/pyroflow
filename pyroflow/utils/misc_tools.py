@@ -1,3 +1,11 @@
+from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, overload
+
+from pyrogram.sync import async_to_sync
+from pyrogram.types import BotCommand
+from pyrogram.handlers import MessageHandler
+
+# The handler types mark_bot_commands() is willing to mark. BusinessMessageHandler
+# is not present in every supported Pyrogram/Kurigram version.
 try:
     from pyrogram.handlers import BusinessMessageHandler
 except ImportError:
@@ -5,13 +13,8 @@ except ImportError:
 else:
     _MESSAGES_HANDLER = (MessageHandler, BusinessMessageHandler)
     del BusinessMessageHandler
+
 del MessageHandler
-
-from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, overload
-
-from pyrogram.sync import async_to_sync
-from pyrogram.types import BotCommand
-from pyrogram.handlers import MessageHandler
 
 from pytrove import iscoroutinefunction_wrapped, maybe_awaitable, patch_cls as _patch_cls
 from .typings import _CT, _FT
