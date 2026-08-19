@@ -1,5 +1,8 @@
-from typing import TYPE_CHECKING, Any, Callable, Type, Dict, List, Optional, TypeAlias, Tuple, Union, overload
+import asyncio
+
+from typing import TYPE_CHECKING, Any, Type, Dict, List, Optional, Tuple, Union, overload
 from datetime import datetime
+from functools import cached_property
 
 from pyrogram import (
     Client as PyroClient,
@@ -7,49 +10,26 @@ from pyrogram import (
     types as pyro_types,
     utils as pyro_ut
 )
+from pyrogram.sync import wrap as async_to_sync
+from pyrogram.types import BotCommand, BotCommandScope
 
-
-from .utils.typings import Number, JsonValue as JsonValueT, UpdateType, MaybeCoroutineCallable
-from .utils import patch_cls, maybe_awaitable
-
+from .utils.typings import Number, JsonValue as JsonValueT, MaybeCoroutineCallable, MaybeList, UpdateType
+from .utils.constants import BOT_COMMANDS_ATTR
+from .utils import (
+    patch_cls,
+    to_list,
+    gather_abort,
+    clean_none_kw,
+    safe_call,
+    split_bot_command_entry,
+    handle_ask_error,
+    safe_await, 
+)
+from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT
 from .types import Message, CallbackQuery
 
 from .dispatcher import Dispatcher
 from .update_listener import UpdateListener
-
-
-# Maps one or more exception types to a handler invoked with (exc, message)
-# when that error occurs while awaiting the listener in ask(), before
-# listening finishes.
-ErrorHandlersT: TypeAlias = Dict[
-    Union[Type[Exception], Tuple[Type[Exception], ...]],
-    MaybeCoroutineCallable[[Exception, Message], Any],
-]
-
-# Either an explicit message id, or a synchronous callable receiving the
-# sent/edited message (m) and returning the id to listen for (or None).
-# Must be fast and non-blocking: it is called inline, not via to_thread.
-ListenMessageIdT: TypeAlias = Union[int, Callable[[Message], Optional[int]]]
-
-
-async def _handle_ask_error(
-    exc: Exception, 
-    m: Message, 
-    *handlers: Optional[ErrorHandlersT], 
-    ) -> bool:
-
-    for hdlrs in handlers:
-        if not hdlrs:
-            continue
-
-        for exc_types, handler in hdlrs.items():
-            if isinstance(exc, exc_types):
-                await maybe_awaitable(handler, exc, m, return_exc=True)
-                return True
-        
-    return False
-
-
 
 
 @patch_cls
@@ -181,7 +161,7 @@ class Client(PyroClient):
     """
 
     dispatcher: Dispatcher
-    ask_error_handlers: Dict[Type[UpdateType], ErrorHandlersT]
+    ask_error_handlers: Dict[Type[UpdateType], AskErrorHandlersT]
 
     if not TYPE_CHECKING: #for typehints
         def __init__(self, *args, **kw):
@@ -325,7 +305,7 @@ class Client(PyroClient):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
-        error_handlers: Optional[ErrorHandlersT] = None,
+        error_handlers: Optional[AskErrorHandlersT] = None,
         **kw
     ) -> UpdateType: ...
 
@@ -348,7 +328,7 @@ class Client(PyroClient):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
-        error_handlers: Optional[ErrorHandlersT] = None,
+        error_handlers: Optional[AskErrorHandlersT] = None,
         **kw
     ) -> UpdateType: ...
 
@@ -386,7 +366,7 @@ class Client(PyroClient):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = Message,
-        error_handlers: Optional[ErrorHandlersT] = None,
+        error_handlers: Optional[AskErrorHandlersT] = None,
         **kw
     ) -> UpdateType:
         """
@@ -540,9 +520,280 @@ class Client(PyroClient):
                 timeout=timeout,
             )
         except Exception as exc:
-            await _handle_ask_error(
-                exc, m, 
-                error_handlers, 
+            await handle_ask_error(
+                exc, m,
+                error_handlers,
                 client_handlers.copy() if (client_handlers := self.ask_error_handlers.get(update_type)) else None
                 )
             raise
+
+
+if TYPE_CHECKING:
+    # Type checking only: the mixin is written as if it were a Client, so calls
+    # like self.set_bot_commands() resolve. At runtime the base is plain object
+    # — see the class docstring.
+    _BotCommandsMixinBase = Client
+else:
+    _BotCommandsMixinBase = object
+
+
+class BotCommandsMixin(_BotCommandsMixinBase):
+    """
+    Opt-in :class:`Client` mixin that publishes the bot commands declared with
+    :func:`mark_bot_commands` on the handlers you register.
+
+    It is deliberately *not* a :class:`Client` subclass and *not* applied via
+    ``@patch_cls``: nothing changes unless you ask for it. Combine it with
+    :class:`Client` yourself, mixin first so its overrides win:
+
+    .. code-block:: python
+
+        from pyroflow import Client, BotCommandsMixin
+
+        class MyClient(BotCommandsMixin, Client):
+            pass
+
+    What it overrides
+    -----------------
+    - :meth:`add_handler` / :meth:`remove_handler` — defer to the normal
+      Pyrogram behaviour, then collect (or drop) the commands marked on the
+      handler, in a task of their own so the bookkeeping follows the real
+      registration rather than assuming it. Nothing is sent to Telegram yet.
+    - :meth:`start` — connect first, then :meth:`push_bot_commands`, so that
+      handlers loaded from ``plugins=`` during startup are included too.
+    - :meth:`stop` — :meth:`remove_bot_commands` first, then disconnect.
+
+    Commands are grouped by ``(language_code, scope)``, one Telegram call per
+    group, so different scopes never overwrite each other.
+    """
+
+    @cached_property
+    def bot_command_groups(self) -> List[Tuple[BotCommandGroupKeyT, List[BotCommand]]]:
+        return []
+    @cached_property
+    def bot_command_groups_lock(self) -> asyncio.Lock:
+        return asyncio.Lock()
+
+    def add_handler(self, handler, group: int = 0):
+        result = super().add_handler(handler, group)
+        self._track_bot_commands(handler, True)
+        return result
+
+    def remove_handler(self, handler, group: int = 0):
+        result = super().remove_handler(handler, group)
+        self._track_bot_commands(handler, False)
+        return result
+
+    def _track_bot_commands(self, handler, added: bool) -> None:
+        """
+        Queue this registration's bookkeeping behind Pyrogram's own.
+
+        Pyrogram never mutates ``dispatcher.groups`` inline: ``add_handler`` and
+        ``remove_handler`` schedule a task that first acquires
+        ``dispatcher.locks_list``, and that task may end up doing nothing at all
+        — ``remove_handler`` raises ``ValueError`` inside it when the handler was
+        not in that group. Collecting the commands inline would therefore record
+        changes that never happened, so we schedule our own task right after
+        Pyrogram's (the loop runs them in creation order, and both contend for
+        the same locks) and let it read the real state.
+        """
+
+        
+        async def apply() -> None:
+            if not getattr(handler, BOT_COMMANDS_ATTR, ()):
+                return
+            
+            if any(handler in handlers for handlers in self.dispatcher.groups.values()) is not added:
+                return
+            
+            locks = [self.bot_command_groups_lock] + self.dispatcher.locks_list
+            acquired = []
+
+            try:
+                for lock in locks:
+                    await lock.acquire()
+                    acquired.append(lock)
+
+                track = self._collect_bot_commands if added else self._discard_bot_commands
+
+                for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
+                    track(*split_bot_command_entry(entry))
+            finally:
+                # Only what we took: asyncio.Lock has no notion of an owner, so
+                # releasing one we are merely *waiting* on — which is where a
+                # cancellation lands us — would hand it away from its holder.
+                for lock in reversed(acquired):
+                    lock.release()
+
+        self.loop.create_task(apply())
+
+    def _collect_bot_commands(
+        self, 
+        language_code: Optional[str], 
+        scope: Optional[BotCommandScope], 
+        commands: MaybeList[BotCommand]
+        ) -> None:
+        """Add ``commands`` to the ``(language_code, scope)`` group, creating it if new."""
+
+        key = (language_code, scope)
+        bot_command_groups = self.bot_command_groups
+        group = next(
+            (_commands for _key, _commands in bot_command_groups if _key == key), 
+            None
+        )
+
+        if group is None:
+            bot_command_groups.append((key, group := []))
+
+        group.extend(to_list(commands))
+
+    def _discard_bot_commands(
+        self, 
+        language_code: Optional[str], 
+        scope: Optional[BotCommandScope], 
+        commands: MaybeList[BotCommand]
+        ) -> None:
+        """Remove ``commands`` from the ``(language_code, scope)`` group, dropping it once empty."""
+
+        key = (language_code, scope)
+
+        for i, (_key, _commands) in enumerate(self.bot_command_groups):
+            if _key != key:
+                continue
+
+            for command in to_list(commands):
+                safe_call(_commands.remove, command, include_exc=ValueError)
+
+            if not _commands:
+                self.bot_command_groups.pop(i)
+
+            break
+
+    def _prune_bot_commands(self) -> None:
+        """
+        Drop every collected command that no registered handler declares any
+        more, so a bookkeeping task that never landed cannot leave a command
+        published for a handler that is gone.
+
+        Only removes; adding back is :meth:`_track_bot_commands`'s job. Reads
+        ``dispatcher.groups`` without its locks on purpose — the caller has
+        already yielded once (queued registrations have landed) and holds
+        :attr:`bot_command_groups_lock`, so no bookkeeping task can be running.
+        """
+
+        declared: List[Tuple[BotCommandGroupKeyT, List[BotCommand]]] = []
+
+        for handlers in list(self.dispatcher.groups.values()):
+            for handler in handlers:
+                for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
+                    language_code, scope, commands = split_bot_command_entry(entry)
+                    key = (language_code, scope)
+                    group = next((_commands for _key, _commands in declared if _key == key), None)
+
+                    if group is None:
+                        declared.append((key, group := []))
+
+                    group.extend(to_list(commands))
+
+        groups = self.bot_command_groups
+
+        if not declared:
+            groups.clear()
+
+        for i in reversed(range(len(groups))):
+            key, commands = groups[i]
+            live = next((_commands for _key, _commands in declared if _key == key), ())
+
+            commands[:] = [command for command in commands if command in live]
+
+            if not commands:
+                groups.pop(i)
+
+    async def push_bot_commands(self) -> None:
+        """
+        Send every collected command group to Telegram, one
+        :meth:`~pyrogram.Client.set_bot_commands` call per
+        ``(language_code, scope)`` pair.
+
+        Commands whose handler is no longer registered are pruned first, then
+        duplicates within a group are dropped (the same command may legitimately
+        be declared on more than one handler) and empty groups are skipped.
+        Called automatically by :meth:`start`.
+        """
+
+        await safe_await(
+            asyncio.sleep(0), 
+            self.bot_command_groups_lock.acquire(), 
+            return_exc=False
+        )
+
+        coros = []
+
+        try:
+            self._prune_bot_commands()
+            for (language_code, scope), commands in self.bot_command_groups:
+                unique: List[BotCommand] = []
+                for command in commands:
+                    if command not in unique:
+                        unique.append(command)
+
+                if not unique:
+                    continue
+
+                coros.append(
+                    self.set_bot_commands(unique, **clean_none_kw(scope=scope, language_code=language_code))
+                )
+
+            if coros:
+                await gather_abort(coros)
+        finally:
+            self.bot_command_groups_lock.release()
+
+    async def remove_bot_commands(self) -> None:
+        """
+        Delete every collected command group from Telegram, one
+        :meth:`~pyrogram.Client.delete_bot_commands` call per
+        ``(language_code, scope)`` pair.
+
+        Called automatically by :meth:`stop` unless told not to.
+        """
+
+        await safe_await(
+            asyncio.sleep(0), 
+            self.bot_command_groups_lock.acquire(), 
+            return_exc=False
+        )
+
+        try:
+            await gather_abort(
+                self.delete_bot_commands(**clean_none_kw(language_code=language_code, scope=scope))
+                for (language_code, scope), _ in self.bot_command_groups
+            )
+        finally:
+            self.bot_command_groups_lock.release()
+
+    async def start(self, *args, **kw):
+        """Start the client as usual, then publish the collected commands."""
+
+        result = await super().start(*args, **kw)
+        await self.push_bot_commands()
+        return result
+
+    async def stop(self, *args, remove_commands: bool = True, **kw):
+        """
+        Delete the published commands, then stop the client as usual.
+
+        Parameters:
+            remove_commands: Set to ``False`` to leave the commands registered
+                             on Telegram's side after stopping.
+        """
+
+        if remove_commands:
+            await self.remove_bot_commands()
+        try:
+            return await super().stop(*args, **kw)
+        finally:
+            self._prune_bot_commands()
+
+
+async_to_sync(BotCommandsMixin)

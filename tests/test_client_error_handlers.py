@@ -1,7 +1,7 @@
 """Client.ask_error_handlers: the client-wide fallback for ask()'s
 error_handlers, plus register_ask_error_handler()/unregister_ask_error_handler().
 
-_handle_ask_error() is the exact function ask()'s except block calls, so
+handle_ask_error() is the exact function ask()'s except block calls, so
 matching and precedence are tested by calling it directly rather than by
 reimplementing its routing logic in the test.
 """
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pyroflow
 import pytest
 
-from pyroflow.client import _handle_ask_error
+from pyroflow.utils import handle_ask_error
 from pyroflow.types import CallbackQuery, Message
 
 
@@ -23,7 +23,7 @@ class ExcB(Exception):
     pass
 
 
-# --- _handle_ask_error(): matching -------------------------------------------
+# --- handle_ask_error(): matching -------------------------------------------
 
 
 async def test_matching_handler_runs_and_reports_true():
@@ -32,7 +32,7 @@ async def test_matching_handler_runs_and_reports_true():
     async def handler(exc, m):
         calls.append((exc, m))
 
-    ran = await _handle_ask_error(ExcA(), "the message", {ExcA: handler}, {})
+    ran = await handle_ask_error(ExcA(), "the message", {ExcA: handler}, {})
     assert ran is True
     assert len(calls) == 1 and calls[0][1] == "the message"
 
@@ -43,14 +43,14 @@ async def test_non_matching_handler_does_not_run():
     async def handler(exc, m):
         calls.append(exc)
 
-    ran = await _handle_ask_error(ExcA(), "m", {ExcB: handler}, {})
+    ran = await handle_ask_error(ExcA(), "m", {ExcB: handler}, {})
     assert ran is False
     assert calls == []
 
 
 @pytest.mark.parametrize("call_handlers", [{}, None])
 async def test_empty_or_missing_mapping_is_a_noop(call_handlers):
-    assert await _handle_ask_error(ExcA(), "m", call_handlers, {}) is False
+    assert await handle_ask_error(ExcA(), "m", call_handlers, {}) is False
 
 
 async def test_tuple_key_matches_any_listed_type():
@@ -59,7 +59,7 @@ async def test_tuple_key_matches_any_listed_type():
     async def handler(exc, m):
         calls.append(exc)
 
-    ran = await _handle_ask_error(ExcA(), "m", {(ExcB, ExcA): handler}, {})
+    ran = await handle_ask_error(ExcA(), "m", {(ExcB, ExcA): handler}, {})
     assert ran is True and len(calls) == 1
 
 
@@ -69,11 +69,11 @@ async def test_sync_handler_is_supported():
     def handler(exc, m):
         calls.append(exc)
 
-    ran = await _handle_ask_error(ExcA(), "m", {ExcA: handler}, {})
+    ran = await handle_ask_error(ExcA(), "m", {ExcA: handler}, {})
     assert ran is True and len(calls) == 1
 
 
-# --- _handle_ask_error(): call-vs-client precedence -------------------------
+# --- handle_ask_error(): call-vs-client precedence -------------------------
 
 
 async def test_call_level_handler_wins_over_an_identical_client_key():
@@ -81,7 +81,7 @@ async def test_call_level_handler_wins_over_an_identical_client_key():
     call_handlers = {ExcA: lambda exc, m: calls.append("call")}
     client_handlers = {ExcA: lambda exc, m: calls.append("client")}
 
-    await _handle_ask_error(ExcA(), "m", call_handlers, client_handlers)
+    await handle_ask_error(ExcA(), "m", call_handlers, client_handlers)
 
     assert calls == ["call"]
 
@@ -96,7 +96,7 @@ async def test_call_level_handler_wins_over_a_broader_client_handler():
     call_handlers = {ExcA: lambda exc, m: calls.append("call-specific")}
     client_handlers = {Exception: lambda exc, m: calls.append("client-broad")}
 
-    await _handle_ask_error(ExcA("boom"), "m", call_handlers, client_handlers)
+    await handle_ask_error(ExcA("boom"), "m", call_handlers, client_handlers)
 
     assert calls == ["call-specific"], (
         "client's broader handler ran instead of the call's specific one"
@@ -108,7 +108,7 @@ async def test_client_handler_runs_only_when_the_call_had_no_match():
     call_handlers = {ExcB: lambda exc, m: calls.append("call")}
     client_handlers = {ExcA: lambda exc, m: calls.append("client")}
 
-    await _handle_ask_error(ExcA("boom"), "m", call_handlers, client_handlers)
+    await handle_ask_error(ExcA("boom"), "m", call_handlers, client_handlers)
 
     assert calls == ["client"]
 
@@ -117,13 +117,13 @@ async def test_client_handler_runs_when_the_call_passed_none():
     calls = []
     client_handlers = {ExcA: lambda exc, m: calls.append("client")}
 
-    await _handle_ask_error(ExcA("boom"), "m", None, client_handlers)
+    await handle_ask_error(ExcA("boom"), "m", None, client_handlers)
 
     assert calls == ["client"]
 
 
 async def test_neither_mapping_matching_reports_false():
-    ran = await _handle_ask_error(ExcA("boom"), "m", {ExcB: lambda e, m: None}, {})
+    ran = await handle_ask_error(ExcA("boom"), "m", {ExcB: lambda e, m: None}, {})
     assert ran is False
 
 
@@ -133,7 +133,7 @@ async def test_neither_mapping_matching_reports_false():
 async def test_ask_error_handlers_lookup_is_scoped_to_the_calls_update_type():
     """Reproduces exactly what ask()'s except block does:
     `self.ask_error_handlers.get(update_type, {})` before calling
-    _handle_ask_error. A Message-registered handler must not leak into a
+    handle_ask_error. A Message-registered handler must not leak into a
     CallbackQuery-flavoured ask()."""
     c = make_client()
     calls = []
@@ -142,7 +142,7 @@ async def test_ask_error_handlers_lookup_is_scoped_to_the_calls_update_type():
     )
 
     client_handlers = c.ask_error_handlers.get(CallbackQuery, {})
-    await _handle_ask_error(ExcA("boom"), "m", None, client_handlers)
+    await handle_ask_error(ExcA("boom"), "m", None, client_handlers)
 
     assert calls == [], "Message's handler ran for a CallbackQuery-scoped ask()"
 
@@ -155,14 +155,14 @@ async def test_ask_error_handlers_lookup_finds_the_matching_update_type():
     )
 
     client_handlers = c.ask_error_handlers.get(CallbackQuery, {})
-    await _handle_ask_error(ExcA("boom"), "m", None, client_handlers)
+    await handle_ask_error(ExcA("boom"), "m", None, client_handlers)
 
     assert calls == ["cb-handler"]
 
 
 # --- ask() itself, end to end -----------------------------------------------
 #
-# The tests above pin _handle_ask_error() and the .get(update_type) lookup in
+# The tests above pin handle_ask_error() and the .get(update_type) lookup in
 # isolation, but neither proves ask()'s except block actually calls them the
 # way it's supposed to — a change to that one block (e.g. flattening the
 # per-update_type scoping back into one shared mapping) would slip past every
