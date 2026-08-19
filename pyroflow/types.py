@@ -19,10 +19,11 @@ from pyrogram.types import (
 
 from .utils.typings import Number, JsonValue as JsonValueT, UpdateType
 from .utils import patch_cls
+from .typings import AskErrorHandlersT, ListenMessageIdT
 
 
 if TYPE_CHECKING:
-    from .client import Client, ErrorHandlersT, ListenMessageIdT
+    from .client import Client
 
 
 @patch_cls
@@ -99,7 +100,7 @@ class Message(PyroMessage):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
-        error_handlers: Optional["ErrorHandlersT"] = None,
+        error_handlers: Optional["AskErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
         ...
@@ -135,7 +136,7 @@ class Message(PyroMessage):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
-        error_handlers: Optional["ErrorHandlersT"] = None,
+        error_handlers: Optional["AskErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
         ...
@@ -171,7 +172,7 @@ class Message(PyroMessage):
         meta: Optional[JsonValueT] = None,
         timeout: Optional[Number] = None,
         update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
-        error_handlers: Optional["ErrorHandlersT"] = None,
+        error_handlers: Optional["AskErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
 
@@ -277,7 +278,7 @@ class Message(PyroMessage):
                 The expected class type of the update to listen for.
                 Defaults to :obj:`~pyroflow.types.Message`.
 
-            error_handlers (``ErrorHandlersT``, *optional*):
+            error_handlers (``AskErrorHandlersT``, *optional*):
                 ``{exc_type_or_tuple: handler}`` mapping. If listening raises
                 before completing, the dict is scanned in order and the
                 handler for the first key matching ``isinstance(exc, key)``
