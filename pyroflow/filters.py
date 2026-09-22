@@ -20,62 +20,24 @@ from functools import wraps
 from pyrogram.filters import Filter, create
 
 from .types import Message, CallbackQuery as Query
-from .utils import iter_flat_cont, is_container, maybe_awaitable
+from .utils import iter_flat_cont, is_container, maybe_awaitable, extract_pyro_update_text, to_coroutine
 from .utils.typings import MaybeCoroutineCallable, NestedContainer
 
 if TYPE_CHECKING:
     from .client import Client
 
-def _to_coroutine(func) -> Callable[..., Coroutine]:
-    """Wrap a cheap synchronous predicate as a coroutine function.
-
-    ``pyrogram.handlers.Handler.check()`` decides how to run a filter by
-    checking ``inspect.iscoroutinefunction(filter.__call__)``: an async
-    filter is awaited inline on the event loop, a sync one is dispatched to
-    the client's executor thread pool. The predicates built below are a
-    handful of string comparisons — cheap enough that the thread-pool round
-    trip would cost more than the check itself — so they are wrapped to run
-    inline instead of going through the executor.
-    """
-
-    @wraps(func)
-    async def wrapper(*args, **kw):
-        return func(*args, **kw)
-
-    return wrapper
-
 def _raise(exc: Exception) -> NoReturn:
     """``raise`` as an expression, for use inside a comprehension."""
     raise exc
 
-def _extract_text(update: Union[Message, Query]) -> str:
-    """
-    The text-like payload of a ``Message`` or ``CallbackQuery``, or ``""``
-    if it has none.
-
-    ``Message`` uses ``.text``, falling back to ``.caption`` — matching how
-    pyrogram's own built-in ``filters.text`` treats messages. ``CallbackQuery``
-    uses ``.data``, but only if it is a ``str``: a bad client can send
-    arbitrary bytes there, and a text comparison against bytes makes no sense.
-
-    Never returns ``None``, so callers can chain ``.endswith()``/
-    ``.startswith()``/membership checks directly without a null check —
-    ``"".endswith(())`` and ``"".startswith(())`` are both simply ``False``
-    for an empty tuple, matching "no text means no match".
-    """
-
-    if isinstance(update, Message):
-        return update.text or update.caption or ""
-
-    return data if isinstance(data := update.data, str) else ""
 
 
 def endswith(*texts: "NestedContainer[str]") -> Filter:
     """Match when the update's text ends with any of ``texts``."""
 
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
-    caller = _to_coroutine(
-        lambda _, __, update: _extract_text(update).endswith(flat_texts)
+    caller = to_coroutine(
+        lambda _, __, update: extract_pyro_update_text(update).endswith(flat_texts)
     )
 
     return create(caller, "EndsWith")
@@ -84,8 +46,8 @@ def startswith(*texts: "NestedContainer[str]") -> Filter:
     """Match when the update's text starts with any of ``texts``."""
 
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
-    caller = _to_coroutine(
-        lambda _, __, update: _extract_text(update).startswith(flat_texts)
+    caller = to_coroutine(
+        lambda _, __, update: extract_pyro_update_text(update).startswith(flat_texts)
     )
 
     return create(caller, "StartsWith")
@@ -94,7 +56,7 @@ def equal(*texts: "NestedContainer[str]") -> Filter:
     """Match when the update's text is exactly one of ``texts``."""
 
     flat_texts = frozenset(t for t in iter_flat_cont(texts) if isinstance(t, str) and t)
-    caller = _to_coroutine(lambda _, __, update: _extract_text(update) in flat_texts)
+    caller = to_coroutine(lambda _, __, update: extract_pyro_update_text(update) in flat_texts)
 
     return create(caller, "Equal")
 
@@ -159,7 +121,7 @@ def split_text(
         )
 
     async def caller(_, client: "Client", update: Union[Message, Query]) -> bool:
-        text = _extract_text(update)
+        text = extract_pyro_update_text(update)
 
         if not text:
             return False

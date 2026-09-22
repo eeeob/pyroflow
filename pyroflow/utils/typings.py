@@ -1,4 +1,4 @@
-from typing import Protocol, Any, List, TypeAlias, TypeVar, Union
+from typing import Protocol, Any, TypeVar
 from pyrogram.types import Update as PyroUpdate
 
 from pytrove.typings import *
@@ -13,12 +13,10 @@ class AsyncLockProto(Protocol):
     async def __aenter__(self) -> None: ...
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None: ...
 
-MaybeList: TypeAlias = Union[_T, List[_T]]
 
 
 __all__ = (
     *_pytrove_all,
     "AsyncLockProto",
     "UpdateType",
-    "MaybeList",
 )

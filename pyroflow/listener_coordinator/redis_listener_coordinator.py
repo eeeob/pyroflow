@@ -362,48 +362,44 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.cancel_channel_name
         )
 
-        try:
-            async for msg in self.pubsub.listen():
-                if msg["type"] != "message":
-                    continue
+        
+        async for msg in self.pubsub.listen():
+            if msg["type"] != "message":
+                continue
 
-                data = msg["data"]
+            data = msg["data"]
 
-                if isinstance(data, bytes):
-                    data = data.decode()
+            if isinstance(data, bytes):
+                data = data.decode()
 
-                # Payload is "<packed_key><sep><coordinator_id>". The id is a
-                # hex uuid and never contains the separator, so taking it from
-                # the right leaves the packed key intact.
-                packed_key, _, coordinator_id = data.rpartition(self._sep)
+            # Payload is "<packed_key><sep><coordinator_id>". The id is a
+            # hex uuid and never contains the separator, so taking it from
+            # the right leaves the packed key intact.
+            packed_key, _, coordinator_id = data.rpartition(self._sep)
 
-                if not packed_key:
-                    log.warning("Malformed cancel signal payload: %r", data)
-                    continue
+            if not packed_key:
+                log.warning("Malformed cancel signal payload: %r", data)
+                continue
 
-                key = self._unpack_key(packed_key)
+            key = self._unpack_key(packed_key)
 
-                log.debug(
-                    "Received cancel signal for %s (token %r) from pubsub",
-                    key, coordinator_id,
-                )
+            log.debug(
+                "Received cancel signal for %s (token %r) from pubsub",
+                key, coordinator_id,
+            )
 
-                # Applying a cancel takes the chat lock, which may be held
-                # elsewhere. Awaiting it inline would stall every later signal
-                # behind this one — head-of-line blocking that grows the very
-                # cancellation delay this channel exists to avoid. Dispatch it
-                # and keep reading.
-                task = asyncio.create_task(
-                    self._apply_cancel_signal(key, coordinator_id)
-                )
-                self._pending_cancels.add(task)
-                task.add_done_callback(self._pending_cancels.discard)
+            # Applying a cancel takes the chat lock, which may be held
+            # elsewhere. Awaiting it inline would stall every later signal
+            # behind this one — head-of-line blocking that grows the very
+            # cancellation delay this channel exists to avoid. Dispatch it
+            # and keep reading.
+            task = asyncio.create_task(
+                self._apply_cancel_signal(key, coordinator_id)
+            )
+            self._pending_cancels.add(task)
+            task.add_done_callback(self._pending_cancels.discard)
 
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("Listening task crashed — cancel signals will no longer be received")
-            raise
+      
 
 
 

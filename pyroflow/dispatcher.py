@@ -552,8 +552,8 @@ class Dispatcher(PyroDispatcher):
                         *args, 
                         executor=self.client.executor
                     )
-                except (StopPropagation, UnhandledUpdate):
-                    raise
+                except (StopPropagation, UnhandledUpdate) as e:
+                    raise e
                 except ContinuePropagation:
                     continue
                 except Exception as exc:
@@ -659,9 +659,9 @@ class Dispatcher(PyroDispatcher):
                 return
 
             result = await self._handle_update(packet, parsed_update, handler_type)
-        except StopPropagation:
+        except StopPropagation as e:
             handled = True
-            raise
+            raise e
 
         finally:
             _handled_marker.reset(token)

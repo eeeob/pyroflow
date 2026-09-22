@@ -525,7 +525,7 @@ class Client(PyroClient):
                 error_handlers,
                 client_handlers.copy() if (client_handlers := self.ask_error_handlers.get(update_type)) else None
                 )
-            raise
+            raise exc
 
 
 if TYPE_CHECKING:

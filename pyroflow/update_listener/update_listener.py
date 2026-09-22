@@ -312,15 +312,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         try:
             # Wait until the listener is resolved or cancelled.
             return await asyncio.wait_for(fut, timeout)
-        except asyncio.TimeoutError as e:
+        except asyncio.TimeoutError:
             exc = ListenerTimeout(key)
             if not listener.done():
                 listener.set_exc(exc)
-            raise exc from e
+            raise exc from None
         except BaseException as e:
             if not listener.done():
                 listener.set_exc(e)
-            raise
+            raise e
             
         finally:
 

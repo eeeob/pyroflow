@@ -41,7 +41,7 @@ classifiers = [
 dependencies = [
     "cachetools>=4.1.0",
     "kurigram>=2.2.0",
-    "pytrove>=1.0,<2.0",
+    "pytrove>=1.1.2,<2.0",
 ]
 
 
