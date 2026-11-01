@@ -286,3 +286,33 @@ async def test_cancel_signal_carries_the_invalidated_token(redis, sessions):
     if isinstance(payload, bytes):
         payload = payload.decode()
     assert payload.endswith(token)
+
+
+async def test_stop_propagates_its_own_cancellation(redis):
+    """stop() waits for the listening task to clean up; if stop() itself is
+    cancelled meanwhile, the caller must see that cancellation, not lose it."""
+    listener = MessageListener(coordinator_factory=partial(RedisListenerCoordinator, redis))
+    coordinator = listener.coordinator
+    assert isinstance(coordinator, RedisListenerCoordinator)
+    await coordinator.start()
+    await _silence_cancel_signals(listener)
+
+    async def _slow_cleanup():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.05)
+            raise
+
+    coordinator.listening_task = asyncio.create_task(_slow_cleanup())
+    await asyncio.sleep(0)
+
+    stopping = asyncio.create_task(coordinator.stop())
+    await asyncio.sleep(0.01)          # stop() is now waiting on the cleanup
+    stopping.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await stopping
+    finally:
+        await asyncio.gather(coordinator.listening_task, return_exceptions=True)
+        await coordinator.pubsub.aclose()

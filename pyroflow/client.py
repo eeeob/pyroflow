@@ -27,6 +27,7 @@ from pytrove import (
     clean_none_kw,
     safe_call,
     safe_await, 
+    yield_control,
 )
 from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT
 from .types import Message, CallbackQuery
@@ -725,7 +726,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         """
 
         await safe_await(
-            asyncio.sleep(0), 
+            yield_control(), 
             self.bot_command_groups_lock.acquire(), 
             return_exc=False
         )
@@ -762,7 +763,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         """
 
         await safe_await(
-            asyncio.sleep(0), 
+            yield_control(), 
             self.bot_command_groups_lock.acquire(), 
             return_exc=False
         )

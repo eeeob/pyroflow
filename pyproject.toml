@@ -40,8 +40,8 @@ classifiers = [
 
 dependencies = [
     "cachetools>=4.1.0",
-    "kurigram>=2.2.0",
-    "pytrove>=1.1.2,<2.0",
+    "kurigram>=2.2.24",
+    "pytrove>=2.0.0,<3.0",
 ]
 
 

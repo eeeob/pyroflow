@@ -4,7 +4,7 @@ if TYPE_CHECKING:
     from redis.asyncio.client import PubSub
     from redis.asyncio import Redis
 
-from pytrove import gather_helper
+from pytrove import cancel_task, gather_helper
 from pytrove.typings import Number
 from ..models import ListenerKey
 
@@ -293,12 +293,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
         pubsub = self.pubsub
 
         if task is not None and not task.done():
-            task.cancel()
-
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            # cancel_task يعيد رفع إلغاء الـ caller نفسه بدل ابتلاعه
+            await cancel_task(task)
 
             self.listening_task = None
 
