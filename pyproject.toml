@@ -41,9 +41,16 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+# Every dependency has a floor and, by default, no ceiling; the reason for each
+# bound sits beside it.
 dependencies = [
+    # Floor set when the feature was added (TTLCache in the Memory backends).
     "cachetools>=4.1.0",
+    # The floor pytrove 2.0 enforces for its Telegram tools
+    # (`extract_pyro_update_text`, used by filters).
     "kurigram>=2.2.24",
+    # Floor: cancel_task and yield_control are pytrove 2.0 APIs. Ceiling: pyroflow
+    # imports many pytrove names, and a major release may remove or change them.
     "pytrove>=2.0.0,<3.0",
 ]
 
@@ -58,6 +65,7 @@ dependencies = [
 
 [project.optional-dependencies]
 redis = [
+    # 4.2.0 is the first release with `redis.asyncio`, which the Redis backends use.
     "redis>=4.2.0",
 ]
 
@@ -70,6 +78,7 @@ redis = [
 dev = [
     { include-group = "lint" },
     { include-group = "test" },
+    { include-group = "test-redis" },
 ]
 
 lint = [
@@ -85,12 +94,18 @@ lint = [
 test = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
-    "redis>=4.2.0",
-    # Redis fakes for the Redis-backend tests: no real Redis or network.
-    "fakeredis>=2.20",
-    "lupa",
     # TOML reading below 3.11, for test_compat_static.
     "tomli; python_version < '3.11'",
+]
+
+# In-memory Redis for the Redis-backend tests: no real Redis or network.
+# fakeredis pulls in redis itself, so it stays out of `test` and
+# `make test-minimal` runs with neither; the Redis tests skip via
+# `pytest.importorskip("fakeredis")`.
+test-redis = [
+    "fakeredis>=2.20",
+    # Lua scripting for fakeredis (the Redis backends run Lua scripts).
+    "lupa",
 ]
 
 

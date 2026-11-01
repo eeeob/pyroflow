@@ -330,7 +330,6 @@ dev = [
     { name = "pre-commit", version = "4.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "redis" },
     { name = "ruff" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "ty" },
@@ -342,12 +341,13 @@ lint = [
     { name = "ty" },
 ]
 test = [
-    { name = "fakeredis" },
-    { name = "lupa" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "redis" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+test-redis = [
+    { name = "fakeredis" },
+    { name = "lupa" },
 ]
 
 [package.metadata]
@@ -366,7 +366,6 @@ dev = [
     { name = "pre-commit", specifier = ">=4.5" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "redis", specifier = ">=4.2.0" },
     { name = "ruff", specifier = "==0.17.1" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "ty", specifier = "==0.0.88" },
@@ -377,12 +376,13 @@ lint = [
     { name = "ty", specifier = "==0.0.88" },
 ]
 test = [
-    { name = "fakeredis", specifier = ">=2.20" },
-    { name = "lupa" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "redis", specifier = ">=4.2.0" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+test-redis = [
+    { name = "fakeredis", specifier = ">=2.20" },
+    { name = "lupa" },
 ]
 
 [[package]]
