@@ -8,6 +8,10 @@
 
 pyroflow builds on top of [Pyrogram](https://github.com/pyrogram/pyrogram) / [Kurigram](https://github.com/KurimuzonAkuma/pyrogram) to replace the handler-based model with a conversation-first API — `await` a specific reply from a specific user instead of wiring up global handlers and managing state machines by hand.
 
+> Arabic translation: [README.ar.md](README.ar.md). If the two differ, this English text is the reference.
+
+> **Upgrading?** See [CHANGELOG.md](CHANGELOG.md) for breaking changes and how to migrate.
+
 ```
 pip install pyroflow
 ```
@@ -41,7 +45,6 @@ pyroflow solves all three problems:
 ```
 pip install pyroflow          # core
 pip install pyroflow[redis]   # + Redis coordinator support
-pip install pyroflow[dev]     # + development tools (hatch, twine)
 ```
 
 To get the latest, unreleased changes straight from GitHub instead of the last PyPI release:
@@ -241,6 +244,21 @@ except ListenerTimeout:
 except ListenerCancelled:
     await client.send_message(chat_id, "Session was cancelled.")
 ```
+
+---
+
+## Development
+
+The only prerequisite is [uv](https://docs.astral.sh/uv/).
+
+```bash
+make sync        # install the locked environment with every extra
+make test        # run the test suite
+make lint        # ruff check + ruff format --check
+make typecheck   # ty
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow and rules.
 
 ---
 

@@ -61,7 +61,7 @@ def patch_cls(
     setter: Callable[[type, str, Any], None] = patch_setter,
     include_dunders: tuple[str, ...] = ("__init__",),
 ) -> _CT | Callable[[_CT], _CT]:
-    """pytrove.misc_tools.patch_cls, with pyroflow's own default setter.
+    """pytrove.patch_cls, with pyroflow's own default setter.
 
     pytrove's own default (``setattr``) has no notion of pyrogram's
     sync/async duality; pyroflow's does, via :func:`patch_setter`, which is
