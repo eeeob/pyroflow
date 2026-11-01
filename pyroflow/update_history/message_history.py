@@ -46,3 +46,6 @@ class MessageHistory(UpdateHistory[Message]):
 
     async def _extract_data(self, update: Message) -> str | None:
         return update.text
+
+
+__all__ = ("MessageHistory",)

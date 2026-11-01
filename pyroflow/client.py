@@ -14,7 +14,7 @@ from pyrogram import (
 )
 from pyrogram.sync import wrap as async_to_sync
 
-from .utils.constants import BOT_COMMANDS_ATTR
+from .constants import BOT_COMMANDS_ATTR
 from .utils import (
     patch_cls,
     split_bot_command_entry,
@@ -38,9 +38,8 @@ if TYPE_CHECKING:
     from pytrove.typings import Number, JsonValue as JsonValueT, MaybeCoroutineCallable, MaybeList
 
     from .dispatcher import Dispatcher
-    from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT
+    from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT, UpdateType
     from .update_listener import UpdateListener
-    from .utils.typings import UpdateType
 
 
 @patch_cls
@@ -866,3 +865,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
 
 
 async_to_sync(BotCommandsMixin)
+
+
+__all__ = (
+    "Client",
+    "BotCommandsMixin",
+)

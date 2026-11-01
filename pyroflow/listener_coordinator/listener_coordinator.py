@@ -2,20 +2,13 @@
 
 from __future__ import annotations as _annotations
 from abc import ABC, abstractmethod
-from typing import Any, TypeAlias, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
-
-from ..models import ListenerKey
 
 if TYPE_CHECKING:
-    from ..typings import ListenerCoordinatorIdT
+    from ..models import ListenerKey
+    from ..typings import AsyncLockProto, ListenerCoordinatorIdT, LockKeyT
     from ..update_listener import UpdateListener
-    from ..utils.typings import AsyncLockProto
-
-
-LockKeyT: TypeAlias = (
-    int | tuple[int] | tuple[int, int | None] | tuple[int, int | None, int | None] | ListenerKey
-)
 
 
 class ListenerCoordinator(ABC):
@@ -147,3 +140,6 @@ class ListenerCoordinator(ABC):
 
     async def stop(self) -> None:  # noqa: B027  # optional hook; the default is a no-op
         """Release the backend's resources. Does nothing by default."""
+
+
+__all__ = ("ListenerCoordinator",)

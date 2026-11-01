@@ -8,7 +8,6 @@ from pyrogram.handlers import Handler as PyroHandler
 
 from pytrove.typings import JsonValue as JsonValueT, Number
 from pytrove import KeyDefaultDict, classproperty
-from .typings import ListenerCoordinatorIdT
 
 import asyncio
 import time
@@ -16,6 +15,10 @@ import weakref
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    # Type-only: dataclasses read only ClassVar annotations at runtime, and
+    # typings.py imports this module at runtime for LockKeyT.
+    from .typings import ListenerCoordinatorIdT  # noqa: TC004
 
 
 def _get_plan(mask: int) -> tuple[int, ...]:

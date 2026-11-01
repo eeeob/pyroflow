@@ -66,3 +66,6 @@ class RedisUpdateCoordinator(UpdateCoordinator):
             1,
             px=int(self.handled_ttl * 1000),
         )
+
+
+__all__ = ("RedisUpdateCoordinator",)

@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING, Any
 from abc import ABC
 
-from ..utils.typings import UpdateType, AsyncLockProto
+from ..typings import UpdateType, AsyncLockProto
 from ..utils import UpdateBound
 from pytrove import maybe_awaitable
 
@@ -218,3 +218,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     async def stop(self) -> None:
         """Stop the coordinator."""
         await self.coordinator.stop()
+
+
+__all__ = ("UpdateCoordinated",)

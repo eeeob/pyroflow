@@ -15,8 +15,7 @@ import time
 if TYPE_CHECKING:
     from pytrove.typings import Number
 
-    from ..utils.typings import UpdateType
-    from ..typings import UpdateHistoryKeyT
+    from ..typings import UpdateType, UpdateHistoryKeyT
     from ..models import UpdateRecord
 
 
@@ -113,3 +112,6 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
     async def delete(self, key: UpdateHistoryKeyT) -> None:
         """Delete all records under ``key``."""
         return self._delete(key)
+
+
+__all__ = ("MemoryUpdateHistoryStore",)

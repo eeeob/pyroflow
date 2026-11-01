@@ -4,19 +4,67 @@ from __future__ import annotations as _annotations
 from typing import (
     TYPE_CHECKING,
     Any,
+    Literal,
+    Protocol,
     TypeAlias,
+    TypeVar,
 )
 from collections.abc import Callable
-from pyrogram.types import BotCommand, BotCommandScope
+from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 from pytrove.typings import MaybeList, MaybeCoroutineCallable
 
+from .models import ListenerKey
+
 if TYPE_CHECKING:
+    from types import TracebackType
+
     from .types import Message
+
+
+# The Pyrogram update class a generic listener, coordinated policy or history
+# is bound to.
+UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
+
+
+class AsyncLockProto(Protocol):
+    """An asyncio-style lock whose ``release`` is awaitable too."""
+
+    async def acquire(self) -> bool:
+        """Try to acquire the lock.
+
+        Returns:
+            ``True`` once the lock is held, or ``False`` if a bounded wait
+            timed out.
+        """
+
+    async def release(self) -> None:
+        """Release the lock."""
+
+    async def __aenter__(self) -> object:
+        """Acquire the lock on entering the ``async with`` block."""
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+        /,
+    ) -> None:
+        """Release the lock on leaving the ``async with`` block."""
 
 
 UpdateCoordinatorKeyT: TypeAlias = tuple[int | str, ...]
 UpdateHistoryKeyT: TypeAlias = UpdateCoordinatorKeyT
 ListenerCoordinatorIdT: TypeAlias = str | int
+
+# The key a listener coordinator locks on.
+LockKeyT: TypeAlias = (
+    int | tuple[int] | tuple[int, int | None] | tuple[int, int | None, int | None] | ListenerKey
+)
+
+# The key namespaces an UpdateCoordinator keeps apart: the update lock and the
+# handled registry.
+UpdateCoordinatorSectionT: TypeAlias = Literal["lock", "handled"]
 
 # One declaration of "which bot commands a handler answers to", as accepted by
 # mark_bot_commands(): a command (or list of them) on its own, optionally
@@ -50,9 +98,13 @@ ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
 
 
 __all__ = (
+    "UpdateType",
+    "AsyncLockProto",
     "UpdateCoordinatorKeyT",
+    "UpdateCoordinatorSectionT",
     "UpdateHistoryKeyT",
     "ListenerCoordinatorIdT",
+    "LockKeyT",
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",

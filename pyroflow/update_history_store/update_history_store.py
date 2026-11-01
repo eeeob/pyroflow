@@ -7,9 +7,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ..utils.typings import UpdateType
+    from ..typings import UpdateType, UpdateHistoryKeyT
 
-    from ..typings import UpdateHistoryKeyT
     from ..models import UpdateRecord
 
 
@@ -88,3 +87,6 @@ class UpdateHistoryStore(ABC):
 
     async def stop(self) -> None:  # noqa: B027  # optional hook; backends override it when needed
         """Stop the store. Override to close backend connections."""
+
+
+__all__ = ("UpdateHistoryStore",)

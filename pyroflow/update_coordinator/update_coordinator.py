@@ -1,19 +1,16 @@
 """Abstract base class for update coordinator backends."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any, Literal, get_args
+from typing import TYPE_CHECKING, Any, get_args
 from abc import ABC, abstractmethod
 
 from pytrove.enums import TimeUnit
 
+from ..typings import UpdateCoordinatorSectionT
+
 if TYPE_CHECKING:
-    from ..utils.typings import AsyncLockProto, UpdateType
+    from ..typings import AsyncLockProto, UpdateType, UpdateCoordinatorKeyT
     from pytrove.typings import Number
-
-    from ..typings import UpdateCoordinatorKeyT
-
-
-_SECTION = Literal["lock", "handled"]
 
 
 class UpdateCoordinator(ABC):
@@ -83,7 +80,7 @@ class UpdateCoordinator(ABC):
         self._sep = "|"
         self._key_formats = {
             section: (f"update{self._sep}{section}{self._sep}{self._update_name}{self._sep}{{key}}")
-            for section in get_args(_SECTION)
+            for section in get_args(UpdateCoordinatorSectionT)
         }
 
         super().__init__(**kw)
@@ -91,7 +88,7 @@ class UpdateCoordinator(ABC):
     def build_key(
         self,
         key: UpdateCoordinatorKeyT,
-        section: _SECTION = "lock",
+        section: UpdateCoordinatorSectionT = "lock",
     ) -> str:
         """Render a key tuple into its backend key, under ``section``.
 
@@ -152,3 +149,6 @@ class UpdateCoordinator(ABC):
 
     async def stop(self) -> None:  # noqa: B027  # optional lifecycle hook; subclasses override only when needed
         """Release the backend's resources. Does nothing by default."""
+
+
+__all__ = ("UpdateCoordinator",)

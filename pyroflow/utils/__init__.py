@@ -1,14 +1,16 @@
-"""Internal helpers: class patching, update binding, bot command marking and typing aids."""
+"""Internal helpers: class patching, update binding, locks, bot command and ask error helpers."""
 
-from .classes import *
-from .misc_tools import *
-
-from . import typings, constants
+from .locks import *
+from .update_bound import *
+from .patching import *
+from .bot_commands import *
+from .ask_errors import *
 
 
 __all__ = (
-    *classes.__all__,
-    *misc_tools.__all__,
-    "typings",
-    "constants",
+    *locks.__all__,
+    *update_bound.__all__,
+    *patching.__all__,
+    *bot_commands.__all__,
+    *ask_errors.__all__,
 )

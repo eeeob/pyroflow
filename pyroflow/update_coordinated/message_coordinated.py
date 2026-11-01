@@ -45,3 +45,6 @@ class MessageCoordinated(UpdateCoordinated[Message]):
 
     async def _is_coordinatable(self, update: Message) -> bool:
         return True
+
+
+__all__ = ("MessageCoordinated",)

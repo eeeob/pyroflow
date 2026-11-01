@@ -8,7 +8,7 @@ from pyrogram.types import Update as PyroUpdate
 
 from ..utils import UpdateBound
 from pytrove import maybe_awaitable
-from ..utils.typings import UpdateType
+from ..typings import UpdateType
 
 from ..models import UpdateRecord
 from ..update_history_store import UpdateHistoryStore, MemoryUpdateHistoryStore
@@ -296,3 +296,6 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
     async def stop(self) -> None:
         """Stop the history and its store."""
         await self.store.stop()
+
+
+__all__ = ("UpdateHistory",)

@@ -66,3 +66,6 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
                     break
 
         return await super().on_unresolved(key, update)
+
+
+__all__ = ("CallbackQueryListener",)

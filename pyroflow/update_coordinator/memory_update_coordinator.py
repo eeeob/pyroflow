@@ -100,3 +100,6 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
     async def stop(self) -> None:
         """Clear the handled registry."""
         self.handled.clear()
+
+
+__all__ = ("MemoryUpdateCoordinator",)

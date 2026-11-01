@@ -1,33 +1,11 @@
-"""Internal base classes: an awaitable-release asyncio lock and :class:`UpdateBound`."""
+"""Internal base class :class:`UpdateBound`, which binds a class to one Pyrogram update type."""
 
 from __future__ import annotations as _annotations
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Generic
+from typing import Any, Generic
 from pyrogram.types import Update as PyroUpdate
 
-from .typings import UpdateType
-
-import asyncio
-
-if TYPE_CHECKING:
-    from types import TracebackType
-
-
-class AsyncioLock(asyncio.Lock):
-    """An :class:`asyncio.Lock` whose ``release`` is awaitable, matching :class:`AsyncLockProto`."""
-
-    async def release(self) -> None:  # ty: ignore[invalid-method-override]  # deliberately async to match AsyncLockProto
-        """Release the lock."""
-        return super().release()
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        """Release the lock on leaving the ``async with`` block."""
-        await self.release()
+from ..typings import UpdateType
 
 
 class UpdateBound(Generic[UpdateType]):
@@ -102,7 +80,4 @@ class UpdateBound(Generic[UpdateType]):
             raise TypeError(msg)
 
 
-__all__ = (
-    "AsyncioLock",
-    "UpdateBound",
-)
+__all__ = ("UpdateBound",)

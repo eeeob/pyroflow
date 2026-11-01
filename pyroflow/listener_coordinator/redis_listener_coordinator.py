@@ -9,10 +9,8 @@ if TYPE_CHECKING:
     from redis.commands.core import AsyncScript
     from pytrove.typings import Number
 
-    from ..typings import ListenerCoordinatorIdT
+    from ..typings import ListenerCoordinatorIdT, AsyncLockProto, LockKeyT
     from ..update_listener import UpdateListener
-    from ..utils.typings import AsyncLockProto
-    from .listener_coordinator import LockKeyT
 
 from pytrove import cancel_task, gather_helper
 from ..models import ListenerKey
@@ -387,3 +385,6 @@ class RedisListenerCoordinator(ListenerCoordinator):
             task = asyncio.create_task(self._apply_cancel_signal(key, coordinator_id))
             self._pending_cancels.add(task)
             task.add_done_callback(self._pending_cancels.discard)
+
+
+__all__ = ("RedisListenerCoordinator",)

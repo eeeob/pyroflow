@@ -12,11 +12,13 @@ from .update_history import *
 from .update_history_store import *
 from .update_listener import *
 
-from .client import Client, BotCommandsMixin
-from .utils import mark_bot_commands
-from .dispatcher import Dispatcher, mark_handled
+from .client import *
+from .bot_commands import *
+from .dispatcher import *
 from .types import *
 
+# The one submodule exposed as an object rather than star-imported: its
+# filter factories stay namespaced as ``pyroflow.filters.<name>``.
 from . import filters
 
 
@@ -27,11 +29,9 @@ __all__ = (
     *update_history.__all__,
     *update_history_store.__all__,
     *update_listener.__all__,
+    *client.__all__,
+    *bot_commands.__all__,
+    *dispatcher.__all__,
     *types.__all__,
-    "Client",
-    "BotCommandsMixin",
-    "mark_bot_commands",
-    "Dispatcher",
-    "mark_handled",
     "filters",
 )

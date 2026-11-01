@@ -138,3 +138,6 @@ class MessageListener(UpdateListener[Message]):
             weakref.finalize(client, self._bot_commands_cache.pop, id(client), None)
 
         return commands
+
+
+__all__ = ("MessageListener",)

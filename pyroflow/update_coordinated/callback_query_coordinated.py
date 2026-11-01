@@ -44,3 +44,6 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
 
     async def _is_coordinatable(self, update: CallbackQuery) -> bool:
         return True
+
+
+__all__ = ("CallbackQueryCoordinated",)

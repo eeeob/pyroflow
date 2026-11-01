@@ -22,8 +22,7 @@ if TYPE_CHECKING:
 
     from pyrogram.types import Update as PyroUpdate
 
-    from .utils.typings import UpdateType, AsyncLockProto
-    from .typings import UpdateCoordinatorKeyT
+    from .typings import UpdateType, AsyncLockProto, UpdateCoordinatorKeyT
     from .update_listener import UpdateListener
     from .update_coordinated import UpdateCoordinated
     from .update_history import UpdateHistory
@@ -679,3 +678,9 @@ class Dispatcher(PyroDispatcher):
                 pass
             except Exception:
                 log.exception("Unexpected error in handler_worker")
+
+
+__all__ = (
+    "Dispatcher",
+    "mark_handled",
+)

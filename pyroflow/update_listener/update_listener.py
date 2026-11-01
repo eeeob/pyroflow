@@ -5,7 +5,7 @@ from abc import ABC
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from ..utils.typings import UpdateType
+from ..typings import UpdateType
 from ..utils import UpdateBound
 from pytrove import gather_helper, maybe_awaitable
 
@@ -540,3 +540,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             update,
             executor=self._get_executor(update),
         )
+
+
+__all__ = ("UpdateListener",)

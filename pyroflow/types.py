@@ -32,8 +32,7 @@ if TYPE_CHECKING:
     from pytrove.typings import Number, JsonValue as JsonValueT
 
     from .client import Client
-    from .utils.typings import UpdateType
-    from .typings import AskErrorHandlersT, ListenMessageIdT
+    from .typings import UpdateType, AskErrorHandlersT, ListenMessageIdT
 
 
 @patch_cls

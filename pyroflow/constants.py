@@ -1,4 +1,4 @@
-"""Constants shared by pyroflow's internals."""
+"""Public constants used by pyroflow."""
 
 from __future__ import annotations as _annotations
 from typing import Final

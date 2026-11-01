@@ -12,9 +12,8 @@ import logging
 
 if TYPE_CHECKING:
     from ..models import ListenerKey
-    from ..typings import ListenerCoordinatorIdT
+    from ..typings import ListenerCoordinatorIdT, LockKeyT
     from ..update_listener import UpdateListener
-    from .listener_coordinator import LockKeyT
 
 log = logging.getLogger(__name__)
 
@@ -96,3 +95,6 @@ class MemoryListenerCoordinator(ListenerCoordinator):
             )
 
         self.data.clear()
+
+
+__all__ = ("MemoryListenerCoordinator",)

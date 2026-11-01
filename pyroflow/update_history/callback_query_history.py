@@ -48,3 +48,6 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
 
     async def _extract_data(self, update: CallbackQuery) -> str | bytes | None:
         return update.data
+
+
+__all__ = ("CallbackQueryHistory",)

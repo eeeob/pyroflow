@@ -7,6 +7,7 @@ If any module pulled in an unguarded newer-Python feature (e.g. a bare
 
 from __future__ import annotations as _annotations
 
+import ast
 import importlib
 import pkgutil
 import re
@@ -29,7 +30,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MODULES = [
     "pyroflow",
+    "pyroflow.bot_commands",
     "pyroflow.client",
+    "pyroflow.constants",
     "pyroflow.dispatcher",
     "pyroflow.enums",
     "pyroflow.errors",
@@ -61,16 +64,32 @@ MODULES = [
     "pyroflow.update_listener.message_listener",
     "pyroflow.update_listener.callback_query_listener",
     "pyroflow.utils",
-    "pyroflow.utils.classes",
-    "pyroflow.utils.constants",
-    "pyroflow.utils.misc_tools",
-    "pyroflow.utils.typings",
+    "pyroflow.utils.ask_errors",
+    "pyroflow.utils.bot_commands",
+    "pyroflow.utils.locks",
+    "pyroflow.utils.patching",
+    "pyroflow.utils.update_bound",
+]
+
+# The kind entry points: each gathers the public definitions of one kind.
+KIND_MODULES = [
+    "pyroflow.typings",
+    "pyroflow.errors",
+    "pyroflow.models",
+    "pyroflow.enums",
+    "pyroflow.constants",
 ]
 
 
 @pytest.mark.parametrize("module", MODULES)
 def test_module_imports(module: str) -> None:
     assert importlib.import_module(module) is not None
+
+
+def test_modules_list_is_complete() -> None:
+    walked = {info.name for info in pkgutil.walk_packages(pyroflow.__path__, "pyroflow.")}
+
+    assert walked | {"pyroflow"} == set(MODULES)
 
 
 def test_redis_import_does_not_require_redis_installed() -> None:
@@ -109,38 +128,100 @@ def test_public_exports_present() -> None:
         assert hasattr(pyroflow, name), f"pyroflow.{name} is not exported"
 
 
-PACKAGES_WITH_ALL = [
+PACKAGES = [
     "pyroflow",
-    *(
-        info.name
-        for info in pkgutil.walk_packages(pyroflow.__path__, "pyroflow.")
-        if info.ispkg and hasattr(importlib.import_module(info.name), "__all__")
-    ),
+    *(info.name for info in pkgutil.walk_packages(pyroflow.__path__, "pyroflow.") if info.ispkg),
 ]
+IMPLEMENTATION_MODULES = [name for name in MODULES if name not in PACKAGES]
 
 # hatchling's default `[tool.hatch.version]` regex for a `path` source.
 HATCH_VERSION_PATTERN = r"^(__version__|VERSION) *= *(['\"])v?(?P<version>.+?)\2"
 
 
-@pytest.mark.parametrize("package", PACKAGES_WITH_ALL)
-def test_package_all_is_well_formed(package: str) -> None:
-    module = importlib.import_module(package)
+def _module_tree(name: str) -> ast.Module:
+    path = importlib.import_module(name).__file__
+    assert path is not None
+    return ast.parse(Path(path).read_text(encoding="utf-8"))
+
+
+def _is_all_assignment(node: ast.stmt) -> bool:
+    return isinstance(node, ast.Assign) and any(
+        isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets
+    )
+
+
+@pytest.mark.parametrize("module_name", MODULES)
+def test_all_is_well_formed(module_name: str) -> None:
+    module = importlib.import_module(module_name)
     exported = module.__all__
 
-    assert isinstance(exported, tuple), f"{package}.__all__ is not a tuple"
-    assert len(exported) == len(set(exported)), f"{package}.__all__ has duplicates"
+    assert isinstance(exported, tuple), f"{module_name}.__all__ is not a tuple"
+    assert len(exported) == len(set(exported)), f"{module_name}.__all__ has duplicates"
     assert not [name for name in exported if name.startswith("_")]
     missing = [name for name in exported if not hasattr(module, name)]
-    assert not missing, f"{package}.__all__ names missing attributes: {missing}"
+    assert not missing, f"{module_name}.__all__ names missing attributes: {missing}"
 
 
-@pytest.mark.parametrize("package", PACKAGES_WITH_ALL)
-def test_star_import_matches_all(package: str) -> None:
+@pytest.mark.parametrize("module_name", MODULES)
+def test_all_comes_last(module_name: str) -> None:
+    assert _is_all_assignment(_module_tree(module_name).body[-1])
+
+
+@pytest.mark.parametrize("module_name", MODULES)
+def test_star_import_matches_all(module_name: str) -> None:
     namespace: dict[str, object] = {}
-    exec(f"from {package} import *", namespace)
+    exec(f"from {module_name} import *", namespace)
     imported = {name for name in namespace if not name.startswith("__")}
 
-    assert imported == set(importlib.import_module(package).__all__)
+    assert imported == set(importlib.import_module(module_name).__all__)
+
+
+@pytest.mark.parametrize("module_name", IMPLEMENTATION_MODULES)
+def test_implementation_module_has_no_wildcard_import(module_name: str) -> None:
+    wildcards = [
+        node
+        for node in ast.walk(_module_tree(module_name))
+        if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names)
+    ]
+
+    assert not wildcards
+
+
+@pytest.mark.parametrize("package", PACKAGES)
+def test_package_all_is_the_union_of_its_star_imports(package: str) -> None:
+    module = importlib.import_module(package)
+    sources = [
+        node.module
+        for node in _module_tree(package).body
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 1
+        and node.module
+        and [alias.name for alias in node.names] == ["*"]
+    ]
+    expected = [
+        name
+        for source in sources
+        for name in importlib.import_module(f"{package}.{source}").__all__
+    ]
+    # pyroflow exposes the filters submodule itself, not its contents.
+    exported = [
+        name for name in module.__all__ if not (package == "pyroflow" and name == "filters")
+    ]
+
+    assert sources, f"{package} star-imports nothing"
+    assert exported == expected
+    assert "__version__" not in module.__all__
+
+
+@pytest.mark.parametrize("module_name", KIND_MODULES)
+def test_kind_entry_point_star_imports_exactly_its_all(module_name: str) -> None:
+    module = importlib.import_module(module_name)
+    namespace: dict[str, object] = {}
+    exec(f"from {module_name} import *", namespace)
+    imported = {name for name in namespace if not name.startswith("__")}
+
+    assert module.__all__
+    assert imported == set(module.__all__)
 
 
 def test_version_line_matches_hatch_pattern() -> None:
