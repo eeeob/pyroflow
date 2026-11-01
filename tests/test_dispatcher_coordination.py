@@ -10,6 +10,7 @@ processed exactly once. Keying both from one value is the bug this design
 replaced: the first update would register the entire chat as handled and
 every update after it would be silently dropped.
 """
+from __future__ import annotations as _annotations
 
 import asyncio
 import contextvars

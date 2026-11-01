@@ -1,4 +1,5 @@
-from typing import Literal, Optional, Dict, Set, TYPE_CHECKING
+from __future__ import annotations as _annotations
+from typing import Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from redis.asyncio.client import PubSub
@@ -19,8 +20,8 @@ import asyncio
 log = logging.getLogger(__name__)
 
 
- 
- 
+
+
 class RedisListenerCoordinator(ListenerCoordinator):
     LUA_UNREGISTER_SCRIPT = """
     local value = redis.call('GET', KEYS[1])
@@ -70,34 +71,33 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
     def __init__(
         self,
-        redis: 'Redis',
+        redis: Redis,
         listener,
         lock_timeout: Number = 30,
         lock_blocking_timeout: Number = 10,
     ):
-        """
-        Parameters:
-            redis:    The async Redis client backing this coordinator.
-            listener: The :class:`UpdateListener` that owns it.
+        """Parameters:
+        redis:    The async Redis client backing this coordinator.
+        listener: The :class:`UpdateListener` that owns it.
 
-            lock_timeout:
-                TTL (seconds) of the per-chat lock. Both values are always
-                applied when the lock is built — redis-py defaults them to
-                ``None``, which is unusable here: a lock with no TTL survives
-                the session that took it, so a process that dies mid-critical
-                section leaves that chat locked in Redis permanently, and every
-                other session then blocks on it forever with no way to recover.
+        lock_timeout:
+            TTL (seconds) of the per-chat lock. Both values are always
+            applied when the lock is built — redis-py defaults them to
+            ``None``, which is unusable here: a lock with no TTL survives
+            the session that took it, so a process that dies mid-critical
+            section leaves that chat locked in Redis permanently, and every
+            other session then blocks on it forever with no way to recover.
 
-                Size it above the longest critical section (all of them are
-                short Redis round-trips) but low enough that a crashed holder
-                is reclaimed quickly.
+            Size it above the longest critical section (all of them are
+            short Redis round-trips) but low enough that a crashed holder
+            is reclaimed quickly.
 
-            lock_blocking_timeout:
-                How long (seconds) to wait for the lock before giving up with
-                ``LockError``. Without it a waiter blocks forever; failing
-                loudly is recoverable, hanging silently is not. Keep it at or
-                below ``lock_timeout`` so a waiter never outlasts the TTL it
-                is waiting on.
+        lock_blocking_timeout:
+            How long (seconds) to wait for the lock before giving up with
+            ``LockError``. Without it a waiter blocks forever; failing
+            loudly is recoverable, hanging silently is not. Keep it at or
+            below ``lock_timeout`` so a waiter never outlasts the TTL it
+            is waiting on.
         """
         super().__init__(listener)
 
@@ -123,9 +123,9 @@ class RedisListenerCoordinator(ListenerCoordinator):
         self._owned_registrations: dict[str, str] = {}
 
         self.cancel_channel_name = f"cancel{self._sep}listen{self._sep}{self.update_type_name}"
-        
+
         self._register_scripts()
-    
+
     def _register_scripts(self):
         if self.lua_unregister is None:
             self.lua_unregister = self.redis.register_script(self.LUA_UNREGISTER_SCRIPT)
@@ -145,15 +145,14 @@ class RedisListenerCoordinator(ListenerCoordinator):
     def _pack_key(self, key: ListenerKey, section: Literal["registry", "lock"] = "registry") -> str:
         return self._key_format.format_map(
             {
-                "section": section, 
+                "section": section,
                 "key": self._sep.join(str(i if i is not None else self._null) for i in key.to_tuple)
             }
         )
 
 
     def lock(self, key):
-        """
-        Build the per-chat lock.
+        """Build the per-chat lock.
 
         ``timeout`` and ``blocking_timeout`` are always passed: leaving either
         at redis-py's ``None`` default turns a crashed or contended session
@@ -170,23 +169,23 @@ class RedisListenerCoordinator(ListenerCoordinator):
             blocking_timeout=self.lock_blocking_timeout,
             thread_local=False,
             )
-    
+
 
     async def register(self, key):
         packed_key = self._pack_key(key)
         coordinator_id = uuid.uuid4().hex
 
         success = await self.redis.set(
-            packed_key, 
-            coordinator_id, 
-            nx=True 
+            packed_key,
+            coordinator_id,
+            nx=True
         )
 
         if not success:
             raise KeyError(
                 f"Key {key!r} already registered"
             )
-        
+
         self._owned_registrations[packed_key] = coordinator_id
 
         return coordinator_id
@@ -200,18 +199,18 @@ class RedisListenerCoordinator(ListenerCoordinator):
             return bool(
                 await self.redis.delete(packed_key)
             )
-        
+
         if self.lua_unregister is None:
             raise RuntimeError("Lua unregister script is not registered")
-        
+
         if cid := self._owned_registrations.pop(packed_key, None):
             if cid != coordinator_id:
                 self._owned_registrations[packed_key] = cid
 
         return bool(
             await self.lua_unregister(
-                keys=[packed_key], 
-                args=[coordinator_id], 
+                keys=[packed_key],
+                args=[coordinator_id],
                 client=self.redis
             )
         )
@@ -233,8 +232,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
         )
 
     async def cancel(self, key) -> bool:
-        """
-        Cancel the registration for ``key`` across every session.
+        """Cancel the registration for ``key`` across every session.
 
         Deletion happens first and is what actually makes the cancellation
         take effect: once the key is gone, no peer can prove ownership of it,
@@ -251,7 +249,6 @@ class RedisListenerCoordinator(ListenerCoordinator):
         Returns:
             ``True`` if a registration existed and was removed.
         """
-
         packed_key = self._pack_key(key)
 
         self._owned_registrations.pop(packed_key, None)
@@ -313,10 +310,10 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.pubsub = None
 
             log.debug("PubSub unsubscribed and closed")
-        
+
         if self._owned_registrations:
             keys, ids = zip(*self._owned_registrations.items())
-            
+
             log.warning("RedisListenerCoordinator stopped with pending registrations: %s", keys)
 
             if self.lua_bulk_unregister is None:
@@ -336,7 +333,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
                 log.info("Successfully bulk-deleted %d keys from Redis", deleted)
             finally:
                 self._owned_registrations.clear()
-                
+
 
     async def _apply_cancel_signal(self, key: ListenerKey, coordinator_id: str) -> None:
         """Apply one cancel signal, guarding the generation it targets."""
@@ -358,7 +355,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.cancel_channel_name
         )
 
-        
+
         async for msg in self.pubsub.listen():
             if msg["type"] != "message":
                 continue
@@ -395,7 +392,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self._pending_cancels.add(task)
             task.add_done_callback(self._pending_cancels.discard)
 
-      
+
 
 
 

@@ -1,4 +1,4 @@
-from typing import Type
+from __future__ import annotations as _annotations
 from collections.abc import Sequence
 from abc import ABC, abstractmethod
 
@@ -11,8 +11,7 @@ from ..models import UpdateRecord
 
 
 class UpdateHistoryStore(ABC):
-    """
-    Abstract base for handler history storage backends.
+    """Abstract base for handler history storage backends.
 
     Responsible for persisting, retrieving, and expiring
     :class:`UpdateRecord` entries under arbitrary UpdateHistoryKeyT keys.
@@ -33,8 +32,7 @@ class UpdateHistoryStore(ABC):
 
     @abstractmethod
     async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
-        """
-        save records under the given key.
+        """Save records under the given key.
 
         Parameters:
             key: An arbitrary UpdateHistoryKeyT identifying the (chat, user) context.
@@ -44,8 +42,7 @@ class UpdateHistoryStore(ABC):
 
     @abstractmethod
     async def get(self, key: UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
-        """
-        Load all records stored under the given key.
+        """Load all records stored under the given key.
 
         Expired records must not be returned.
 
@@ -57,11 +54,10 @@ class UpdateHistoryStore(ABC):
             to newest, or an empty sequence if none exist.
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     async def pop(self, key: UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
-        """
-        Remove and return the newest record stored under the given key.
+        """Remove and return the newest record stored under the given key.
 
         Expired records must not be returned. If all records are expired,
         they should be discarded before attempting to pop.
@@ -77,8 +73,7 @@ class UpdateHistoryStore(ABC):
 
     @abstractmethod
     async def delete(self, key: UpdateHistoryKeyT) -> None:
-        """
-        Delete all records stored under the given key.
+        """Delete all records stored under the given key.
 
         Parameters:
             key: The storage key whose records should be deleted.
@@ -87,8 +82,6 @@ class UpdateHistoryStore(ABC):
 
     async def start(self) -> None:
         """Start the store. Override to initialise backend connections."""
-        pass
 
     async def stop(self) -> None:
         """Stop the store. Override to close backend connections."""
-        pass

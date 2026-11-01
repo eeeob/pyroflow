@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from __future__ import annotations as _annotations
 from collections.abc import Callable
 from abc import ABC
 from functools import partial
@@ -10,9 +10,9 @@ from ..utils import UpdateBound
 from pytrove import gather_helper, maybe_awaitable
 
 from ..errors import (
-    ListenerCancelled, 
-    ListenerTimeout, 
-    ListenerAlreadyExists, 
+    ListenerCancelled,
+    ListenerTimeout,
+    ListenerAlreadyExists,
     UnresolvedUpdate
 )
 
@@ -31,8 +31,7 @@ log = logging.getLogger(__name__)
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
-    """
-    Abstract base for per-update-type listener management.
+    """Abstract base for per-update-type listener management.
 
     Each subclass is bound to a single Pyrogram update type via
     ``__update_type__`` and defines how to determine whether an update
@@ -88,11 +87,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         **kw:
             Passed to the next class in the MRO.
     """
-    
+
     def __init__(
-        self, 
-        coordinator_factory: Callable[["UpdateListener"], ListenerCoordinator] | None = None, 
-        duplicate_policy: DuplicatePolicy | None = None, 
+        self,
+        coordinator_factory: Callable[[UpdateListener], ListenerCoordinator] | None = None,
+        duplicate_policy: DuplicatePolicy | None = None,
         is_listenable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey] | None = None,
         bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
@@ -104,10 +103,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         if coordinator_factory is None:
             coordinator_factory = MemoryListenerCoordinator
-        
+
         if duplicate_policy is None:
             duplicate_policy = DuplicatePolicy.REPLACE
-        
+
         self.coordinator = coordinator_factory(self)
         self.duplicate_policy = duplicate_policy
 
@@ -129,18 +128,18 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         await gather_helper(
             (self.cancel(key, cancel_coordinator=True)
-            for key in active), 
+            for key in active),
             return_exc=True
         )
         await self.coordinator.stop()
 
         if self.listeners:
             log.warning(
-                "Stop %s UpdateListener completed with active listeners remaining: %s", 
-                self.__class__.__update_type__.__name__, 
+                "Stop %s UpdateListener completed with active listeners remaining: %s",
+                self.__class__.__update_type__.__name__,
                 list(self.listeners.keys())
                 )
-        
+
     async def _cancel(
         self,
         key: ListenerKey,
@@ -148,8 +147,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         is_duplicate: bool = False,
         coordinator_id: ListenerCoordinatorIdT | None = None,
         ) -> bool:
-        """
-        Cancel a listener by key, setting a :class:`ListenerCancelled`
+        """Cancel a listener by key, setting a :class:`ListenerCancelled`
         exception on its future.
 
         Parameters:
@@ -172,7 +170,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ``True`` if a local listener was cancelled, ``False`` if the key
             held nothing or held a different generation.
         """
-
         listener = self.listeners.get(key)
 
         if listener is not None:
@@ -199,8 +196,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         is_duplicate: bool = False,
         coordinator_id: ListenerCoordinatorIdT | None = None,
         ) -> bool:
-        """
-        Safely cancel a listener under the chat lock.
+        """Safely cancel a listener under the chat lock.
 
         All listener operations for the same chat share a single lock
         to avoid races between registration, cancellation and resolution.
@@ -215,15 +211,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Returns:
             ``True`` if a local listener was cancelled.
         """
-
         async with self.coordinator.lock(key.chat_id):
             return await self._cancel(
                 key, cancel_coordinator, is_duplicate, coordinator_id
             )
 
     def _cleanup_listen(self, key: ListenerKey, f: asyncio.Future) -> None:
-        """
-        Done callback attached to each listener future.
+        """Done callback attached to each listener future.
 
         Removes the listener from ``self.listeners`` when its future
         completes, unless it has already been replaced by a newer one.
@@ -232,24 +226,21 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             key: The key identifying the listener.
             f:   The future that just completed.
         """
-
         listener = self.listeners.get(key)
 
         if listener is not None and listener.future is f:
             self.listeners.pop(key)
 
     async def listen(
-        self, 
-        chat_id: int, 
-        user_id: int | None = None, 
-        message_id: int | None = None, 
-        meta: JsonValueT | None = None, 
-        *, 
-        timeout: Number | None = None, 
+        self,
+        chat_id: int,
+        user_id: int | None = None,
+        message_id: int | None = None,
+        meta: JsonValueT | None = None,
+        *,
+        timeout: Number | None = None,
         ) -> UpdateType:
-
-        """
-        Wait for the next update matching the given key.
+        """Wait for the next update matching the given key.
 
         Registers a listener locally and in the distributed coordinator,
         then suspends until a matching update arrives or the timeout
@@ -272,8 +263,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerTimeout:       If the timeout expires before the update arrives.
             ListenerCancelled:     If the listener is cancelled while waiting.
         """
-
-        
         key = ListenerKey(chat_id, user_id, message_id)
 
         # All listener operations for the same chat share
@@ -290,16 +279,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                     await self._cancel(key, is_duplicate=True)
                 else:
                     raise TypeError(f"Unknown {self.duplicate_policy} duplicate_policy")
-                
+
             elif key in self.listeners:
                 raise RuntimeError("ListenerCoordinator and listeners are out of sync")
-            
+
 
             fut = asyncio.get_running_loop().create_future()
             fut.add_done_callback(partial(self._cleanup_listen, key))
 
             listener = ListenerModel(key, meta, fut)
-            
+
             # Acquire distributed ownership of this key. coordinator_id is
             # the generation token: it is later used to safely unregister
             # without removing a newer registration, to reject cancel signals
@@ -308,7 +297,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             coordinator_id = await self.coordinator.register(key)
             listener.coordinator_id = coordinator_id
             self.listeners[key] = listener
-        
+
         if timeout is None:
             timeout = self.timeout
 
@@ -324,7 +313,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if not listener.done():
                 listener.set_exc(e)
             raise e
-            
+
         finally:
 
             # Release distributed ownership.
@@ -339,8 +328,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     __call__ = listen
 
     async def resolve(self, update: UpdateType) -> None:
-        """
-        Resolve a pending listener with the given update.
+        """Resolve a pending listener with the given update.
 
         Validates the update type, extracts its key, then attempts to
         match it against registered listeners using progressively less
@@ -363,7 +351,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             UnresolvedUpdate: If no matching listener is found and
                               :meth:`on_unresolved` re-raises.
         """
-
         if not await self.is_listenable(update):
             raise UnresolvedUpdate(update)
 
@@ -410,10 +397,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             # Called when no matching listener is found.
             await self.on_unresolved(key, update)
-    
+
     async def on_unresolved(self, key: ListenerKey, update: UpdateType) -> None:
-        """
-        Called when no matching listener is found for an incoming update.
+        """Called when no matching listener is found for an incoming update.
 
         Override to implement custom behaviour such as queuing or logging.
         By default raises :class:`UnresolvedUpdate`.
@@ -448,14 +434,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
         return getattr(
-            getattr(update, "_client", None), 
-            "executor", 
+            getattr(update, "_client", None),
+            "executor",
             None
         )
-    
+
     async def is_listenable(self, update: UpdateType) -> bool:
-        """
-        Determine whether this update should be listening.
+        """Determine whether this update should be listening.
 
         Called before any key extraction or lock acquisition.
 
@@ -469,13 +454,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             NotImplementedError: If neither this method is overridden nor
                                  ``is_listenable_func`` was provided.
         """
-
         if self.is_listenable_func is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must either pass is_listenable_func "
                 f"or override is_listenable()"
             )
-        
+
         self.validate_update(update)
 
         return await maybe_awaitable(
@@ -485,8 +469,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_key(self, update: UpdateType) -> ListenerKey:
-        """
-        Extract a unique listener key from the update.
+        """Extract a unique listener key from the update.
 
         Only called when :meth:`is_listenable` returns ``True``.
 
@@ -501,13 +484,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             NotImplementedError: If neither this method is overridden nor
                                  ``extract_key_func`` was provided.
         """
-
         if self.extract_key_func is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must either pass extract_key_func "
                 f"or override extract_key()"
             )
-        
+
         self.validate_update(update)
 
         return await maybe_awaitable(
@@ -517,8 +499,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         )
 
     async def is_bypass(self, update: UpdateType) -> bool:
-        """
-        Determine whether a listener that already matched this update
+        """Determine whether a listener that already matched this update
         should be cancelled instead of resolved with it.
 
         Only called from :meth:`resolve`, after a listener has matched
@@ -538,7 +519,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             to resolve it normally. Always ``False`` if neither this
             method is overridden nor ``bypass_func`` was provided.
         """
-
         if self.bypass_func is None:
             return False
 

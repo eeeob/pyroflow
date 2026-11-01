@@ -1,4 +1,5 @@
 """Tests for the data models: ListenerKey, ListenerModel, UpdateRecord."""
+from __future__ import annotations as _annotations
 
 import asyncio
 

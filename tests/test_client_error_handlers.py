@@ -5,6 +5,7 @@ handle_ask_error() is the exact function ask()'s except block calls, so
 matching and precedence are tested by calling it directly rather than by
 reimplementing its routing logic in the test.
 """
+from __future__ import annotations as _annotations
 
 from types import SimpleNamespace
 

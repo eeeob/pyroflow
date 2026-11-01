@@ -1,4 +1,5 @@
-from typing import Literal, Type, get_args
+from __future__ import annotations as _annotations
+from typing import Literal, get_args
 from abc import ABC, abstractmethod
 
 from ..utils.typings import AsyncLockProto, UpdateType
@@ -11,8 +12,7 @@ from ..typings import UpdateCoordinatorKeyT
 _SECTION = Literal["lock", "handled"]
 
 class UpdateCoordinator(ABC):
-    """
-    Abstract base coordinator for distributed update processing.
+    """Abstract base coordinator for distributed update processing.
 
     Two independent primitives, deliberately kept apart:
 
@@ -91,21 +91,18 @@ class UpdateCoordinator(ABC):
         key: UpdateCoordinatorKeyT,
         section: _SECTION = "lock",
     ) -> str:
-        """
-        Render a key tuple into its backend key, under ``section``.
+        """Render a key tuple into its backend key, under ``section``.
 
         The section is what keeps the two primitives from colliding: by
         default the *same* tuple is used both to lock and to register, and
         without separate namespaces marking an update handled would look
         like a held lock, and vice versa.
         """
-        
         return self._key_formats[section].format_map({"key": self._sep.join(str(i) for i in key)})
 
     @abstractmethod
     def lock(self, key: UpdateCoordinatorKeyT) -> AsyncLockProto:
-        """
-        Return the mutex for ``key``, as an ``async with``-compatible object.
+        """Return the mutex for ``key``, as an ``async with``-compatible object.
 
         Implementations must honour ``blocking_timeout``: ``acquire()``
         returns ``False`` rather than waiting indefinitely, and entering it
@@ -125,8 +122,7 @@ class UpdateCoordinator(ABC):
 
     @abstractmethod
     async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
-        """
-        Whether ``key`` is registered as already handled.
+        """Whether ``key`` is registered as already handled.
 
         Parameters:
             key: The update's identity — *not* the lock's scope.
@@ -139,8 +135,7 @@ class UpdateCoordinator(ABC):
 
     @abstractmethod
     async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
-        """
-        Register ``key`` as handled, for ``handled_ttl`` seconds.
+        """Register ``key`` as handled, for ``handled_ttl`` seconds.
 
         Idempotent: marking an already-marked key is a no-op beyond
         refreshing its expiry.

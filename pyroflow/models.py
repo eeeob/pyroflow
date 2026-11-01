@@ -1,4 +1,5 @@
-from typing import ClassVar, Tuple, Optional, Any, Dict, TYPE_CHECKING
+from __future__ import annotations as _annotations
+from typing import ClassVar, Any, TYPE_CHECKING
 from collections.abc import Generator
 from dataclasses import dataclass, field, fields, is_dataclass, Field
 from itertools import combinations, count
@@ -52,9 +53,8 @@ class ListenerKey:
             for f in self.FIELDS
         )
 
-    def sub_keys(self, min_dep: int = 1) -> Generator["ListenerKey", None, None]:
-        """
-        Yield every key a listener for this update could be registered under,
+    def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
+        """Yield every key a listener for this update could be registered under,
         most specific first.
 
         ``chat_id`` is always present; the remaining components are each
@@ -84,7 +84,6 @@ class ListenerKey:
                      The default of ``1`` includes the chat-only key; ``2``
                      stops before it.
         """
-
         values = self.to_tuple
 
         assert values[0] is not None
@@ -152,12 +151,12 @@ class UpdateRecord(_WeakSlots):
         cls._SEQ_IDS[id(self)] = next(cls._SEQ)
         weakref.finalize(self, cls._SEQ_IDS.pop, id(self), None)
 
-    def __lt__(self, other: "UpdateRecord") -> bool:
+    def __lt__(self, other: UpdateRecord) -> bool:
         return (
             (self.created_at, type(self)._SEQ_IDS[id(self)])
             < (other.created_at, type(other)._SEQ_IDS[id(other)])
         )
-    def __gt__(self, other: "UpdateRecord") -> bool:
+    def __gt__(self, other: UpdateRecord) -> bool:
         return (
             (self.created_at, type(self)._SEQ_IDS[id(self)])
             > (other.created_at, type(other)._SEQ_IDS[id(other)])
@@ -166,9 +165,9 @@ class UpdateRecord(_WeakSlots):
 
 
 __all__ = (
-    "ListenerKey", 
-    "ListenerModel", 
-    "UpdateRecord", 
+    "ListenerKey",
+    "ListenerModel",
+    "UpdateRecord",
 )
 
 

@@ -117,3 +117,83 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+
+# The tooling half of CONTRIBUTING.md: `make lint` and `make typecheck` run
+# exactly this configuration, locally and in CI.
+[tool.ruff]
+target-version = "py310"
+# Steers only the formatter: E501 is not selected, so no line fails for its length.
+line-length = 100
+
+[tool.ruff.format]
+# Already the default; pinned so a future ruff release cannot rewrite the tree
+# by changing it.
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+    "F",       # no unused imports, no wildcard imports outside aggregation __init__.py
+    "UP",      # built-in generics and `|` unions; UP037: no quoted annotations
+    "I002",    # the `__future__` annotations import in every module
+    "ANN",     # complete type hints
+    "EM",      # exception messages assigned to a variable first
+    "S101",    # no `assert` runtime guards
+    "PGH",     # no bare `type: ignore`, no blanket `noqa`
+    "D",       # Google-style docstrings
+    "B",       # likely bugs (mutable defaults, unchecked `zip`, loop closures)
+    "C4",      # no redundant comprehensions or `dict()`/`list()` calls
+    "E9",      # syntax and IO errors
+    "EXE",     # shebangs match the executable bit
+    "ICN",     # conventional import aliases
+    "INP",     # every package has an `__init__.py`
+    "INT",     # `gettext` calls take literal strings
+    "ISC",     # no implicit string concatenation
+    "LOG",     # correct `logging` calls
+    "PIE",     # no unnecessary statements or duplicate members
+    "PLC",     # imports at the top of the module; pylint conventions
+    "PLE",     # pylint errors
+    "PLW",     # pylint warnings
+    "PYI",     # well-formed type definitions and overloads
+    "RSE",     # no redundant parentheses on `raise`
+    "RUF013",  # no implicit `Optional` from a `None` default
+    "SLOT",    # `__slots__` on `str`/`tuple` subclasses
+    "T10",     # no leftover debugger calls
+    "W",       # no trailing whitespace
+    "YTT",     # correct `sys.version_info` comparisons
+    "TC",      # annotation-only imports go under `if TYPE_CHECKING:`; TC006: a `cast` target is quoted
+]
+ignore = [
+    "ANN401",  # `Any` is allowed for honest cases, never as a way around a type error
+]
+
+[tool.ruff.lint.isort]
+# The `_annotations` alias marks the import as there for its side effect.
+required-imports = ["from __future__ import annotations as _annotations"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Dataclass annotations stay real imports, because `dataclasses` reads
+# `ClassVar` on class creation (pyroflow/models.py defines dataclasses).
+runtime-evaluated-decorators = ["dataclasses.dataclass"]
+# `typing_extensions` is the backport of `typing`, imported in the same
+# `sys.version_info` branches.
+exempt-modules = ["typing", "typing_extensions"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Wildcard imports are allowed only in interface-aggregation `__init__.py`
+# files, which name their submodules only through those imports (F405) and,
+# having no annotations, omit the `__future__` import (I002). Their `__all__`
+# concatenation is not a literal PLE0604 can read.
+"**/__init__.py" = ["F401", "F403", "F405", "I002", "PLE0604"]
+# Tests assert by design, and docstring rules cover library code, not test cases.
+"tests/**" = ["S101", "D"]
+
+
+[tool.ty.environment]
+# Fixed so a check gives the same verdict on every machine: the 3.10 floor's
+# syntax and `sys.version_info` branches, and Linux, where CI runs.
+python-version = "3.10"
+python-platform = "linux"

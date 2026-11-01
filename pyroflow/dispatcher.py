@@ -1,11 +1,11 @@
-from typing import Dict, Tuple, Type, Optional
+from __future__ import annotations as _annotations
 from collections.abc import Callable
 from contextvars import ContextVar
 from concurrent.futures import Future
 
 from pyrogram import (
-    StopPropagation, 
-    ContinuePropagation, 
+    StopPropagation,
+    ContinuePropagation,
     raw
 )
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
@@ -30,8 +30,7 @@ log = logging.getLogger(__name__)
 
 
 class _CoordinatedRelease:
-    """
-    Settles one update's coordination, exactly once.
+    """Settles one update's coordination, exactly once.
 
     Settling is two steps that always travel together: register the update as
     handled (or don't), then release the lock it was processed under.
@@ -64,8 +63,7 @@ class _CoordinatedRelease:
         self.update_id: UpdateCoordinatorKeyT | None = None
 
     def claim_early(self) -> bool:
-        """
-        Claim the settlement now and schedule it. Backs :func:`mark_handled`.
+        """Claim the settlement now and schedule it. Backs :func:`mark_handled`.
 
         Synchronous out of necessity: the caller may be a sync handler running
         in the client's executor, off the event loop, where awaiting is not an
@@ -78,15 +76,14 @@ class _CoordinatedRelease:
             ``True`` if this call took the settlement, ``False`` if it was
             already claimed.
         """
-
         if self._early is not None or self._released:
             return False
 
         coro, loop = self._settle(True), self._loop
 
         self._early = (
-            asyncio.create_task(coro) 
-            if asyncio._get_running_loop() is loop 
+            asyncio.create_task(coro)
+            if asyncio._get_running_loop() is loop
             else asyncio.run_coroutine_threadsafe(coro, loop)
         )
 
@@ -94,7 +91,6 @@ class _CoordinatedRelease:
 
     async def settle(self, handled: bool) -> None:
         """Settle now, or wait out an early settlement if one won."""
-
         if self._early is not None:
             # Don't abandon a settlement that is only scheduled: the dispatcher
             # may be stopped the moment the handler returns.
@@ -120,7 +116,7 @@ class _CoordinatedRelease:
                 await safe_await(self._coordinated.coordinator.mark_handled(self.update_id))
         finally:
             await safe_await(self._lock.release())
-            
+
 
 
 # Set for the duration of one coordinated update, to that update's
@@ -135,8 +131,7 @@ _handled_marker: ContextVar[_CoordinatedRelease | None] = ContextVar(
 
 
 def mark_handled() -> bool:
-    """
-    Declare the current update handled *now*, without waiting for the handler
+    """Declare the current update handled *now*, without waiting for the handler
     to return.
 
     By default an update is settled only once its handler finishes: it is
@@ -183,7 +178,6 @@ def mark_handled() -> bool:
         update is not under a coordinator, it was already settled, or this was
         called outside of update processing entirely.
     """
-
     release = _handled_marker.get()
 
     if release is None:
@@ -194,8 +188,7 @@ def mark_handled() -> bool:
 
 @patch_cls(setter=setattr)
 class Dispatcher(PyroDispatcher):
-    """
-    Extended Pyrogram dispatcher that layers three systems on top of
+    """Extended Pyrogram dispatcher that layers three systems on top of
     the standard handler pipeline: listeners, coordinators, and histories.
 
     Applied via ``@patch_cls``, which monkey-patches
@@ -264,49 +257,45 @@ class Dispatcher(PyroDispatcher):
         self.histories: dict[type[UpdateType], UpdateHistory[UpdateType]] = {}
 
         self.is_started = False
-    
+
 
     async def start(self, *args, **kw):
-        """
-        Start the dispatcher and all registered listeners, coordinators and histories.
+        """Start the dispatcher and all registered listeners, coordinators and histories.
 
         Parameters:
             *args: Passed directly to the original dispatcher.
             **kw: Passed directly to the original dispatcher.
         """
-
         r = await self.oldstart(*args, **kw)
 
         self.is_started = True
 
         await gather_helper(
             (listener.start()
-            for listener in self.listeners.values()), 
+            for listener in self.listeners.values()),
             (coordinated.start()
-            for coordinated in self.coordinateds.values()), 
+            for coordinated in self.coordinateds.values()),
             (history.start()
-            for history in self.histories.values()), 
+            for history in self.histories.values()),
             return_exc=True
         )
 
         return r
 
     async def stop(self, *args, **kw):
-        """
-        Stop the dispatcher and all registered listeners, coordinators and histories.
+        """Stop the dispatcher and all registered listeners, coordinators and histories.
 
         Parameters:
             *args: Passed directly to the original dispatcher.
             **kw: Passed directly to the original dispatcher.
         """
-
         await gather_helper(
             (listener.stop()
-            for listener in self.listeners.values()), 
+            for listener in self.listeners.values()),
             (coordinated.stop()
-            for coordinated in self.coordinateds.values()), 
+            for coordinated in self.coordinateds.values()),
             (history.stop()
-            for history in self.histories.values()), 
+            for history in self.histories.values()),
             return_exc=True
         )
 
@@ -316,10 +305,9 @@ class Dispatcher(PyroDispatcher):
 
         return r
 
-        
+
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
-        """
-        Register a listener for its declared update type.
+        """Register a listener for its declared update type.
 
         Must be called before the dispatcher is started. Only one
         listener per update type is allowed.
@@ -332,7 +320,6 @@ class Dispatcher(PyroDispatcher):
             ValueError:   If a listener for the same update type is
                           already registered.
         """
-
         if self.is_started:
             raise RuntimeError("Cannot register listener while dispatcher is already running")
 
@@ -342,10 +329,9 @@ class Dispatcher(PyroDispatcher):
             raise ValueError(f"UpdateListener for {update_type!r} is already registered")
 
         self.listeners[update_type] = listener
-    
+
     def register_coordinated(self, coordinated: UpdateCoordinated[UpdateType]) -> None:
-        """
-        Register a coordinated handler for its declared update type.
+        """Register a coordinated handler for its declared update type.
 
         Must be called before the dispatcher is started. Only one
         coordinated per update type is allowed.
@@ -358,7 +344,6 @@ class Dispatcher(PyroDispatcher):
             ValueError:   If a coordinated for the same update type is
                           already registered.
         """
-
         if self.is_started:
             raise RuntimeError("Cannot register coordinated while dispatcher is already running")
 
@@ -370,8 +355,7 @@ class Dispatcher(PyroDispatcher):
         self.coordinateds[update_type] = coordinated
 
     def register_history(self, history: UpdateHistory[UpdateType]) -> None:
-        """
-        Register a history handler for its declared update type.
+        """Register a history handler for its declared update type.
 
         Must be called before the dispatcher is started. Only one
         history per update type is allowed.
@@ -384,7 +368,6 @@ class Dispatcher(PyroDispatcher):
             ValueError:   If a history for the same update type is
                           already registered.
         """
-
         if self.is_started:
             raise RuntimeError("Cannot register history while dispatcher is already running")
 
@@ -396,8 +379,7 @@ class Dispatcher(PyroDispatcher):
         self.histories[update_type] = history
 
     async def unregister_listener(self, update_type: type[PyroUpdate]) -> None:
-        """
-        Unregister and stop the listener for the given update type.
+        """Unregister and stop the listener for the given update type.
 
         Does nothing if no listener is registered for that type.
 
@@ -405,17 +387,15 @@ class Dispatcher(PyroDispatcher):
             update_type: The Pyrogram update class whose listener should
                          be removed.
         """
-
         listener = self.listeners.pop(update_type, None)
 
         if listener is None:
             return
 
         await listener.stop()
-    
+
     async def unregister_coordinated(self, update_type: type[PyroUpdate]) -> None:
-        """
-        Unregister and stop the coordinated for the given update type.
+        """Unregister and stop the coordinated for the given update type.
 
         Does nothing if no coordinated is registered for that type.
 
@@ -423,7 +403,6 @@ class Dispatcher(PyroDispatcher):
             update_type: The Pyrogram update class whose coordinated should
                          be removed.
         """
-
         coordinated = self.coordinateds.pop(update_type, None)
 
         if coordinated is None:
@@ -432,8 +411,7 @@ class Dispatcher(PyroDispatcher):
         await coordinated.stop()
 
     async def unregister_history(self, update_type: type[PyroUpdate]) -> None:
-        """
-        Unregister and stop the history for the given update type.
+        """Unregister and stop the history for the given update type.
 
         Does nothing if no history is registered for that type.
 
@@ -441,18 +419,16 @@ class Dispatcher(PyroDispatcher):
             update_type: The Pyrogram update class whose history should
                          be removed.
         """
-
         history = self.histories.pop(update_type, None)
 
         if history is None:
             return
 
         await history.stop()
-    
-    
+
+
     async def handle_listen(self, parsed_update: PyroUpdate) -> None:
-        """
-        Attempt to resolve the update against a registered listener.
+        """Attempt to resolve the update against a registered listener.
 
         If a listener is found and resolves the update successfully,
         ``stop_propagation()`` is called on the update to prevent the
@@ -461,12 +437,11 @@ class Dispatcher(PyroDispatcher):
         Parameters:
             parsed_update: The parsed Pyrogram update to resolve.
         """
-
         listener = self.listeners.get(type(parsed_update))
 
         if listener is None:
             return
-        
+
         try:
             await listener.resolve(parsed_update)
         except UnresolvedUpdate:
@@ -478,13 +453,12 @@ class Dispatcher(PyroDispatcher):
 
 
     async def _handle_update(
-        self, 
-        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]], 
-        parsed_update: PyroUpdate | None, 
+        self,
+        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
+        parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None]
         ) -> tuple[int, int]:
-        """
-        Process a single update through the listener and handler pipeline.
+        """Process a single update through the listener and handler pipeline.
 
         First attempts to resolve the update via :meth:`handle_listen`,
         then iterates over handler groups, invoking the first matching
@@ -500,20 +474,19 @@ class Dispatcher(PyroDispatcher):
             Tuple[int, int]: ``(handled_count, exc_count)`` — number of
             updates successfully handled and number that raised exceptions.
         """
-
         handled_count = exc_count = 0
         update, users, chats = packet
-        
+
         if parsed_update is not None:
             await self.handle_listen(parsed_update)
-        
+
         history = None
 
         if parsed_update is not None:
             history = self.histories.get(type(parsed_update))
-        
+
         records = None
-        
+
         if history is not None:
             try:
                 if await history.is_recordable(parsed_update):
@@ -549,9 +522,9 @@ class Dispatcher(PyroDispatcher):
 
                 try:
                     await maybe_awaitable(
-                        handler.callback, 
-                        self.client, 
-                        *args, 
+                        handler.callback,
+                        self.client,
+                        *args,
                         executor=self.client.executor
                     )
                 except (StopPropagation, UnhandledUpdate) as e:
@@ -571,7 +544,7 @@ class Dispatcher(PyroDispatcher):
                         records.append(handler)
 
                 break
-        
+
         if records:
             try:
                 await history.record_many(parsed_update, records, check=False)
@@ -579,16 +552,14 @@ class Dispatcher(PyroDispatcher):
                 log.exception("Unexpected error recording handlers for %r", parsed_update)
 
         return handled_count, exc_count
-    
+
     async def handle_update(
-        self, 
-        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]], 
-        parsed_update: PyroUpdate | None, 
+        self,
+        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
+        parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None]
         ) -> None:
-
-        """
-        Process a single update under coordination, if a coordinator is
+        """Process a single update under coordination, if a coordinator is
         registered for its type.
 
         If none is registered — or the update is not coordinatable — falls
@@ -622,7 +593,6 @@ class Dispatcher(PyroDispatcher):
             parsed_update: The parsed Pyrogram update, or ``None``.
             handler_type:  The handler class expected to handle this update.
         """
-
         coordinated = self.coordinateds.get(type(parsed_update))
 
         if coordinated is None:
@@ -681,8 +651,7 @@ class Dispatcher(PyroDispatcher):
 
 
     async def handler_worker(self, lock: asyncio.Lock):
-        """
-        Worker coroutine that consumes updates from the queue and
+        """Worker coroutine that consumes updates from the queue and
         dispatches them.
 
         Runs in a loop until a ``None`` sentinel is received. Each
@@ -693,7 +662,6 @@ class Dispatcher(PyroDispatcher):
             lock: An async lock shared across all worker tasks to
                   serialise update processing.
         """
-
         while True:
             packet = await self.updates_queue.get()
 

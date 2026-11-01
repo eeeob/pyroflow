@@ -5,8 +5,8 @@ from .message_history import MessageHistory
 
 
 __all__ = (
-    "UpdateHistory", 
-    "CallbackQueryHistory", 
-    "MessageHistory", 
+    "UpdateHistory",
+    "CallbackQueryHistory",
+    "MessageHistory",
 
 )

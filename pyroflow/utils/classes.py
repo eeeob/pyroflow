@@ -1,5 +1,6 @@
+from __future__ import annotations as _annotations
 from abc import ABC
-from typing import Generic, Type, ClassVar
+from typing import Generic, ClassVar
 from pyrogram.types import Update as PyroUpdate
 
 from .typings import UpdateType
@@ -15,8 +16,7 @@ class AsyncioLock(asyncio.Lock):
         await self.release()
 
 class UpdateBound(Generic[UpdateType]):
-    """
-    binds a class to a specific Pyrogram update type.
+    """binds a class to a specific Pyrogram update type.
 
     Enforces that any concrete subclass declares a valid Pyrogram update
     type via __update_type__, and provides a validation helper to ensure
@@ -73,8 +73,7 @@ class UpdateBound(Generic[UpdateType]):
 
     @classmethod
     def validate_update(cls, update: UpdateType) -> None:
-        """
-        Validate that the given update matches the declared __update_type__.
+        """Validate that the given update matches the declared __update_type__.
 
         Parameters:
             update: The incoming Pyrogram update object.
@@ -82,7 +81,6 @@ class UpdateBound(Generic[UpdateType]):
         Raises:
             TypeError: If the update is not an instance of __update_type__.
         """
-
         if not isinstance(update, cls.__update_type__):
             raise TypeError(
                 f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}"
@@ -90,6 +88,6 @@ class UpdateBound(Generic[UpdateType]):
 
 
 __all__ = (
-    "AsyncioLock", 
-    "UpdateBound", 
+    "AsyncioLock",
+    "UpdateBound",
 )

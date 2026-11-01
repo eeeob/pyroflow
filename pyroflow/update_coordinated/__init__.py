@@ -5,7 +5,7 @@ from .callback_query_coordinated import CallbackQueryCoordinated
 
 
 __all__ = (
-    "UpdateCoordinated", 
-    "MessageCoordinated", 
-    "CallbackQueryCoordinated", 
+    "UpdateCoordinated",
+    "MessageCoordinated",
+    "CallbackQueryCoordinated",
 )

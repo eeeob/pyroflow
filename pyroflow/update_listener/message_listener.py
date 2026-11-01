@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, FrozenSet, Dict
+from __future__ import annotations as _annotations
+from typing import TYPE_CHECKING
 
 from pytrove import safe_await, is_exception
 from ..models import ListenerKey
@@ -44,12 +45,12 @@ class MessageListener(UpdateListener[Message]):
 
     async def _is_listenable(self, update):
         return not (
-            update.outgoing 
-            or update.service 
-            or getattr(update.from_user, "is_self", False) 
-            or update.empty 
-            or update.edit_date 
-            or update.edit_hidden 
+            update.outgoing
+            or update.service
+            or getattr(update.from_user, "is_self", False)
+            or update.empty
+            or update.edit_date
+            or update.edit_hidden
             or update.chat is None
         )
 
@@ -61,8 +62,7 @@ class MessageListener(UpdateListener[Message]):
         )
 
     async def _is_bypass(self, update):
-        """
-        Ready-made ``bypass_func``: treats the update as a bot command only
+        """Ready-made ``bypass_func``: treats the update as a bot command only
         if it matches Telegram's own command syntax — ``/name`` (1-32 word
         characters, starting with a letter), optionally targeted at
         ``@botusername``, followed by whitespace or end of text. A message
@@ -86,7 +86,6 @@ class MessageListener(UpdateListener[Message]):
 
             MessageListener(bypass_func=lambda update: ...)
         """
-
         match = _COMMAND_RE.match(update.text or update.caption or "")
 
         if not match:
@@ -100,16 +99,15 @@ class MessageListener(UpdateListener[Message]):
                 [(getattr(client.me, "username", None) or "").lower()]
                 + [u.username.lower() for u in (getattr(client.me, "usernames", None) or [])]
             )
-            
+
             if target.lower() not in me_usernames:
                 return False
 
         return name in await self._get_bot_commands(client)
 
 
-    async def _get_bot_commands(self, client: "Client") -> frozenset[str]:
-        """
-        The bot's officially registered command names (lowercased), fetched
+    async def _get_bot_commands(self, client: Client) -> frozenset[str]:
+        """The bot's officially registered command names (lowercased), fetched
         via ``client.get_bot_commands()`` at most once per listener
         lifetime — cleared in :meth:`stop`.
 
@@ -118,14 +116,13 @@ class MessageListener(UpdateListener[Message]):
         it is only ever attempted once rather than on every message — an
         empty set means no command will ever be recognized as one.
         """
-
         commands = self._bot_commands_cache.get(id(client))
 
         if commands is None:
             cmds = await safe_await(client.get_bot_commands())
             if is_exception(cmds):
                 cmds = ()
- 
+
             self._bot_commands_cache[id(client)] = commands = frozenset(c.command.lower() for c in cmds)
             weakref.finalize(client, self._bot_commands_cache.pop, id(client), None)
 

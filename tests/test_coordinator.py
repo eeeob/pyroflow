@@ -9,6 +9,7 @@ The pairing is what makes chat-wide ordering possible without losing
 updates — the regression this whole design exists to prevent — so it is
 exercised end-to-end here as well as in test_dispatcher_coordination.py.
 """
+from __future__ import annotations as _annotations
 
 import asyncio
 import gc

@@ -1,6 +1,7 @@
+from __future__ import annotations as _annotations
 import asyncio
 
-from typing import TYPE_CHECKING, Any, Type, Dict, List, Optional, Tuple, Union, overload
+from typing import TYPE_CHECKING, Any, overload
 from datetime import datetime
 from functools import cached_property
 
@@ -26,7 +27,7 @@ from pytrove import (
     gather_abort,
     clean_none_kw,
     safe_call,
-    safe_await, 
+    safe_await,
     yield_control,
 )
 from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT
@@ -38,8 +39,7 @@ from .update_listener import UpdateListener
 
 @patch_cls
 class Client(PyroClient):
-    """
-    The main entry point of the library and the only class you need to
+    """The main entry point of the library and the only class you need to
     interact with directly.
 
     Extends :class:`pyrogram.Client` with a conversation-oriented API that
@@ -106,7 +106,7 @@ class Client(PyroClient):
     synchronously from outside an event loop, matching the behaviour of the
     standard :class:`pyrogram.Client`.
 
-    Examples
+    Examples:
     --------
     **Using ``ask()``** — send a question and wait for the reply in one step:
 
@@ -174,19 +174,18 @@ class Client(PyroClient):
 
     @property
     def listeners(self) -> dict[type[UpdateType], UpdateListener[UpdateType]]:
-        """
-        Mapping from each update type to its registered :class:`UpdateListener`.
+        """Mapping from each update type to its registered :class:`UpdateListener`.
 
         The key is the update type (e.g. ``Message`` or ``CallbackQuery``),
         and the value is the listener responsible for awaiting that type.
         """
         return self.dispatcher.listeners
-    
+
     @property
     def message_listen(self) -> UpdateListener[Message]:
         """Shortcut to the :class:`UpdateListener` registered for :class:`Message` updates."""
         return self.listeners[Message]
-    
+
     @property
     def callback_listen(self) -> UpdateListener[CallbackQuery]:
         """Shortcut to the :class:`UpdateListener` registered for :class:`CallbackQuery` updates."""
@@ -200,23 +199,23 @@ class Client(PyroClient):
         unregister_listener = Dispatcher.unregister_listener
         unregister_coordinated = Dispatcher.unregister_coordinated
         unregister_history = Dispatcher.unregister_history
-    
+
     else:
         def register_listener(self, *args, **kw):
             return self.dispatcher.register_listener(*args, **kw)
-        
+
         def register_coordinated(self, *args, **kw):
             return self.dispatcher.register_coordinated(*args, **kw)
-        
+
         def register_history(self, *args, **kw):
             return self.dispatcher.register_history(*args, **kw)
-        
+
         async def unregister_listener(self, *args, **kw):
             return await self.dispatcher.unregister_listener(*args, **kw)
-        
+
         async def unregister_coordinated(self, *args, **kw):
             return await self.dispatcher.unregister_coordinated(*args, **kw)
-        
+
         async def unregister_history(self, *args, **kw):
             return await self.dispatcher.unregister_history(*args, **kw)
 
@@ -226,8 +225,7 @@ class Client(PyroClient):
         handler: MaybeCoroutineCallable[[Exception, Message], Any],
         update_type: type[UpdateType] = Message,
         ) -> None:
-        """
-        Add or replace a client-wide entry in :attr:`ask_error_handlers`, for
+        """Add or replace a client-wide entry in :attr:`ask_error_handlers`, for
         one ``update_type``.
 
         Unlike :meth:`register_listener`/:meth:`register_coordinated`/
@@ -245,7 +243,6 @@ class Client(PyroClient):
                          Matches the ``update_type`` argument of :meth:`ask`,
                          defaulting the same way.
         """
-
         self.ask_error_handlers.setdefault(update_type, {})[exc_types] = handler
 
     def unregister_ask_error_handler(
@@ -253,8 +250,7 @@ class Client(PyroClient):
         exc_types: type[Exception] | tuple[type[Exception], ...],
         update_type: type[UpdateType] = Message,
         ) -> bool:
-        """
-        Remove the client-wide entry registered under ``exc_types`` for
+        """Remove the client-wide entry registered under ``exc_types`` for
         ``update_type``, if any.
 
         ``exc_types`` must match the exact key a handler was registered
@@ -267,7 +263,6 @@ class Client(PyroClient):
             ``True`` if an entry was removed, ``False`` if none was registered
             under that exact ``(update_type, exc_types)`` pair.
         """
-
         handlers = self.ask_error_handlers.get(update_type)
 
         if not handlers:
@@ -278,26 +273,26 @@ class Client(PyroClient):
 
     @overload
     async def ask(
-        self, 
-        chat_id: int | str, 
-        text: str, 
-        *, 
-        parse_mode: pyro_enums.ParseMode | None = None, 
-        entities: list[pyro_types.MessageEntity] | None = None, 
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None, 
-        reply_parameters: pyro_types.ReplyParameters | None = None, 
-        disable_notification: bool | None = None, 
-        message_thread_id: int | None = None, 
-        direct_messages_topic_id: int | None = None, 
-        effect_id: int | None = None, 
-        schedule_date: datetime | None = None, 
-        repeat_period: int | None = None, 
-        protect_content: bool | None = None, 
-        business_connection_id: str | None = None, 
-        allow_paid_broadcast: bool | None = None, 
-        paid_message_star_count: int | None = None, 
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None, 
-        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None, 
+        self,
+        chat_id: int | str,
+        text: str,
+        *,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        schedule_date: datetime | None = None,
+        repeat_period: int | None = None,
+        protect_content: bool | None = None,
+        business_connection_id: str | None = None,
+        allow_paid_broadcast: bool | None = None,
+        paid_message_star_count: int | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
@@ -332,23 +327,23 @@ class Client(PyroClient):
     ) -> UpdateType: ...
 
     async def ask(
-        self, 
-        chat_id: int | str, 
-        text: str, 
-        message_id: int | None = None, 
+        self,
+        chat_id: int | str,
+        text: str,
+        message_id: int | None = None,
         *,
-        parse_mode: pyro_enums.ParseMode | None = None, 
-        entities: list[pyro_types.MessageEntity] | None = None, 
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None, 
-        schedule_date: datetime | None = None, 
-        business_connection_id: str | None = None, 
-        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None, 
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        schedule_date: datetime | None = None,
+        business_connection_id: str | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
         # send_message only params
-        disable_notification: bool | None = None, 
-        message_thread_id: int | None = None, 
-        direct_messages_topic_id: int | None = None, 
-        effect_id: int | None = None, 
-        reply_parameters: pyro_types.ReplyParameters | None = None, 
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
         repeat_period: int | None = None,
         protect_content: bool | None = None,
         allow_paid_broadcast: bool | None = None,
@@ -363,8 +358,7 @@ class Client(PyroClient):
         error_handlers: AskErrorHandlersT | None = None,
         **kw
     ) -> UpdateType:
-        """
-        Send or edit a message, then wait for a matching update.
+        """Send or edit a message, then wait for a matching update.
 
         If ``message_id`` is provided, the existing message is edited via
         :meth:`edit_message_text`. Otherwise a new message is sent via
@@ -438,7 +432,6 @@ class Client(PyroClient):
             ListenerTimeout:  If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
-
         listener = self.listeners.get(update_type)
 
         if listener is None:
@@ -446,12 +439,12 @@ class Client(PyroClient):
                 f"No listener registered for {update_type.__name__}. "
                 f"Register one via client.register_listener() before calling ask()."
             )
-    
-            
+
+
         if message_id is not None:
             if reply_markup is not None and not isinstance(reply_markup, pyro_types.InlineKeyboardMarkup):
                 raise ValueError("Edit mode only supports InlineKeyboardMarkup for reply_markup")
-            
+
             m = await self.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
@@ -484,10 +477,10 @@ class Client(PyroClient):
                 paid_message_star_count=paid_message_star_count,
                 suggested_post_parameters=suggested_post_parameters,
                 reply_markup=reply_markup,
-                **kw, 
+                **kw,
             )
-        
-        
+
+
         if meta is None or isinstance(meta, dict):
             meta = {} if meta is None else meta.copy()
             if "message_id" not in meta:
@@ -499,12 +492,12 @@ class Client(PyroClient):
             listen_message_id = listen_message_id(m)
 
         final_chat_id = m.chat.id if m.chat else chat_id
-        
+
         if isinstance(final_chat_id, str):
             final_chat_id = pyro_ut.get_peer_id(
                 await self.resolve_peer(final_chat_id)
             )
-            
+
         try:
             return await listener(
                 chat_id=final_chat_id,
@@ -532,8 +525,7 @@ else:
 
 
 class BotCommandsMixin(_BotCommandsMixinBase):
-    """
-    Opt-in :class:`Client` mixin that publishes the bot commands declared with
+    """Opt-in :class:`Client` mixin that publishes the bot commands declared with
     :func:`mark_bot_commands` on the handlers you register.
 
     It is deliberately *not* a :class:`Client` subclass and *not* applied via
@@ -579,8 +571,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         return result
 
     def _track_bot_commands(self, handler, added: bool) -> None:
-        """
-        Queue this registration's bookkeeping behind Pyrogram's own.
+        """Queue this registration's bookkeeping behind Pyrogram's own.
 
         Pyrogram never mutates ``dispatcher.groups`` inline: ``add_handler`` and
         ``remove_handler`` schedule a task that first acquires
@@ -591,15 +582,13 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         Pyrogram's (the loop runs them in creation order, and both contend for
         the same locks) and let it read the real state.
         """
-
-        
         async def apply() -> None:
             if not getattr(handler, BOT_COMMANDS_ATTR, ()):
                 return
-            
+
             if any(handler in handlers for handlers in self.dispatcher.groups.values()) is not added:
                 return
-            
+
             locks = [self.bot_command_groups_lock] + self.dispatcher.locks_list
             acquired = []
 
@@ -622,17 +611,16 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         self.loop.create_task(apply())
 
     def _collect_bot_commands(
-        self, 
-        language_code: str | None, 
-        scope: BotCommandScope | None, 
+        self,
+        language_code: str | None,
+        scope: BotCommandScope | None,
         commands: MaybeList[BotCommand]
         ) -> None:
         """Add ``commands`` to the ``(language_code, scope)`` group, creating it if new."""
-
         key = (language_code, scope)
         bot_command_groups = self.bot_command_groups
         group = next(
-            (_commands for _key, _commands in bot_command_groups if _key == key), 
+            (_commands for _key, _commands in bot_command_groups if _key == key),
             None
         )
 
@@ -642,13 +630,12 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         group.extend(to_list(commands))
 
     def _discard_bot_commands(
-        self, 
-        language_code: str | None, 
-        scope: BotCommandScope | None, 
+        self,
+        language_code: str | None,
+        scope: BotCommandScope | None,
         commands: MaybeList[BotCommand]
         ) -> None:
         """Remove ``commands`` from the ``(language_code, scope)`` group, dropping it once empty."""
-
         key = (language_code, scope)
 
         for i, (_key, _commands) in enumerate(self.bot_command_groups):
@@ -664,8 +651,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
             break
 
     def _prune_bot_commands(self) -> None:
-        """
-        Drop every collected command that no registered handler declares any
+        """Drop every collected command that no registered handler declares any
         more, so a bookkeeping task that never landed cannot leave a command
         published for a handler that is gone.
 
@@ -674,7 +660,6 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         already yielded once (queued registrations have landed) and holds
         :attr:`bot_command_groups_lock`, so no bookkeeping task can be running.
         """
-
         declared: list[tuple[BotCommandGroupKeyT, list[BotCommand]]] = []
 
         for handlers in list(self.dispatcher.groups.values()):
@@ -704,8 +689,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
                 groups.pop(i)
 
     async def push_bot_commands(self) -> None:
-        """
-        Send every collected command group to Telegram, one
+        """Send every collected command group to Telegram, one
         :meth:`~pyrogram.Client.set_bot_commands` call per
         ``(language_code, scope)`` pair.
 
@@ -714,10 +698,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         be declared on more than one handler) and empty groups are skipped.
         Called automatically by :meth:`start`.
         """
-
         await safe_await(
-            yield_control(), 
-            self.bot_command_groups_lock.acquire(), 
+            yield_control(),
+            self.bot_command_groups_lock.acquire(),
             return_exc=False
         )
 
@@ -744,17 +727,15 @@ class BotCommandsMixin(_BotCommandsMixinBase):
             self.bot_command_groups_lock.release()
 
     async def remove_bot_commands(self) -> None:
-        """
-        Delete every collected command group from Telegram, one
+        """Delete every collected command group from Telegram, one
         :meth:`~pyrogram.Client.delete_bot_commands` call per
         ``(language_code, scope)`` pair.
 
         Called automatically by :meth:`stop` unless told not to.
         """
-
         await safe_await(
-            yield_control(), 
-            self.bot_command_groups_lock.acquire(), 
+            yield_control(),
+            self.bot_command_groups_lock.acquire(),
             return_exc=False
         )
 
@@ -768,20 +749,17 @@ class BotCommandsMixin(_BotCommandsMixinBase):
 
     async def start(self, *args, **kw):
         """Start the client as usual, then publish the collected commands."""
-
         result = await super().start(*args, **kw)
         await self.push_bot_commands()
         return result
 
     async def stop(self, *args, remove_commands: bool = True, **kw):
-        """
-        Delete the published commands, then stop the client as usual.
+        """Delete the published commands, then stop the client as usual.
 
         Parameters:
             remove_commands: Set to ``False`` to leave the commands registered
                              on Telegram's side after stopping.
         """
-
         if remove_commands:
             await self.remove_bot_commands()
         try:

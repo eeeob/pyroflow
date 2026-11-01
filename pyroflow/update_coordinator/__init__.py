@@ -4,8 +4,8 @@ from .redis_update_coordinator import RedisUpdateCoordinator
 
 
 __all__ = (
-    "UpdateCoordinator", 
-    "MemoryUpdateCoordinator", 
-    "RedisUpdateCoordinator", 
+    "UpdateCoordinator",
+    "MemoryUpdateCoordinator",
+    "RedisUpdateCoordinator",
 
 )

@@ -22,7 +22,7 @@ __all__ = (
     *update_history.__all__,
     *update_history_store.__all__,
     *update_listener.__all__,
-    *types.__all__, 
+    *types.__all__,
     "Client",
     "BotCommandsMixin",
     "mark_bot_commands",

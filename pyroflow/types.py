@@ -1,5 +1,6 @@
+from __future__ import annotations as _annotations
 from typing import (
-    TYPE_CHECKING, Optional, Union, Literal, List, Dict, Tuple, Type, Any, overload, cast,
+    TYPE_CHECKING, Literal, Any, overload, cast,
 )
 from collections.abc import Mapping, Iterable
 from datetime import datetime
@@ -55,21 +56,20 @@ class Update(PyroUpdate):
     @overload
     def with_ctx(self, **kwargs: Any) -> Self: ...
     def with_ctx(self, *args: Any, **kwargs: Any) -> Self:
-        """
-        Merge into :attr:`context` (same arguments as ``dict.update``) and
+        """Merge into :attr:`context` (same arguments as ``dict.update``) and
         return ``self``, for chaining right after the update is built.
         """
         context = self.context
         if context is None:
             self.context = context = {}
         context.update(*args, **kwargs)
-        
+
         return self
 
 
 @patch_cls
 class User(PyroUser):
-    _client: "Client"
+    _client: Client
 
     @property
     def lang_code(self) -> str | None:
@@ -82,8 +82,8 @@ if TYPE_CHECKING:
 
 @patch_cls
 class Message(PyroMessage):
-    _client: "Client"
-    from_user: Optional["User"]
+    _client: Client
+    from_user: User | None
 
     @overload
     async def ask(
@@ -97,11 +97,11 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: Optional["ListenMessageIdT"] = None,
+        listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
         timeout: Number | None = None,
-        update_type: type[UpdateType] = cast(type["Message"], PyroMessage),
-        error_handlers: Optional["AskErrorHandlersT"] = None,
+        update_type: type[UpdateType] = cast("type[Message]", PyroMessage),
+        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any
     ) -> UpdateType:
         ...
@@ -128,11 +128,11 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: Optional["ListenMessageIdT"] = None,
+        listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
         timeout: Number | None = None,
-        update_type: type[UpdateType] = cast(type["Message"], PyroMessage),
-        error_handlers: Optional["AskErrorHandlersT"] = None,
+        update_type: type[UpdateType] = cast("type[Message]", PyroMessage),
+        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any
     ) -> UpdateType:
         ...
@@ -159,16 +159,14 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: Optional["ListenMessageIdT"] = None,
+        listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
         timeout: Number | None = None,
-        update_type: type[UpdateType] = cast(type["Message"], PyroMessage),
-        error_handlers: Optional["AskErrorHandlersT"] = None,
+        update_type: type[UpdateType] = cast("type[Message]", PyroMessage),
+        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any
     ) -> UpdateType:
-
-        """
-        Send a new message or edit the current one, then wait for a matching update.
+        """Send a new message or edit the current one, then wait for a matching update.
 
         This method dynamically evaluates the context of the current message to determine
         the execution flow:
@@ -291,16 +289,15 @@ class Message(PyroMessage):
             ListenerTimeout: 
                 If the timeout limit is reached before a valid update arrives.
         """
-        
         if self.service or self.empty:
             raise ValueError("Cannot call 'ask' on a service or empty message.")
-        
+
         message_id = None
 
         if not force_send and self.editable:
             message_id = self.id
-        
-        
+
+
         if message_id is None:
             if reply_parameters is None:
                 reply_parameters = pyro_types.ReplyParameters(
@@ -312,22 +309,22 @@ class Message(PyroMessage):
 
             if direct_messages_topic_id is None:
                 direct_messages_topic_id = self.direct_messages_topic_id
-        
+
         else:
             if any(
                 v is not None for v in
                 (
-                    reply_parameters, 
-                    disable_notification, 
-                    message_thread_id, 
-                    direct_messages_topic_id, 
-                    effect_id, 
-                    schedule_date, 
-                    repeat_period, 
-                    protect_content, 
-                    allow_paid_broadcast, 
-                    paid_message_star_count, 
-                    suggested_post_parameters, 
+                    reply_parameters,
+                    disable_notification,
+                    message_thread_id,
+                    direct_messages_topic_id,
+                    effect_id,
+                    schedule_date,
+                    repeat_period,
+                    protect_content,
+                    allow_paid_broadcast,
+                    paid_message_star_count,
+                    suggested_post_parameters,
                 )
             ):
                     raise ValueError(
@@ -337,14 +334,14 @@ class Message(PyroMessage):
 
 
         return await self._client.ask(
-            self.chat.id, 
-            text, 
-            message_id, 
-            parse_mode=parse_mode, 
+            self.chat.id,
+            text,
+            message_id,
+            parse_mode=parse_mode,
             entities=entities,
             link_preview_options=link_preview_options,
             reply_parameters=reply_parameters,
-            business_connection_id=self.business_connection_id, 
+            business_connection_id=self.business_connection_id,
             disable_notification=disable_notification,
             message_thread_id=message_thread_id,
             direct_messages_topic_id=direct_messages_topic_id,
@@ -369,7 +366,7 @@ class Message(PyroMessage):
     def editable(self) -> bool:
         return (
             getattr(self.from_user, "is_self", False)
-            or 
+            or
             getattr(self.sender_chat, "id", None) == getattr(self._client.me, "id", 0)
         )
 
@@ -383,17 +380,17 @@ if TYPE_CHECKING:
 
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
-    _client: "Client"
-    message: Optional["Message"]
-    from_user: "User"
+    _client: Client
+    message: Message | None
+    from_user: User
 
 if TYPE_CHECKING:
     class CallbackQuery(CallbackQuery, Update):
         pass
 
 __all__ = (
-    "User", 
-    "Message", 
-    "CallbackQuery", 
-    "Update", 
+    "User",
+    "Message",
+    "CallbackQuery",
+    "Update",
 )

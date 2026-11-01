@@ -1,3 +1,4 @@
+from __future__ import annotations as _annotations
 from typing import Final
 
 # Attribute name under which the mark_bot_commands decorator stores its
@@ -7,6 +8,6 @@ BOT_COMMANDS_ATTR: Final[str] = "_pyroflow_bot_commands"
 
 
 __all__ = (
-    "BOT_COMMANDS_ATTR", 
+    "BOT_COMMANDS_ATTR",
 )
 

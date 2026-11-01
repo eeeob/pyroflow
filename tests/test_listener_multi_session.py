@@ -12,6 +12,7 @@ tests pin down what must hold during that window, in both directions:
 Both are settled by the `coordinator_id` generation token rather than by
 waiting for delivery, so they hold even if a signal is late or lost.
 """
+from __future__ import annotations as _annotations
 
 import asyncio
 from functools import partial

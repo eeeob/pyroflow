@@ -1,3 +1,4 @@
+from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING
 
 from ..types import Message
@@ -10,7 +11,7 @@ class MessageHistory(UpdateHistory[Message]):
     if not TYPE_CHECKING:
         def __init__(self, *args, **kw):
             super().__init__(*args, **kw)
-            
+
             if self.is_recordable_func is None:
                 self.is_recordable_func = self._is_recordable
 
@@ -20,7 +21,7 @@ class MessageHistory(UpdateHistory[Message]):
             if self.extract_data_func is None:
                 self.extract_data_func = self._extract_data
 
-            
+
 
     async def _is_recordable(self, update):
         return update.chat is not None

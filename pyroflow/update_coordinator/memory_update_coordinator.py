@@ -1,3 +1,4 @@
+from __future__ import annotations as _annotations
 from functools import partial
 from cachetools import TTLCache
 
@@ -11,8 +12,7 @@ import asyncio
 
 
 class TimedLock(AsyncioLock):
-    """
-    An :class:`asyncio.Lock` with a bounded wait.
+    """An :class:`asyncio.Lock` with a bounded wait.
 
     A bare ``asyncio.Lock`` waits forever, which is unusable here: the
     dispatcher waits on this while holding its worker lock, so one stuck
@@ -45,8 +45,7 @@ class TimedLock(AsyncioLock):
 
 
 class MemoryUpdateCoordinator(UpdateCoordinator):
-    """
-    Single-process coordinator, backed by plain in-memory structures.
+    """Single-process coordinator, backed by plain in-memory structures.
 
     The default when no factory is supplied. Coordination is real but local:
     it serialises this process's own workers and remembers what this process

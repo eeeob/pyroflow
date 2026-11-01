@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, Optional, Tuple, overload
+from __future__ import annotations as _annotations
+from typing import TYPE_CHECKING, Any, overload
 from collections.abc import Callable
 
 from pyrogram.sync import async_to_sync
@@ -58,7 +59,6 @@ def patch_cls(
     rather than plain ``setattr``. An explicit ``setter=`` still overrides
     it, same as calling pytrove's version directly.
     """
-
     return _patch_cls(
         patch_class,
         preserve_old=preserve_old,
@@ -67,22 +67,19 @@ def patch_cls(
     )
 
 
-def split_bot_command_entry(entry: "BotCommandEntryT") -> "BotCommandPartsT":
-    """
-    Expand any :data:`BotCommandEntryT` shape into its
+def split_bot_command_entry(entry: BotCommandEntryT) -> BotCommandPartsT:
+    """Expand any :data:`BotCommandEntryT` shape into its
     ``(language_code, scope, commands)`` parts, filling the parts the entry
     left out with ``None``.
     """
-
     if isinstance(entry, (BotCommand, list)):
         return None, None, entry
     if len(entry) == 2:
         return None, *entry
     return entry
 
-def mark_bot_commands(*entries: "BotCommandEntryT") -> Callable[[_FT], _FT]:
-    """
-    Decorator that marks a handler function with the bot commands it answers
+def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
+    """Decorator that marks a handler function with the bot commands it answers
     to, so :class:`~pyroflow.BotCommandsMixin` can publish them to Telegram
     later, when the client starts.
 
@@ -133,12 +130,11 @@ def mark_bot_commands(*entries: "BotCommandEntryT") -> Callable[[_FT], _FT]:
     return decorator
 
 async def handle_ask_error(
-    exc: Exception, 
-    m: "Message", 
-    *handlers: Optional["AskErrorHandlersT"],
+    exc: Exception,
+    m: Message,
+    *handlers: AskErrorHandlersT | None,
     ) -> bool:
-    """
-    Dispatch ``exc`` to the first matching entry across ``handlers``, awaited
+    """Dispatch ``exc`` to the first matching entry across ``handlers``, awaited
     as ``handler(exc, m)``.
 
     Each mapping is scanned in order, and within a mapping its keys are tried in
@@ -154,7 +150,6 @@ async def handle_ask_error(
     Returns:
         ``True`` if a handler matched and ran, ``False`` otherwise.
     """
-
     for hdlrs in handlers:
         if not hdlrs:
             continue

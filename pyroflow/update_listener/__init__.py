@@ -4,8 +4,8 @@ from .callback_query_listener import CallbackQueryListener
 
 
 __all__ = (
-    "UpdateListener", 
-    "MessageListener", 
-    "CallbackQueryListener", 
-    
+    "UpdateListener",
+    "MessageListener",
+    "CallbackQueryListener",
+
 )

@@ -12,11 +12,10 @@ same way::
 :class:`~pyrogram.types.Message` uses ``.text`` (falling back to
 ``.caption``), :class:`~pyrogram.types.CallbackQuery` uses ``.data``.
 """
+from __future__ import annotations as _annotations
 
-from typing import Optional, Union, NoReturn, TYPE_CHECKING
-from collections.abc import Callable, Coroutine
+from typing import NoReturn, TYPE_CHECKING
 from enum import Enum, EnumMeta as EnumType
-from functools import wraps 
 
 from pyrogram.filters import Filter, create
 
@@ -33,9 +32,8 @@ def _raise(exc: Exception) -> NoReturn:
 
 
 
-def endswith(*texts: "NestedContainer[str]") -> Filter:
+def endswith(*texts: NestedContainer[str]) -> Filter:
     """Match when the update's text ends with any of ``texts``."""
-
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
     caller = to_coroutine(
         lambda _, __, update: extract_pyro_update_text(update).endswith(flat_texts)
@@ -43,9 +41,8 @@ def endswith(*texts: "NestedContainer[str]") -> Filter:
 
     return create(caller, "EndsWith")
 
-def startswith(*texts: "NestedContainer[str]") -> Filter:
+def startswith(*texts: NestedContainer[str]) -> Filter:
     """Match when the update's text starts with any of ``texts``."""
-
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
     caller = to_coroutine(
         lambda _, __, update: extract_pyro_update_text(update).startswith(flat_texts)
@@ -53,9 +50,8 @@ def startswith(*texts: "NestedContainer[str]") -> Filter:
 
     return create(caller, "StartsWith")
 
-def equal(*texts: "NestedContainer[str]") -> Filter:
+def equal(*texts: NestedContainer[str]) -> Filter:
     """Match when the update's text is exactly one of ``texts``."""
-
     flat_texts = frozenset(t for t in iter_flat_cont(texts) if isinstance(t, str) and t)
     caller = to_coroutine(lambda _, __, update: extract_pyro_update_text(update) in flat_texts)
 
@@ -63,12 +59,11 @@ def equal(*texts: "NestedContainer[str]") -> Filter:
 
 
 def split_text(
-    *rules: Union["MaybeCoroutineCallable[[str], bool]", "NestedContainer[str]", EnumType], 
-    strip: bool = False, 
-    separator: str | None = None, 
+    *rules: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType,
+    strip: bool = False,
+    separator: str | None = None,
     ) -> Filter:
-    """
-    Split the update's text by ``separator`` and match each part against the
+    """Split the update's text by ``separator`` and match each part against the
     corresponding ``rules`` entry.
 
     Each rule is one of:
@@ -97,7 +92,6 @@ def split_text(
         TypeError:  If a rule is neither a container, a string, an Enum class,
                     nor a callable.
     """
-
     if not rules:
         raise ValueError("split_text filter must be given at least one rule")
 
@@ -121,7 +115,7 @@ def split_text(
             "separator is required when split_text is given more than one rule"
         )
 
-    async def caller(_, client: "Client", update: Message | Query) -> bool:
+    async def caller(_, client: Client, update: Message | Query) -> bool:
         text = extract_pyro_update_text(update)
 
         if not text:

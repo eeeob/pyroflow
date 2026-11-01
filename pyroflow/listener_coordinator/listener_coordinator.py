@@ -1,5 +1,6 @@
+from __future__ import annotations as _annotations
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Tuple, TypeAlias, TYPE_CHECKING
+from typing import TypeAlias, TYPE_CHECKING
 
 
 from ..utils.typings import AsyncLockProto
@@ -13,8 +14,7 @@ if TYPE_CHECKING:
 LockKeyT: TypeAlias = int | tuple[int | None, ...] | ListenerKey
 
 class ListenerCoordinator(ABC):
-    """
-    Abstract base for listener registries.
+    """Abstract base for listener registries.
 
     A listener coordinator stores and manages registrations for update listeners.
     Concrete implementations must provide locking, listener coordinator,
@@ -50,15 +50,14 @@ class ListenerCoordinator(ABC):
         **kw:     Passed to the next class in the MRO.
     """
 
-    def __init__(self, listener: "UpdateListener", **kw):
+    def __init__(self, listener: UpdateListener, **kw):
         super().__init__(**kw)
 
         self.listener = listener
-        
+
     @abstractmethod
     def lock(self, key: LockKeyT) -> AsyncLockProto:
-        """
-        Return an async context manager that serialises listener coordinator
+        """Return an async context manager that serialises listener coordinator
         operations for the given key.
 
         The returned object must support ``async with`` semantics.
@@ -71,11 +70,10 @@ class ListenerCoordinator(ABC):
             An async lock compatible with ``async with``.
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     async def register(self, key: ListenerKey) -> ListenerCoordinatorIdT:
-        """
-        Register a listener for the given key and return a unique
+        """Register a listener for the given key and return a unique
         listener coordinator id.
 
         The listener coordinator id can later be passed to :meth:`unregister`
@@ -89,11 +87,10 @@ class ListenerCoordinator(ABC):
             A unique identifier for this listener coordinator.
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     async def unregister(self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None) -> bool:
-        """
-        Remove a listener coordinator by key and optional listener coordinator id.
+        """Remove a listener coordinator by key and optional listener coordinator id.
 
         If ``coordinator_id`` is provided, only the listener coordinator
         matching that id is removed, preventing accidental removal
@@ -108,11 +105,10 @@ class ListenerCoordinator(ABC):
             ``True`` if a listener coordinator was removed, ``False`` otherwise.
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     async def cancel(self, key: ListenerKey) -> bool:
-        """
-        Cancel all registrations for the given key.
+        """Cancel all registrations for the given key.
 
         Parameters:
             key: The :class:`ListenerKey` whose registrations should
@@ -123,11 +119,10 @@ class ListenerCoordinator(ABC):
             otherwise.
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     async def registered(self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None) -> bool:
-        """
-        Check whether a listener coordinator exists for the given key.
+        """Check whether a listener coordinator exists for the given key.
 
         Parameters:
             key:             The :class:`ListenerKey` to check.
@@ -138,19 +133,19 @@ class ListenerCoordinator(ABC):
             ``True`` if a matching listener coordinator exists, ``False`` otherwise.
         """
         raise NotImplementedError
-    
+
 
     async def start(self) -> None:
         pass
 
     async def stop(self) -> None:
         pass
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
 
 
 

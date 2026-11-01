@@ -1,5 +1,5 @@
+from __future__ import annotations as _annotations
 from abc import ABC
-from typing import Optional, Type
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
@@ -17,8 +17,7 @@ log = logging.getLogger(__name__)
 
 
 class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
-    """
-    Abstract base for update types that are processed under coordination.
+    """Abstract base for update types that are processed under coordination.
 
     Each subclass is bound to a single update type via ``__update_type__``
     and defines three things: whether an update should be coordinated at
@@ -93,8 +92,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def is_coordinatable(self, update: UpdateType) -> bool:
-        """
-        Determine whether this update should be coordinated.
+        """Determine whether this update should be coordinated.
 
         Called before any key extraction or locking. Return ``False`` to
         process the update normally, with no lock and no registration.
@@ -109,7 +107,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             NotImplementedError: If neither this method is overridden nor
                                  ``is_coordinatable_func`` was provided.
         """
-
         if self.is_coordinatable_func is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must either pass is_coordinatable_func "
@@ -125,8 +122,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT:
-        """
-        Extract the **lock scope** for this update.
+        """Extract the **lock scope** for this update.
 
         Every update that yields the same key is processed one at a time, in
         arrival order. Widen this to serialise a whole conversation; leave it
@@ -144,7 +140,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             NotImplementedError: If neither this method is overridden nor
                                  ``extract_key_func`` was provided.
         """
-
         if self.extract_key_func is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must either pass extract_key_func "
@@ -159,8 +154,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
-        """
-        Extract the **identity** of this update, for deduplication.
+        """Extract the **identity** of this update, for deduplication.
 
         Registered once the update has been processed, and checked before
         processing it, so the same update is never handled twice — including
@@ -181,7 +175,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             NotImplementedError: If neither this method is overridden nor
                                  ``extract_update_id_func`` was provided.
         """
-
         if self.extract_update_id_func is None:
             raise NotImplementedError(
                 f"{self.__class__.__name__} must either pass extract_update_id_func "
@@ -196,8 +189,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def lock(self, update: UpdateType) -> AsyncLockProto:
-        """
-        Build the lock serialising this update's scope.
+        """Build the lock serialising this update's scope.
 
         Returned unacquired — the caller decides when to take it and, more
         importantly, when to let it go (see :func:`~pyroflow.mark_handled`).
@@ -208,7 +200,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         Returns:
             An async lock compatible with ``async with``.
         """
-
         return self.coordinator.lock(
             await self.extract_key(update)
         )

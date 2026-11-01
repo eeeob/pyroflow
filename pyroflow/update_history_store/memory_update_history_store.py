@@ -1,4 +1,4 @@
-from typing import List, Optional
+from __future__ import annotations as _annotations
 from cachetools import TTLCache
 
 from pytrove.typings import Number
@@ -14,8 +14,7 @@ import time
 
 
 class MemoryUpdateHistoryStore(UpdateHistoryStore):
-    """
-    In-memory history store bounded by both age and key count.
+    """In-memory history store bounded by both age and key count.
 
     Per-record ``ttl`` is enforced lazily, on access to that key. That alone
     cannot reclaim a key that is written once and never read again, so the
@@ -50,7 +49,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
     def _expires_at(self, record: UpdateRecord) -> Number:
         return record.created_at + self.ttl
-    
+
     def _is_expired(self, record: UpdateRecord, now: Number | None = None) -> bool:
         return (time.time() if now is None else now) >= self._expires_at(record)
 
@@ -91,16 +90,16 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
     def _delete(self, key):
         self.histories.pop(key, None)
-    
+
 
     async def update(self, *args, **kw):
         return self._update(*args, **kw)
-        
+
     async def get(self, *args, **kw):
         return self._get(*args, **kw)
-    
+
     async def pop(self, *args, **kw):
         return self._pop(*args, **kw)
-        
+
     async def delete(self, *args, **kw):
         return self._delete(*args, **kw)

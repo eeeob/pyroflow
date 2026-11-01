@@ -7,6 +7,7 @@ unguarded.
 They run on any interpreter (they never execute the scanned code), so
 they guard the 3.10 floor even while the suite itself runs on 3.14.
 """
+from __future__ import annotations as _annotations
 
 import ast
 import pathlib

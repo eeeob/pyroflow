@@ -5,6 +5,7 @@ runs: ``@patch_cls`` monkey-patches Pyrogram's ``Client``, ``Dispatcher``,
 ``Message`` and ``CallbackQuery`` in-place at import time, and the whole
 suite relies on that global patch being active.
 """
+from __future__ import annotations as _annotations
 
 from types import SimpleNamespace
 

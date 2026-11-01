@@ -1,3 +1,4 @@
+from __future__ import annotations as _annotations
 from typing import Protocol, Any, TypeVar
 from pyrogram.types import Update as PyroUpdate
 

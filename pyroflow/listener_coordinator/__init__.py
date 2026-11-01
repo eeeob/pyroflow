@@ -4,8 +4,8 @@ from .redis_listener_coordinator import RedisListenerCoordinator
 
 
 __all__ = (
-    "ListenerCoordinator", 
-    "MemoryListenerCoordinator", 
-    "RedisListenerCoordinator", 
-    
+    "ListenerCoordinator",
+    "MemoryListenerCoordinator",
+    "RedisListenerCoordinator",
+
 )

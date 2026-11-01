@@ -1,5 +1,6 @@
+from __future__ import annotations as _annotations
 from typing import (
-    TYPE_CHECKING, Any, Dict, Optional, Tuple, Type, TypeAlias, Union,
+    TYPE_CHECKING, Any, TypeAlias,
 )
 from collections.abc import Callable
 from pyrogram.types import BotCommand, BotCommandScope

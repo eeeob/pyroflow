@@ -1,6 +1,6 @@
 """Unit tests for the async/iter/validate utility layer."""
+from __future__ import annotations as _annotations
 
-import asyncio
 import functools
 
 import pytest

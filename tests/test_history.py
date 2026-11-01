@@ -4,6 +4,7 @@ Covers the in-memory store (TTL, per-key capacity and key-space bounds), the
 generic UpdateHistory record/get/pop flow via injected extractors, and the
 concrete Message/CallbackQuery histories.
 """
+from __future__ import annotations as _annotations
 
 import time
 

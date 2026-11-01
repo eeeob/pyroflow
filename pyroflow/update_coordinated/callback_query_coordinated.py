@@ -1,3 +1,4 @@
+from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING
 
 from ..types import CallbackQuery
@@ -21,14 +22,12 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
                 self.extract_update_id_func = self._extract_update_id
 
     async def _extract_key(self, update):
-        """
-        Lock per query, so queries never wait on each other.
+        """Lock per query, so queries never wait on each other.
 
         Pass ``extract_key_func`` to serialise a wider scope instead — e.g.
         the originating chat — without affecting deduplication, which keys
         on :meth:`_extract_update_id` independently.
         """
-
         return (update.id, )
 
     async def _extract_update_id(self, update):

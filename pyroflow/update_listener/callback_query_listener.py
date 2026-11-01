@@ -1,3 +1,4 @@
+from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING
 
 from ..models import ListenerKey
@@ -33,11 +34,11 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         m = update.message
 
         return ListenerKey(
-            m.chat.id, 
-            update.from_user.id, 
+            m.chat.id,
+            update.from_user.id,
             m.id
         )
-    
+
 
     async def on_unresolved(self, key, update):
         client = update._client
@@ -60,9 +61,9 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
                     break
 
         return await super().on_unresolved(key, update)
-        
-            
-        
+
+
+
 
 
 
