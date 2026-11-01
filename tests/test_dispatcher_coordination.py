@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
+from pyrogram import raw
 from pyrogram.types import Message
 from pyrogram.utils import get_peer_id
 
@@ -88,7 +89,7 @@ def make_dispatcher(
 def coordinatable_message(message_id: int = 5, chat_id: int = 100, user_id: int = 7) -> Message:
     """A Message carrying the raw.peer_id that MessageCoordinated keys on."""
     msg = make_message(chat_id, user_id, message_id)
-    msg.raw = SimpleNamespace(peer_id=SimpleNamespace(channel_id=chat_id))
+    msg.raw = SimpleNamespace(peer_id=raw.types.PeerChannel(channel_id=chat_id))
     return msg
 
 
