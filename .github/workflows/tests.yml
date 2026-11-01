@@ -4,8 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Every job installs from uv.lock, so a dependency release published after
+  # the last `uv lock` is exercised by nothing until someone relocks. test-ceil
+  # resolves fresh and catches it, which only helps if something runs it
+  # without a push.
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch: {}
 
+# Jobs only check out and run the suite.
 permissions:
   contents: read
 
@@ -23,19 +30,101 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v6
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      # uv supplies the interpreter as well as packages, no separate Python setup step.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-          allow-prereleases: true
 
-      - name: Install package with test extras
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .[test]
+      - name: Install the locked environment with every extra
+        run: make sync
 
-      - name: Import check (catches version-guard / missing-dependency breaks)
-        run: python -c "import pyroflow; print('import OK on', __import__('sys').version)"
+      - name: Run tests
+        run: make test
 
-      - name: Run test suite
-        run: python -m pytest -q
+  test-minimal:
+    name: Minimal install, Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Also the smoke import: catches version-guard / missing-dependency breaks.
+      - name: Import and test the package without the redis extra
+        run: make test-minimal
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install the locked environment with every extra
+        run: make sync
+
+      - name: Lint and check formatting
+        run: make lint
+
+  # Own job: a ruff failure would otherwise hide the ty verdict until the next push.
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install the locked environment with every extra
+        run: make sync
+
+      - name: Type check
+        run: make typecheck
+
+  # test-floor and test-ceil: the recipes name their interpreter and uv
+  # provisions it; setup-uv's python-version would export UV_PYTHON over the
+  # whole job.
+  test-floor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Test the lowest version every floor allows, on the oldest Python
+        run: make test-floor
+
+  test-ceil:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Test the newest release of every dependency, on the newest Python
+        run: make test-ceil
