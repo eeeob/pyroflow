@@ -9,8 +9,10 @@ else:
     class StrEnum(str, Enum):
         def _generate_next_value_(name, *args):
             return name.lower()
+
         def __str__(self):
             return str(self.value)
+
 
 from enum import auto
 
@@ -20,6 +22,4 @@ class DuplicatePolicy(StrEnum):
     REPLACE = auto()
 
 
-__all__ = (
-    "DuplicatePolicy",
-)
+__all__ = ("DuplicatePolicy",)

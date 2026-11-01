@@ -12,6 +12,7 @@ same way::
 :class:`~pyrogram.types.Message` uses ``.text`` (falling back to
 ``.caption``), :class:`~pyrogram.types.CallbackQuery` uses ``.data``.
 """
+
 from __future__ import annotations as _annotations
 
 from typing import NoReturn, TYPE_CHECKING
@@ -20,16 +21,22 @@ from enum import Enum, EnumMeta as EnumType
 from pyrogram.filters import Filter, create
 
 from .types import Message, CallbackQuery as Query
-from pytrove import iter_flat_cont, is_container, maybe_awaitable, extract_pyro_update_text, to_coroutine
+from pytrove import (
+    iter_flat_cont,
+    is_container,
+    maybe_awaitable,
+    extract_pyro_update_text,
+    to_coroutine,
+)
 from pytrove.typings import MaybeCoroutineCallable, NestedContainer
 
 if TYPE_CHECKING:
     from .client import Client
 
+
 def _raise(exc: Exception) -> NoReturn:
     """``raise`` as an expression, for use inside a comprehension."""
     raise exc
-
 
 
 def endswith(*texts: NestedContainer[str]) -> Filter:
@@ -41,6 +48,7 @@ def endswith(*texts: NestedContainer[str]) -> Filter:
 
     return create(caller, "EndsWith")
 
+
 def startswith(*texts: NestedContainer[str]) -> Filter:
     """Match when the update's text starts with any of ``texts``."""
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
@@ -49,6 +57,7 @@ def startswith(*texts: NestedContainer[str]) -> Filter:
     )
 
     return create(caller, "StartsWith")
+
 
 def equal(*texts: NestedContainer[str]) -> Filter:
     """Match when the update's text is exactly one of ``texts``."""
@@ -62,7 +71,7 @@ def split_text(
     *rules: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType,
     strip: bool = False,
     separator: str | None = None,
-    ) -> Filter:
+) -> Filter:
     """Split the update's text by ``separator`` and match each part against the
     corresponding ``rules`` entry.
 
@@ -111,9 +120,7 @@ def split_text(
             raise ValueError("split_text rules must not be empty")
 
     if len(normalized_rules) > 1 and separator is None:
-        raise ValueError(
-            "separator is required when split_text is given more than one rule"
-        )
+        raise ValueError("separator is required when split_text is given more than one rule")
 
     async def caller(_, client: Client, update: Message | Query) -> bool:
         text = extract_pyro_update_text(update)
@@ -122,7 +129,8 @@ def split_text(
             return False
 
         parts = (
-            [text] if separator is None
+            [text]
+            if separator is None
             else text.split(separator, maxsplit=len(normalized_rules) - 1)
         )
 

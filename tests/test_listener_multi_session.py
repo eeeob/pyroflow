@@ -12,6 +12,7 @@ tests pin down what must hold during that window, in both directions:
 Both are settled by the `coordinator_id` generation token rather than by
 waiting for delivery, so they hold even if a signal is late or lost.
 """
+
 from __future__ import annotations as _annotations
 
 import asyncio
@@ -152,9 +153,7 @@ async def test_stale_cancel_signal_spares_a_newer_listener(sessions):
     assert new_token != old_token
 
     # The delayed signal for the *first* generation finally lands.
-    cancelled = await b.cancel(
-        KEY, cancel_coordinator=False, coordinator_id=old_token
-    )
+    cancelled = await b.cancel(KEY, cancel_coordinator=False, coordinator_id=old_token)
 
     assert cancelled is False
     assert not second.done(), "a stale signal must not cancel a newer listener"
@@ -209,8 +208,10 @@ async def test_lock_acquire_fails_fast_instead_of_hanging(redis):
 
     listener = MessageListener(
         coordinator_factory=partial(
-            RedisListenerCoordinator, redis,
-            lock_timeout=1, lock_blocking_timeout=0.2,
+            RedisListenerCoordinator,
+            redis,
+            lock_timeout=1,
+            lock_blocking_timeout=0.2,
         )
     )
     held = listener.coordinator.lock(CHAT)
@@ -225,7 +226,7 @@ async def test_lock_acquire_fails_fast_instead_of_hanging(redis):
     try:
         await asyncio.wait_for(_contend(), timeout=5)
     except LockError:
-        pass                            # expected: gave up cleanly
+        pass  # expected: gave up cleanly
     except asyncio.TimeoutError:
         pytest.fail("lock acquire blocked indefinitely: blocking_timeout not applied")
     else:
@@ -238,16 +239,18 @@ async def test_lock_ttl_reclaims_an_abandoned_lock(redis):
 
     listener = MessageListener(
         coordinator_factory=partial(
-            RedisListenerCoordinator, redis,
-            lock_timeout=0.3, lock_blocking_timeout=2,
+            RedisListenerCoordinator,
+            redis,
+            lock_timeout=0.3,
+            lock_blocking_timeout=2,
         )
     )
     abandoned = listener.coordinator.lock(CHAT)
-    await abandoned.acquire()          # never released, as if the session died
+    await abandoned.acquire()  # never released, as if the session died
 
     async def _reclaim():
         async with listener.coordinator.lock(CHAT):
-            pass                        # reclaimed once the TTL lapses
+            pass  # reclaimed once the TTL lapses
 
     try:
         await asyncio.wait_for(_reclaim(), timeout=5)
@@ -309,7 +312,7 @@ async def test_stop_propagates_its_own_cancellation(redis):
     await asyncio.sleep(0)
 
     stopping = asyncio.create_task(coordinator.stop())
-    await asyncio.sleep(0.01)          # stop() is now waiting on the cleanup
+    await asyncio.sleep(0.01)  # stop() is now waiting on the cleanup
     stopping.cancel()
     try:
         with pytest.raises(asyncio.CancelledError):

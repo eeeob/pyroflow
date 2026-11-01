@@ -7,11 +7,11 @@ from ..types import CallbackQuery
 from .update_listener import UpdateListener
 
 
-
 class CallbackQueryListener(UpdateListener[CallbackQuery]):
     __update_type__ = CallbackQuery
 
     if not TYPE_CHECKING:
+
         def __init__(self, *args, **kw):
             super().__init__(*args, **kw)
 
@@ -21,24 +21,15 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
-
     async def _is_listenable(self, update):
         m = update.message
 
-        return (
-            m is not None
-            and m.chat is not None
-        )
+        return m is not None and m.chat is not None
 
     async def _extract_key(self, update):
         m = update.message
 
-        return ListenerKey(
-            m.chat.id,
-            update.from_user.id,
-            m.id
-        )
-
+        return ListenerKey(m.chat.id, update.from_user.id, m.id)
 
     async def on_unresolved(self, key, update):
         client = update._client
@@ -61,15 +52,3 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
                     break
 
         return await super().on_unresolved(key, update)
-
-
-
-
-
-
-
-
-
-
-
-

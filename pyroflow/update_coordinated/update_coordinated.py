@@ -69,7 +69,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         coordinator_factory: Callable[[type[UpdateType]], UpdateCoordinator] | None = None,
         is_coordinatable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT] | None = None,
-        extract_update_id_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT] | None = None,
+        extract_update_id_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]
+        | None = None,
         **kw,
     ) -> None:
 
@@ -85,11 +86,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.extract_update_id_func = extract_update_id_func
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        return getattr(
-            getattr(update, "_client", None),
-            "executor",
-            None
-        )
+        return getattr(getattr(update, "_client", None), "executor", None)
 
     async def is_coordinatable(self, update: UpdateType) -> bool:
         """Determine whether this update should be coordinated.
@@ -149,7 +146,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.extract_key_func, update,
+            self.extract_key_func,
+            update,
             executor=self._get_executor(update),
         )
 
@@ -184,7 +182,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.extract_update_id_func, update,
+            self.extract_update_id_func,
+            update,
             executor=self._get_executor(update),
         )
 
@@ -200,9 +199,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         Returns:
             An async lock compatible with ``async with``.
         """
-        return self.coordinator.lock(
-            await self.extract_key(update)
-        )
+        return self.coordinator.lock(await self.extract_key(update))
 
     async def start(self) -> None:
         """Start the coordinator."""

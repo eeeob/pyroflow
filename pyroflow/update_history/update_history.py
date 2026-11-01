@@ -52,7 +52,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
                             used by :meth:`extract_data`. If ``None``, the method
                             must be overridden in a subclass.
         **kw:               Passed to the next class in the MRO.
-        
+
     """
 
     def __init__(
@@ -75,14 +75,8 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.extract_key_func = extract_key_func
         self.extract_data_func = extract_data_func
 
-
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        return getattr(
-            getattr(update, "_client", None),
-            "executor",
-            None
-        )
-
+        return getattr(getattr(update, "_client", None), "executor", None)
 
     async def is_recordable(self, update: UpdateType) -> bool:
         """Determine whether this update should be recorded.
@@ -105,9 +99,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.is_recordable_func,
-            update,
-            executor=self._get_executor(update)
+            self.is_recordable_func, update, executor=self._get_executor(update)
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateHistoryKeyT:
@@ -131,9 +123,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.extract_key_func,
-            update,
-            executor=self._get_executor(update)
+            self.extract_key_func, update, executor=self._get_executor(update)
         )
 
     async def extract_data(self, update: UpdateType) -> Any:
@@ -156,9 +146,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.extract_data_func,
-            update,
-            executor=self._get_executor(update)
+            self.extract_data_func, update, executor=self._get_executor(update)
         )
 
     async def record(self, update: UpdateType, handler: PyroHandler, check: bool = True) -> None:
@@ -182,7 +170,9 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
 
         await self.store.update(key, UpdateRecord(handler=handler, data=data))
 
-    async def record_many(self, update: UpdateType, handlers: Sequence[PyroHandler], check: bool = True) -> None:
+    async def record_many(
+        self, update: UpdateType, handlers: Sequence[PyroHandler], check: bool = True
+    ) -> None:
         """Record multiple handler invocations for the given update at once.
 
         Silently skips if :meth:`is_recordable` returns ``False``.
@@ -203,10 +193,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
 
         now = time.time()
 
-        records = [
-            UpdateRecord(handler=handler, data=data, created_at=now)
-            for handler in handlers
-        ]
+        records = [UpdateRecord(handler=handler, data=data, created_at=now) for handler in handlers]
 
         await self.store.update(key, *records)
 

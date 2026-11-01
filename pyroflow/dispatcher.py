@@ -3,11 +3,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from concurrent.futures import Future
 
-from pyrogram import (
-    StopPropagation,
-    ContinuePropagation,
-    raw
-)
+from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pyrogram.types import Update as PyroUpdate
@@ -49,7 +45,7 @@ class _CoordinatedRelease:
         coordinated: UpdateCoordinated,
         lock: AsyncLockProto,
         loop: asyncio.AbstractEventLoop,
-        ) -> None:
+    ) -> None:
 
         self._coordinated = coordinated
         self._lock = lock
@@ -116,7 +112,6 @@ class _CoordinatedRelease:
                 await safe_await(self._coordinated.coordinator.mark_handled(self.update_id))
         finally:
             await safe_await(self._lock.release())
-
 
 
 # Set for the duration of one coordinated update, to that update's
@@ -258,7 +253,6 @@ class Dispatcher(PyroDispatcher):
 
         self.is_started = False
 
-
     async def start(self, *args, **kw):
         """Start the dispatcher and all registered listeners, coordinators and histories.
 
@@ -271,13 +265,10 @@ class Dispatcher(PyroDispatcher):
         self.is_started = True
 
         await gather_helper(
-            (listener.start()
-            for listener in self.listeners.values()),
-            (coordinated.start()
-            for coordinated in self.coordinateds.values()),
-            (history.start()
-            for history in self.histories.values()),
-            return_exc=True
+            (listener.start() for listener in self.listeners.values()),
+            (coordinated.start() for coordinated in self.coordinateds.values()),
+            (history.start() for history in self.histories.values()),
+            return_exc=True,
         )
 
         return r
@@ -290,13 +281,10 @@ class Dispatcher(PyroDispatcher):
             **kw: Passed directly to the original dispatcher.
         """
         await gather_helper(
-            (listener.stop()
-            for listener in self.listeners.values()),
-            (coordinated.stop()
-            for coordinated in self.coordinateds.values()),
-            (history.stop()
-            for history in self.histories.values()),
-            return_exc=True
+            (listener.stop() for listener in self.listeners.values()),
+            (coordinated.stop() for coordinated in self.coordinateds.values()),
+            (history.stop() for history in self.histories.values()),
+            return_exc=True,
         )
 
         r = await self.oldstop(*args, **kw)
@@ -304,7 +292,6 @@ class Dispatcher(PyroDispatcher):
         self.is_started = False
 
         return r
-
 
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.
@@ -426,7 +413,6 @@ class Dispatcher(PyroDispatcher):
 
         await history.stop()
 
-
     async def handle_listen(self, parsed_update: PyroUpdate) -> None:
         """Attempt to resolve the update against a registered listener.
 
@@ -451,13 +437,12 @@ class Dispatcher(PyroDispatcher):
         else:
             parsed_update.stop_propagation()
 
-
     async def _handle_update(
         self,
         packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
         parsed_update: PyroUpdate | None,
-        handler_type: type[PyroHandler | None]
-        ) -> tuple[int, int]:
+        handler_type: type[PyroHandler | None],
+    ) -> tuple[int, int]:
         """Process a single update through the listener and handler pipeline.
 
         First attempts to resolve the update via :meth:`handle_listen`,
@@ -522,10 +507,7 @@ class Dispatcher(PyroDispatcher):
 
                 try:
                     await maybe_awaitable(
-                        handler.callback,
-                        self.client,
-                        *args,
-                        executor=self.client.executor
+                        handler.callback, self.client, *args, executor=self.client.executor
                     )
                 except (StopPropagation, UnhandledUpdate) as e:
                     raise e
@@ -534,9 +516,7 @@ class Dispatcher(PyroDispatcher):
                 except Exception as exc:
                     exc_count += 1
 
-                    await self.handle_update_handler_exception(
-                        exc, handler, update, users, chats
-                    )
+                    await self.handle_update_handler_exception(exc, handler, update, users, chats)
                 else:
                     handled_count += 1
 
@@ -557,8 +537,8 @@ class Dispatcher(PyroDispatcher):
         self,
         packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
         parsed_update: PyroUpdate | None,
-        handler_type: type[PyroHandler | None]
-        ) -> None:
+        handler_type: type[PyroHandler | None],
+    ) -> None:
         """Process a single update under coordination, if a coordinator is
         registered for its type.
 
@@ -648,7 +628,6 @@ class Dispatcher(PyroDispatcher):
             # A no-op if the handler already claimed the settlement through
             # mark_handled(). Always releases the lock.
             await release.settle(handled)
-
 
     async def handler_worker(self, lock: asyncio.Lock):
         """Worker coroutine that consumes updates from the queue and

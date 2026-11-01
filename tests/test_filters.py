@@ -5,6 +5,7 @@ path pyrogram.handlers.Handler.check() uses — rather than by reaching into
 the module's private helpers, so these pin the actual contract other code
 relies on.
 """
+
 from __future__ import annotations as _annotations
 
 import inspect

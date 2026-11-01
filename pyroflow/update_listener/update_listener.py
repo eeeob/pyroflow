@@ -9,12 +9,7 @@ from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonVal
 from ..utils import UpdateBound
 from pytrove import gather_helper, maybe_awaitable
 
-from ..errors import (
-    ListenerCancelled,
-    ListenerTimeout,
-    ListenerAlreadyExists,
-    UnresolvedUpdate
-)
+from ..errors import ListenerCancelled, ListenerTimeout, ListenerAlreadyExists, UnresolvedUpdate
 
 
 from ..enums import DuplicatePolicy
@@ -27,7 +22,6 @@ import asyncio
 
 
 log = logging.getLogger(__name__)
-
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -96,8 +90,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey] | None = None,
         bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
         timeout: Number | None = None,
-        **kw
-        ) -> None:
+        **kw,
+    ) -> None:
 
         super().__init__(**kw)
 
@@ -127,9 +121,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         active = list(self.listeners.keys())
 
         await gather_helper(
-            (self.cancel(key, cancel_coordinator=True)
-            for key in active),
-            return_exc=True
+            (self.cancel(key, cancel_coordinator=True) for key in active), return_exc=True
         )
         await self.coordinator.stop()
 
@@ -137,8 +129,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             log.warning(
                 "Stop %s UpdateListener completed with active listeners remaining: %s",
                 self.__class__.__update_type__.__name__,
-                list(self.listeners.keys())
-                )
+                list(self.listeners.keys()),
+            )
 
     async def _cancel(
         self,
@@ -146,7 +138,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         cancel_coordinator: bool = True,
         is_duplicate: bool = False,
         coordinator_id: ListenerCoordinatorIdT | None = None,
-        ) -> bool:
+    ) -> bool:
         """Cancel a listener by key, setting a :class:`ListenerCancelled`
         exception on its future.
 
@@ -177,7 +169,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 # A newer generation owns this key now — leave it running.
                 log.debug(
                     "Ignoring stale cancel for %s: signal targets %r but %r is registered",
-                    key, coordinator_id, listener.coordinator_id,
+                    key,
+                    coordinator_id,
+                    listener.coordinator_id,
                 )
                 return False
 
@@ -195,7 +189,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         cancel_coordinator: bool = True,
         is_duplicate: bool = False,
         coordinator_id: ListenerCoordinatorIdT | None = None,
-        ) -> bool:
+    ) -> bool:
         """Safely cancel a listener under the chat lock.
 
         All listener operations for the same chat share a single lock
@@ -212,9 +206,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ``True`` if a local listener was cancelled.
         """
         async with self.coordinator.lock(key.chat_id):
-            return await self._cancel(
-                key, cancel_coordinator, is_duplicate, coordinator_id
-            )
+            return await self._cancel(key, cancel_coordinator, is_duplicate, coordinator_id)
 
     def _cleanup_listen(self, key: ListenerKey, f: asyncio.Future) -> None:
         """Done callback attached to each listener future.
@@ -239,7 +231,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         meta: JsonValueT | None = None,
         *,
         timeout: Number | None = None,
-        ) -> UpdateType:
+    ) -> UpdateType:
         """Wait for the next update matching the given key.
 
         Registers a listener locally and in the distributed coordinator,
@@ -283,7 +275,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             elif key in self.listeners:
                 raise RuntimeError("ListenerCoordinator and listeners are out of sync")
 
-
             fut = asyncio.get_running_loop().create_future()
             fut.add_done_callback(partial(self._cleanup_listen, key))
 
@@ -315,7 +306,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             raise e
 
         finally:
-
             # Release distributed ownership.
             # The coordinator_id prevents deleting a newer registration
             # that may have replaced this one.
@@ -362,7 +352,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             # a single lock to avoid races between registration,
             # cancellation and update resolution.
             async with self.coordinator.lock(key.chat_id):
-
                 # Attempt progressively less specific matches, most specific
                 # first — every combination of the components this key carries,
                 # not just its prefixes. See ListenerKey.sub_keys().
@@ -377,8 +366,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                         # before handing the update over; this is the check that
                         # makes correctness independent of signal delivery.
                         if not await self.coordinator.registered(sub, listener.coordinator_id):
-                            log.debug("Discarding superseded listener for %s (token %r)", sub, listener.coordinator_id,)
-                            await self._cancel(sub, cancel_coordinator=False, coordinator_id=listener.coordinator_id)
+                            log.debug(
+                                "Discarding superseded listener for %s (token %r)",
+                                sub,
+                                listener.coordinator_id,
+                            )
+                            await self._cancel(
+                                sub,
+                                cancel_coordinator=False,
+                                coordinator_id=listener.coordinator_id,
+                            )
                             continue
 
                         if await self.is_bypass(update):
@@ -433,11 +430,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         raise UnresolvedUpdate(update)
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        return getattr(
-            getattr(update, "_client", None),
-            "executor",
-            None
-        )
+        return getattr(getattr(update, "_client", None), "executor", None)
 
     async def is_listenable(self, update: UpdateType) -> bool:
         """Determine whether this update should be listening.

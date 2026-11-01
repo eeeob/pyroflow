@@ -20,8 +20,6 @@ import asyncio
 log = logging.getLogger(__name__)
 
 
-
-
 class RedisListenerCoordinator(ListenerCoordinator):
     LUA_UNREGISTER_SCRIPT = """
     local value = redis.call('GET', KEYS[1])
@@ -67,7 +65,6 @@ class RedisListenerCoordinator(ListenerCoordinator):
     lua_bulk_unregister = None
     lua_unregister = None
     lua_getdel = None
-
 
     def __init__(
         self,
@@ -116,8 +113,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
         self._sep = "|"
         self._key_format = (
-            f"listen{self._sep}{{section}}{self._sep}"
-            f"{self.update_type_name}{self._sep}{{key}}"
+            f"listen{self._sep}{{section}}{self._sep}{self.update_type_name}{self._sep}{{key}}"
         )
         self._null = "_"
         self._owned_registrations: dict[str, str] = {}
@@ -135,10 +131,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.lua_getdel = self.redis.register_script(self.LUA_GETDEL_SCRIPT)
 
     def _unpack_key(self, packed_key: str) -> ListenerKey:
-        keys = [
-            None if key == self._null else int(key)
-            for key in packed_key.split(self._sep)[3:]
-        ]
+        keys = [None if key == self._null else int(key) for key in packed_key.split(self._sep)[3:]]
 
         return ListenerKey(*keys)
 
@@ -146,10 +139,11 @@ class RedisListenerCoordinator(ListenerCoordinator):
         return self._key_format.format_map(
             {
                 "section": section,
-                "key": self._sep.join(str(i if i is not None else self._null) for i in key.to_tuple)
+                "key": self._sep.join(
+                    str(i if i is not None else self._null) for i in key.to_tuple
+                ),
             }
         )
-
 
     def lock(self, key):
         """Build the per-chat lock.
@@ -168,37 +162,28 @@ class RedisListenerCoordinator(ListenerCoordinator):
             timeout=self.lock_timeout,
             blocking_timeout=self.lock_blocking_timeout,
             thread_local=False,
-            )
-
+        )
 
     async def register(self, key):
         packed_key = self._pack_key(key)
         coordinator_id = uuid.uuid4().hex
 
-        success = await self.redis.set(
-            packed_key,
-            coordinator_id,
-            nx=True
-        )
+        success = await self.redis.set(packed_key, coordinator_id, nx=True)
 
         if not success:
-            raise KeyError(
-                f"Key {key!r} already registered"
-            )
+            raise KeyError(f"Key {key!r} already registered")
 
         self._owned_registrations[packed_key] = coordinator_id
 
         return coordinator_id
 
-    async def unregister(self, key, coordinator_id = None):
+    async def unregister(self, key, coordinator_id=None):
         packed_key = self._pack_key(key)
 
         if coordinator_id is None:
             self._owned_registrations.pop(packed_key, None)
 
-            return bool(
-                await self.redis.delete(packed_key)
-            )
+            return bool(await self.redis.delete(packed_key))
 
         if self.lua_unregister is None:
             raise RuntimeError("Lua unregister script is not registered")
@@ -208,17 +193,11 @@ class RedisListenerCoordinator(ListenerCoordinator):
                 self._owned_registrations[packed_key] = cid
 
         return bool(
-            await self.lua_unregister(
-                keys=[packed_key],
-                args=[coordinator_id],
-                client=self.redis
-            )
+            await self.lua_unregister(keys=[packed_key], args=[coordinator_id], client=self.redis)
         )
 
-    async def registered(self, key, coordinator_id = None) -> bool:
-        value = await self.redis.get(
-            self._pack_key(key)
-        )
+    async def registered(self, key, coordinator_id=None) -> bool:
+        value = await self.redis.get(self._pack_key(key))
 
         if value is None:
             return False
@@ -226,10 +205,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
         if isinstance(value, bytes):
             value = value.decode()
 
-        return (
-            coordinator_id is None
-            or value == coordinator_id
-        )
+        return coordinator_id is None or value == coordinator_id
 
     async def cancel(self, key) -> bool:
         """Cancel the registration for ``key`` across every session.
@@ -272,17 +248,13 @@ class RedisListenerCoordinator(ListenerCoordinator):
     async def start(self):
         self.pubsub = self.redis.pubsub()
 
-        await self.pubsub.subscribe(
-            self.cancel_channel_name
-        )
+        await self.pubsub.subscribe(self.cancel_channel_name)
 
-        self.listening_task = asyncio.create_task(
-            self._listen_for_cancel_signals()
-        )
+        self.listening_task = asyncio.create_task(self._listen_for_cancel_signals())
 
         log.info(
             "Subscribed to cancel channel %r and started _listen_for_cancel_signals task",
-            self.cancel_channel_name
+            self.cancel_channel_name,
         )
 
     async def stop(self):
@@ -322,18 +294,13 @@ class RedisListenerCoordinator(ListenerCoordinator):
             keys, ids = list(keys), list(ids)
 
             try:
-                deleted = await self.lua_bulk_unregister(
-                    keys=keys,
-                    args=ids,
-                    client=self.redis
-                )
+                deleted = await self.lua_bulk_unregister(keys=keys, args=ids, client=self.redis)
             except Exception:
                 log.exception("Failed to bulk unregister keys during stop")
             else:
                 log.info("Successfully bulk-deleted %d keys from Redis", deleted)
             finally:
                 self._owned_registrations.clear()
-
 
     async def _apply_cancel_signal(self, key: ListenerKey, coordinator_id: str) -> None:
         """Apply one cancel signal, guarding the generation it targets."""
@@ -350,11 +317,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
         if self.pubsub is None:
             raise RuntimeError("PubSub has not been initialized. Call start() first.")
 
-        log.debug(
-            "Listening task started on channel %r",
-            self.cancel_channel_name
-        )
-
+        log.debug("Listening task started on channel %r", self.cancel_channel_name)
 
         async for msg in self.pubsub.listen():
             if msg["type"] != "message":
@@ -378,7 +341,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
             log.debug(
                 "Received cancel signal for %s (token %r) from pubsub",
-                key, coordinator_id,
+                key,
+                coordinator_id,
             )
 
             # Applying a cancel takes the chat lock, which may be held
@@ -386,15 +350,6 @@ class RedisListenerCoordinator(ListenerCoordinator):
             # behind this one — head-of-line blocking that grows the very
             # cancellation delay this channel exists to avoid. Dispatch it
             # and keep reading.
-            task = asyncio.create_task(
-                self._apply_cancel_signal(key, coordinator_id)
-            )
+            task = asyncio.create_task(self._apply_cancel_signal(key, coordinator_id))
             self._pending_cancels.add(task)
             task.add_done_callback(self._pending_cancels.discard)
-
-
-
-
-
-
-

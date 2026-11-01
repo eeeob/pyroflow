@@ -7,5 +7,4 @@ __all__ = (
     "UpdateCoordinator",
     "MemoryUpdateCoordinator",
     "RedisUpdateCoordinator",
-
 )

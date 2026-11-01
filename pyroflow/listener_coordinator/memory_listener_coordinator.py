@@ -21,7 +21,6 @@ class MemoryListenerCoordinator(ListenerCoordinator):
     def lock(self, key):
         return self.locks[key]
 
-
     def _register(self, key):
         if self._registered(key):
             raise KeyError(f"Key {key} already registered")
@@ -31,7 +30,7 @@ class MemoryListenerCoordinator(ListenerCoordinator):
 
         return _id
 
-    def _unregister(self, key, coordinator_id = None):
+    def _unregister(self, key, coordinator_id=None):
         if (r_id := self.data.pop(key, None)) is not None:
             if coordinator_id is not None and coordinator_id != r_id:
                 self.data[key] = r_id
@@ -42,7 +41,7 @@ class MemoryListenerCoordinator(ListenerCoordinator):
     def _cancel(self, key):
         return self._unregister(key)
 
-    def _registered(self, key, coordinator_id = None):
+    def _registered(self, key, coordinator_id=None):
         if (r_id := self.data.get(key)) is not None:
             return coordinator_id is None or r_id == coordinator_id
 
@@ -64,6 +63,9 @@ class MemoryListenerCoordinator(ListenerCoordinator):
         self.counter = count()
 
         if self.data:
-            log.warning("MemoryListenerCoordinator stopped with pending registrations: %s", list(self.data.keys()))
+            log.warning(
+                "MemoryListenerCoordinator stopped with pending registrations: %s",
+                list(self.data.keys()),
+            )
 
         self.data.clear()

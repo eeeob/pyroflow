@@ -11,6 +11,7 @@ from ..typings import UpdateCoordinatorKeyT
 
 _SECTION = Literal["lock", "handled"]
 
+
 class UpdateCoordinator(ABC):
     """Abstract base coordinator for distributed update processing.
 
@@ -77,10 +78,7 @@ class UpdateCoordinator(ABC):
         self._update_name = update_type.__name__
         self._sep = "|"
         self._key_formats = {
-            section: (
-                f"update{self._sep}{section}{self._sep}"
-                f"{self._update_name}{self._sep}{{key}}"
-            )
+            section: (f"update{self._sep}{section}{self._sep}{self._update_name}{self._sep}{{key}}")
             for section in get_args(_SECTION)
         }
 

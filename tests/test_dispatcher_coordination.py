@@ -10,6 +10,7 @@ processed exactly once. Keying both from one value is the bug this design
 replaced: the first update would register the entire chat as handled and
 every update after it would be silently dropped.
 """
+
 from __future__ import annotations as _annotations
 
 import asyncio
@@ -56,9 +57,7 @@ def fake_dispatcher(**kw):
 
     `client.loop` is among those: the early-settlement path schedules onto it.
     """
-    return SimpleNamespace(
-        client=SimpleNamespace(loop=asyncio.get_event_loop()), **kw
-    )
+    return SimpleNamespace(client=SimpleNamespace(loop=asyncio.get_event_loop()), **kw)
 
 
 def make_dispatcher(coordinated, handle_result):
@@ -82,9 +81,7 @@ def coordinatable_message(message_id=5, chat_id=100, user_id=7):
 
 async def _is_claimed(coordinated, msg):
     """Whether the update is registered as handled, so peers will skip it."""
-    return await coordinated.coordinator.is_handled(
-        await coordinated.extract_update_id(msg)
-    )
+    return await coordinated.coordinator.is_handled(await coordinated.extract_update_id(msg))
 
 
 async def _is_lock_free(coordinated, msg):
@@ -99,9 +96,7 @@ async def test_handled_update_is_claimed_so_peers_skip_it():
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
-    await Dispatcher.handle_update(
-        make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-    )
+    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
 
     assert await _is_claimed(coordinated, msg) is True
 
@@ -113,9 +108,7 @@ async def test_raising_handler_still_claims_the_update():
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
-    await Dispatcher.handle_update(
-        make_dispatcher(coordinated, (0, 2)), PACKET, msg, type(None)
-    )
+    await Dispatcher.handle_update(make_dispatcher(coordinated, (0, 2)), PACKET, msg, type(None))
 
     assert await _is_claimed(coordinated, msg) is True
 
@@ -124,9 +117,7 @@ async def test_untouched_update_is_left_for_a_peer_to_retry():
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
-    await Dispatcher.handle_update(
-        make_dispatcher(coordinated, (0, 0)), PACKET, msg, type(None)
-    )
+    await Dispatcher.handle_update(make_dispatcher(coordinated, (0, 0)), PACKET, msg, type(None))
 
     assert await _is_claimed(coordinated, msg) is False
 
@@ -149,9 +140,7 @@ async def test_already_handled_update_is_not_reprocessed():
     msg = coordinatable_message()
 
     # A peer already finished this update.
-    await coordinated.coordinator.mark_handled(
-        await coordinated.extract_update_id(msg)
-    )
+    await coordinated.coordinator.mark_handled(await coordinated.extract_update_id(msg))
 
     ran = False
 
@@ -188,9 +177,7 @@ async def test_uncoordinatable_update_is_processed_without_a_lock():
     coordinated.is_coordinatable_func = lambda u: False
     msg = coordinatable_message()
 
-    await Dispatcher.handle_update(
-        make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-    )
+    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
 
     assert await _is_claimed(coordinated, msg) is False
     assert await _is_lock_free(coordinated, msg) is True
@@ -206,9 +193,7 @@ async def test_lock_is_released_after_a_handled_update():
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
-    await Dispatcher.handle_update(
-        make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-    )
+    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
 
     assert await _is_lock_free(coordinated, msg) is True
 
@@ -229,13 +214,9 @@ async def test_lock_is_released_when_the_update_was_already_handled():
     unwind through the settlement, or the scope stays wedged."""
     coordinated = make_coordinated()
     msg = coordinatable_message()
-    await coordinated.coordinator.mark_handled(
-        await coordinated.extract_update_id(msg)
-    )
+    await coordinated.coordinator.mark_handled(await coordinated.extract_update_id(msg))
 
-    await Dispatcher.handle_update(
-        make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-    )
+    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
 
     assert await _is_lock_free(coordinated, msg) is True
 
@@ -244,7 +225,7 @@ async def test_lock_is_released_when_identity_extraction_fails():
     """extract_update_id runs *after* the lock is taken, so a hook that
     raises must not strand it."""
     coordinated = make_coordinated()
-    coordinated.extract_update_id_func = None      # -> NotImplementedError
+    coordinated.extract_update_id_func = None  # -> NotImplementedError
     msg = coordinatable_message()
 
     with pytest.raises(NotImplementedError):
@@ -275,9 +256,7 @@ async def test_a_contended_lock_makes_the_update_skip():
     await Dispatcher.handle_update(fake, PACKET, msg, type(None))
 
     assert ran is False, "an update whose scope is locked must be skipped"
-    assert await _is_claimed(coordinated, msg) is False, (
-        "a skipped update must stay available"
-    )
+    assert await _is_claimed(coordinated, msg) is False, "a skipped update must stay available"
 
 
 async def test_many_updates_in_a_row_each_get_the_lock():
@@ -319,12 +298,12 @@ async def test_chat_wide_lock_serialises_every_update_without_loss():
     fake = fake_dispatcher(coordinateds={Message: coordinated})
     fake._handle_update = _handle_update
 
-    await asyncio.gather(*(
-        Dispatcher.handle_update(
-            fake, PACKET, coordinatable_message(message_id=i), type(None)
+    await asyncio.gather(
+        *(
+            Dispatcher.handle_update(fake, PACKET, coordinatable_message(message_id=i), type(None))
+            for i in range(10)
         )
-        for i in range(10)
-    ))
+    )
 
     assert peak == 1, f"chat-wide lock failed to serialise (peak {peak})"
     assert sorted(processed) == list(range(10)), (
@@ -367,12 +346,14 @@ async def test_separate_chats_do_not_block_each_other():
     fake = fake_dispatcher(coordinateds={Message: coordinated})
     fake._handle_update = _handle_update
 
-    await asyncio.gather(*(
-        Dispatcher.handle_update(
-            fake, PACKET, coordinatable_message(message_id=1, chat_id=c), type(None)
+    await asyncio.gather(
+        *(
+            Dispatcher.handle_update(
+                fake, PACKET, coordinatable_message(message_id=1, chat_id=c), type(None)
+            )
+            for c in range(5)
         )
-        for c in range(5)
-    ))
+    )
 
     assert peak > 1, "distinct chats must not serialise against each other"
 
@@ -435,7 +416,7 @@ async def test_mark_handled_settles_before_the_handler_returns():
         assert claimed is True, "mark_handled() must register the update"
         assert lock_free is True, "mark_handled() must release the lock"
 
-        await asyncio.sleep(0.05)       # the "slow job"
+        await asyncio.sleep(0.05)  # the "slow job"
         return (0, 0)
 
     await Dispatcher.handle_update(
@@ -458,7 +439,7 @@ async def test_mark_handled_lets_the_next_update_in_the_scope_start():
         if parsed_update.id == 1:
             mark_handled()
             await asyncio.sleep(0)
-            await asyncio.sleep(0.05)      # long tail, lock already gone
+            await asyncio.sleep(0.05)  # long tail, lock already gone
 
         order.append(("end", parsed_update.id))
         return (1, 0)
@@ -467,12 +448,8 @@ async def test_mark_handled_lets_the_next_update_in_the_scope_start():
     fake._handle_update = _handle_update
 
     await asyncio.gather(
-        Dispatcher.handle_update(
-            fake, PACKET, coordinatable_message(message_id=1), type(None)
-        ),
-        Dispatcher.handle_update(
-            fake, PACKET, coordinatable_message(message_id=2), type(None)
-        ),
+        Dispatcher.handle_update(fake, PACKET, coordinatable_message(message_id=1), type(None)),
+        Dispatcher.handle_update(fake, PACKET, coordinatable_message(message_id=2), type(None)),
     )
 
     assert order.index(("start", 2)) < order.index(("end", 1)), (
@@ -538,7 +515,7 @@ async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
         result["marked"] = mark_handled()
 
     async def body(peer):
-        await asyncio.to_thread(sync_handler)     # copies the context
+        await asyncio.to_thread(sync_handler)  # copies the context
         await asyncio.sleep(0.05)
 
         claimed, lock_free = await peer()
@@ -579,7 +556,7 @@ async def test_a_leaked_context_cannot_settle_twice():
     escaped = {}
 
     async def body(peer):
-        escaped["ctx"] = contextvars.copy_context()    # as create_task() does
+        escaped["ctx"] = contextvars.copy_context()  # as create_task() does
         return (1, 0)
 
     await Dispatcher.handle_update(
@@ -624,7 +601,7 @@ async def test_settling_before_the_identity_is_known_marks_nothing():
     await lock.acquire()
 
     release = _CoordinatedRelease(coordinated, lock, asyncio.get_event_loop())
-    await release.settle(True)                 # update_id still None
+    await release.settle(True)  # update_id still None
 
     assert calls == []
     assert await _is_lock_free(coordinated, msg) is True

@@ -7,5 +7,4 @@ __all__ = (
     "UpdateListener",
     "MessageListener",
     "CallbackQueryListener",
-
 )

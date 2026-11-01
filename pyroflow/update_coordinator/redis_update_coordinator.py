@@ -41,11 +41,7 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         )
 
     async def is_handled(self, key):
-        return bool(
-            await self.redis.exists(
-                self.build_key(key, "handled")
-            )
-        )
+        return bool(await self.redis.exists(self.build_key(key, "handled")))
 
     async def mark_handled(self, key):
         # px rather than ex so a sub-second handled_ttl survives the trip

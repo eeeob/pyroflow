@@ -4,6 +4,7 @@ Covers the listen/resolve/timeout/cancel lifecycle and the duplicate
 policies, using the real Message/CallbackQuery listeners with the default
 in-memory coordinator (no network).
 """
+
 from __future__ import annotations as _annotations
 
 import asyncio

@@ -7,5 +7,4 @@ __all__ = (
     "ListenerCoordinator",
     "MemoryListenerCoordinator",
     "RedisListenerCoordinator",
-
 )

@@ -4,6 +4,7 @@ Covers the in-memory store (TTL, per-key capacity and key-space bounds), the
 generic UpdateHistory record/get/pop flow via injected extractors, and the
 concrete Message/CallbackQuery histories.
 """
+
 from __future__ import annotations as _annotations
 
 import time
@@ -64,9 +65,7 @@ async def test_store_bounds_the_key_space():
     key that is written once and never read again. Without a cap on the key
     space itself, a long-running bot accumulates one entry per conversation
     forever (audit finding H3)."""
-    store = MemoryUpdateHistoryStore(
-        Message, ttl=3600, max_history_len=2, max_keys=100
-    )
+    store = MemoryUpdateHistoryStore(Message, ttl=3600, max_history_len=2, max_keys=100)
     for i in range(5000):
         await store.update((100, 7, i), UpdateRecord(handler="h"))
 

@@ -31,17 +31,13 @@ class TimedLock(AsyncioLock):
 
     async def acquire(self) -> bool:
         try:
-            return await asyncio.wait_for(
-                super().acquire(), self.blocking_timeout
-            )
+            return await asyncio.wait_for(super().acquire(), self.blocking_timeout)
         except asyncio.TimeoutError:
             return False
 
     async def __aenter__(self) -> None:
         if not await self.acquire():
-            raise TimeoutError(
-                f"Timeout waiting for lock after {self.blocking_timeout}s"
-            )
+            raise TimeoutError(f"Timeout waiting for lock after {self.blocking_timeout}s")
 
 
 class MemoryUpdateCoordinator(UpdateCoordinator):
@@ -65,13 +61,9 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         # waiting on it, so idle scopes cost nothing. Callers keep a strong
         # reference for as long as they use it, which is what keeps the
         # entry alive across an acquire/release pair.
-        self.locks = DefaultWeakValueDict(
-            partial(TimedLock, self.blocking_timeout)
-        )
+        self.locks = DefaultWeakValueDict(partial(TimedLock, self.blocking_timeout))
 
-        self.handled: TTLCache[str, None] = TTLCache(
-            maxsize=max_handled, ttl=self.handled_ttl
-        )
+        self.handled: TTLCache[str, None] = TTLCache(maxsize=max_handled, ttl=self.handled_ttl)
 
     def lock(self, key):
         return self.locks[self.build_key(key, "lock")]

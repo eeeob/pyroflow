@@ -1,4 +1,5 @@
 """Unit tests for the async/iter/validate utility layer."""
+
 from __future__ import annotations as _annotations
 
 import functools
@@ -118,9 +119,7 @@ async def test_gather_helper_returns_in_order_with_exceptions():
     async def boom():
         raise ValueError("x")
 
-    results = await gather_helper(
-        (ok(1), boom(), ok(3)), return_exc=True, log_exc=False
-    )
+    results = await gather_helper((ok(1), boom(), ok(3)), return_exc=True, log_exc=False)
     assert results[0] == 1
     assert isinstance(results[1], ValueError)
     assert results[2] == 3

@@ -1,8 +1,10 @@
 from __future__ import annotations as _annotations
+
+
 class ListenerError(Exception):
     """Listener error"""
 
-    def __init__(self, value = None):
+    def __init__(self, value=None):
         self.value = value
         # Subclasses carry their message as the class docstring. Fall back to
         # the class name if one is missing — or was shadowed by a statement
@@ -15,18 +17,22 @@ class ListenerError(Exception):
 class ListenerCancelled(ListenerError):
     """UpdateListener {value} was cancelled"""
 
-    def __init__(self, value = None, is_duplicate: bool = False):
+    def __init__(self, value=None, is_duplicate: bool = False):
         super().__init__(value)
         self.is_duplicate = is_duplicate
+
 
 class ListenerTimeout(ListenerError):
     """UpdateListener {value} timed out"""
 
+
 class ListenerAlreadyExists(ListenerError):
     """UpdateListener already exists for key {value}"""
 
+
 class UnresolvedUpdate(ListenerError):
     """UnresolvedUpdate {value}"""
+
 
 class UnhandledUpdate(ListenerError):
     """UnhandledUpdate {value}"""
@@ -40,5 +46,3 @@ __all__ = (
     "UnresolvedUpdate",
     "UnhandledUpdate",
 )
-
-

@@ -9,6 +9,7 @@ The pairing is what makes chat-wide ordering possible without losing
 updates — the regression this whole design exists to prevent — so it is
 exercised end-to-end here as well as in test_dispatcher_coordination.py.
 """
+
 from __future__ import annotations as _annotations
 
 import asyncio
@@ -91,7 +92,7 @@ async def test_lock_returns_false_rather_than_raising_on_timeout():
     must agree, or the dispatcher would need two different error paths."""
     coord = _coord(blocking_timeout=0.01)
 
-    held = coord.lock((1, 2))       # keep it alive — see the test below
+    held = coord.lock((1, 2))  # keep it alive — see the test below
     await held.acquire()
 
     assert await coord.lock((1, 2)).acquire() is False
@@ -122,7 +123,7 @@ async def test_holder_must_keep_the_lock_referenced():
     exactly what `_CoordinatedRelease` does for the dispatcher."""
     coord = _coord(blocking_timeout=0.01)
 
-    await coord.lock((1, 2)).acquire()      # reference dropped immediately
+    await coord.lock((1, 2)).acquire()  # reference dropped immediately
     gc.collect()
 
     assert await coord.lock((1, 2)).acquire() is True, (
@@ -216,10 +217,9 @@ def test_lock_and_handled_build_distinct_keys():
 
 
 def test_build_key_namespaces_by_update_type():
-    assert (
-        MemoryUpdateCoordinator(Message).build_key((1,))
-        != MemoryUpdateCoordinator(type("Other", (Message,), {})).build_key((1,))
-    )
+    assert MemoryUpdateCoordinator(Message).build_key((1,)) != MemoryUpdateCoordinator(
+        type("Other", (Message,), {})
+    ).build_key((1,))
 
 
 # --- the pairing: wide lock + narrow identity -----------------------------
@@ -239,10 +239,10 @@ async def test_chat_wide_lock_serialises_without_losing_updates():
     async def process(message_id):
         nonlocal concurrent, peak
 
-        lock = coord.lock((100,))                  # scope: the chat
+        lock = coord.lock((100,))  # scope: the chat
         assert await lock.acquire() is True
         try:
-            if await coord.is_handled((100, message_id)):   # identity: the message
+            if await coord.is_handled((100, message_id)):  # identity: the message
                 return
 
             concurrent += 1
@@ -314,9 +314,7 @@ async def test_message_coordinated_lock_flow(raw_message_factory):
 async def test_extract_key_can_be_widened_without_touching_identity(
     raw_message_factory,
 ):
-    mc = MessageCoordinated(
-        extract_key_func=lambda u: (get_peer_id(u.raw.peer_id),)
-    )
+    mc = MessageCoordinated(extract_key_func=lambda u: (get_peer_id(u.raw.peer_id),))
     first = raw_message_factory(message_id=1)
     second = raw_message_factory(message_id=2)
 
@@ -333,8 +331,7 @@ async def test_callback_coordinated_is_coordinatable_returns_true():
     result = await cc.is_coordinatable(make_callback_query())
 
     assert result is True, (
-        "CallbackQueryCoordinated._is_coordinatable must RETURN True "
-        "(audit finding C3 regression)"
+        "CallbackQueryCoordinated._is_coordinatable must RETURN True (audit finding C3 regression)"
     )
 
 

@@ -4,6 +4,7 @@
 If any module pulled in an unguarded newer-Python feature (e.g. a bare
 ``StrEnum`` import) or an undeclared dependency, importing it here fails.
 """
+
 from __future__ import annotations as _annotations
 
 import importlib

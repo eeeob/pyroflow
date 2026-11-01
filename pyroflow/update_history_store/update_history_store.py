@@ -8,8 +8,6 @@ from ..typings import UpdateHistoryKeyT
 from ..models import UpdateRecord
 
 
-
-
 class UpdateHistoryStore(ABC):
     """Abstract base for handler history storage backends.
 
@@ -28,7 +26,6 @@ class UpdateHistoryStore(ABC):
         self.update_type = update_type
 
         super().__init__(**kw)
-
 
     @abstractmethod
     async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:

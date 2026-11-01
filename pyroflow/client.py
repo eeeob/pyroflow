@@ -9,7 +9,7 @@ from pyrogram import (
     Client as PyroClient,
     enums as pyro_enums,
     types as pyro_types,
-    utils as pyro_ut
+    utils as pyro_ut,
 )
 from pyrogram.sync import wrap as async_to_sync
 from pyrogram.types import BotCommand, BotCommandScope
@@ -167,7 +167,8 @@ class Client(PyroClient):
     dispatcher: Dispatcher
     ask_error_handlers: dict[type[UpdateType], AskErrorHandlersT]
 
-    if not TYPE_CHECKING: #for typehints
+    if not TYPE_CHECKING:  # for typehints
+
         def __init__(self, *args, **kw):
             self.old__init__(*args, **kw)
             self.ask_error_handlers = {}
@@ -201,6 +202,7 @@ class Client(PyroClient):
         unregister_history = Dispatcher.unregister_history
 
     else:
+
         def register_listener(self, *args, **kw):
             return self.dispatcher.register_listener(*args, **kw)
 
@@ -224,7 +226,7 @@ class Client(PyroClient):
         exc_types: type[Exception] | tuple[type[Exception], ...],
         handler: MaybeCoroutineCallable[[Exception, Message], Any],
         update_type: type[UpdateType] = Message,
-        ) -> None:
+    ) -> None:
         """Add or replace a client-wide entry in :attr:`ask_error_handlers`, for
         one ``update_type``.
 
@@ -249,7 +251,7 @@ class Client(PyroClient):
         self,
         exc_types: type[Exception] | tuple[type[Exception], ...],
         update_type: type[UpdateType] = Message,
-        ) -> bool:
+    ) -> bool:
         """Remove the client-wide entry registered under ``exc_types`` for
         ``update_type``, if any.
 
@@ -269,7 +271,6 @@ class Client(PyroClient):
             return False
 
         return handlers.pop(exc_types, None) is not None
-
 
     @overload
     async def ask(
@@ -292,7 +293,11 @@ class Client(PyroClient):
         allow_paid_broadcast: bool | None = None,
         paid_message_star_count: int | None = None,
         suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup
+        | pyro_types.ReplyKeyboardMarkup
+        | pyro_types.ReplyKeyboardRemove
+        | pyro_types.ForceReply
+        | None = None,
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
@@ -300,7 +305,7 @@ class Client(PyroClient):
         timeout: Number | None = None,
         update_type: type[UpdateType] = Message,
         error_handlers: AskErrorHandlersT | None = None,
-        **kw
+        **kw,
     ) -> UpdateType: ...
 
     @overload
@@ -323,7 +328,7 @@ class Client(PyroClient):
         timeout: Number | None = None,
         update_type: type[UpdateType] = Message,
         error_handlers: AskErrorHandlersT | None = None,
-        **kw
+        **kw,
     ) -> UpdateType: ...
 
     async def ask(
@@ -337,7 +342,11 @@ class Client(PyroClient):
         link_preview_options: pyro_types.LinkPreviewOptions | None = None,
         schedule_date: datetime | None = None,
         business_connection_id: str | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup
+        | pyro_types.ReplyKeyboardMarkup
+        | pyro_types.ReplyKeyboardRemove
+        | pyro_types.ForceReply
+        | None = None,
         # send_message only params
         disable_notification: bool | None = None,
         message_thread_id: int | None = None,
@@ -356,7 +365,7 @@ class Client(PyroClient):
         timeout: Number | None = None,
         update_type: type[UpdateType] = Message,
         error_handlers: AskErrorHandlersT | None = None,
-        **kw
+        **kw,
     ) -> UpdateType:
         """Send or edit a message, then wait for a matching update.
 
@@ -440,9 +449,10 @@ class Client(PyroClient):
                 f"Register one via client.register_listener() before calling ask()."
             )
 
-
         if message_id is not None:
-            if reply_markup is not None and not isinstance(reply_markup, pyro_types.InlineKeyboardMarkup):
+            if reply_markup is not None and not isinstance(
+                reply_markup, pyro_types.InlineKeyboardMarkup
+            ):
                 raise ValueError("Edit mode only supports InlineKeyboardMarkup for reply_markup")
 
             m = await self.edit_message_text(
@@ -455,7 +465,7 @@ class Client(PyroClient):
                 schedule_date=schedule_date,
                 business_connection_id=business_connection_id,
                 reply_markup=reply_markup,
-                **kw
+                **kw,
             )
         else:
             m = await self.send_message(
@@ -480,7 +490,6 @@ class Client(PyroClient):
                 **kw,
             )
 
-
         if meta is None or isinstance(meta, dict):
             meta = {} if meta is None else meta.copy()
             if "message_id" not in meta:
@@ -494,9 +503,7 @@ class Client(PyroClient):
         final_chat_id = m.chat.id if m.chat else chat_id
 
         if isinstance(final_chat_id, str):
-            final_chat_id = pyro_ut.get_peer_id(
-                await self.resolve_peer(final_chat_id)
-            )
+            final_chat_id = pyro_ut.get_peer_id(await self.resolve_peer(final_chat_id))
 
         try:
             return await listener(
@@ -508,10 +515,13 @@ class Client(PyroClient):
             )
         except Exception as exc:
             await handle_ask_error(
-                exc, m,
+                exc,
+                m,
                 error_handlers,
-                client_handlers.copy() if (client_handlers := self.ask_error_handlers.get(update_type)) else None
-                )
+                client_handlers.copy()
+                if (client_handlers := self.ask_error_handlers.get(update_type))
+                else None,
+            )
             raise exc
 
 
@@ -556,6 +566,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
     @cached_property
     def bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
         return []
+
     @cached_property
     def bot_command_groups_lock(self) -> asyncio.Lock:
         return asyncio.Lock()
@@ -582,11 +593,15 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         Pyrogram's (the loop runs them in creation order, and both contend for
         the same locks) and let it read the real state.
         """
+
         async def apply() -> None:
             if not getattr(handler, BOT_COMMANDS_ATTR, ()):
                 return
 
-            if any(handler in handlers for handlers in self.dispatcher.groups.values()) is not added:
+            if (
+                any(handler in handlers for handlers in self.dispatcher.groups.values())
+                is not added
+            ):
                 return
 
             locks = [self.bot_command_groups_lock] + self.dispatcher.locks_list
@@ -614,15 +629,12 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         self,
         language_code: str | None,
         scope: BotCommandScope | None,
-        commands: MaybeList[BotCommand]
-        ) -> None:
+        commands: MaybeList[BotCommand],
+    ) -> None:
         """Add ``commands`` to the ``(language_code, scope)`` group, creating it if new."""
         key = (language_code, scope)
         bot_command_groups = self.bot_command_groups
-        group = next(
-            (_commands for _key, _commands in bot_command_groups if _key == key),
-            None
-        )
+        group = next((_commands for _key, _commands in bot_command_groups if _key == key), None)
 
         if group is None:
             bot_command_groups.append((key, group := []))
@@ -633,8 +645,8 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         self,
         language_code: str | None,
         scope: BotCommandScope | None,
-        commands: MaybeList[BotCommand]
-        ) -> None:
+        commands: MaybeList[BotCommand],
+    ) -> None:
         """Remove ``commands`` from the ``(language_code, scope)`` group, dropping it once empty."""
         key = (language_code, scope)
 
@@ -698,11 +710,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         be declared on more than one handler) and empty groups are skipped.
         Called automatically by :meth:`start`.
         """
-        await safe_await(
-            yield_control(),
-            self.bot_command_groups_lock.acquire(),
-            return_exc=False
-        )
+        await safe_await(yield_control(), self.bot_command_groups_lock.acquire(), return_exc=False)
 
         coros = []
 
@@ -718,7 +726,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
                     continue
 
                 coros.append(
-                    self.set_bot_commands(unique, **clean_none_kw(scope=scope, language_code=language_code))
+                    self.set_bot_commands(
+                        unique, **clean_none_kw(scope=scope, language_code=language_code)
+                    )
                 )
 
             if coros:
@@ -733,11 +743,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
 
         Called automatically by :meth:`stop` unless told not to.
         """
-        await safe_await(
-            yield_control(),
-            self.bot_command_groups_lock.acquire(),
-            return_exc=False
-        )
+        await safe_await(yield_control(), self.bot_command_groups_lock.acquire(), return_exc=False)
 
         try:
             await gather_abort(

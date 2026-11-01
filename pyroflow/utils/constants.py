@@ -7,7 +7,4 @@ from typing import Final
 BOT_COMMANDS_ATTR: Final[str] = "_pyroflow_bot_commands"
 
 
-__all__ = (
-    "BOT_COMMANDS_ATTR",
-)
-
+__all__ = ("BOT_COMMANDS_ATTR",)

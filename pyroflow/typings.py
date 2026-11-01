@@ -1,6 +1,8 @@
 from __future__ import annotations as _annotations
 from typing import (
-    TYPE_CHECKING, Any, TypeAlias,
+    TYPE_CHECKING,
+    Any,
+    TypeAlias,
 )
 from collections.abc import Callable
 from pyrogram.types import BotCommand, BotCommandScope
@@ -17,13 +19,15 @@ ListenerCoordinatorIdT: TypeAlias = str | int
 # One declaration of "which bot commands a handler answers to", as accepted by
 # mark_bot_commands(): a command (or list of them) on its own, optionally
 # preceded by the scope it applies to, optionally preceded by a language code.
-BotCommandEntryT: TypeAlias = MaybeList[BotCommand] | tuple[BotCommandScope, MaybeList[BotCommand]] | tuple[str, BotCommandScope, MaybeList[BotCommand]]
+BotCommandEntryT: TypeAlias = (
+    MaybeList[BotCommand]
+    | tuple[BotCommandScope, MaybeList[BotCommand]]
+    | tuple[str, BotCommandScope, MaybeList[BotCommand]]
+)
 
 # A BotCommandEntryT expanded into its three parts, with whatever the entry
 # left out filled in as None ("unrestricted").
-BotCommandPartsT: TypeAlias = tuple[
-    str | None, BotCommandScope | None, MaybeList[BotCommand]
-]
+BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeList[BotCommand]]
 
 # The key a collected command group is filed under by BotCommandsMixin.
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]

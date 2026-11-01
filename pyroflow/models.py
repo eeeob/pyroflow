@@ -36,6 +36,7 @@ class ListenerKey:
     FIELDS: ClassVar[tuple[Field[Any], ...]]
 
     if not TYPE_CHECKING:
+
         @classproperty(cached=True)
         def FIELDS(cls):
             if not is_dataclass(cls):
@@ -48,10 +49,7 @@ class ListenerKey:
 
     @property
     def to_tuple(self) -> tuple[int, int | None, int | None]:
-        return tuple(
-            getattr(self, f.name)
-            for f in self.FIELDS
-        )
+        return tuple(getattr(self, f.name) for f in self.FIELDS)
 
     def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
         """Yield every key a listener for this update could be registered under,
@@ -101,10 +99,7 @@ class ListenerKey:
                 return
 
             yield ListenerKey(
-                *(
-                    value if (i == 0 or keep >> i & 1) else None
-                    for i, value in enumerate(values)
-                )
+                *(value if (i == 0 or keep >> i & 1) else None for i, value in enumerate(values))
             )
 
 
@@ -122,7 +117,6 @@ class ListenerModel:
     # resolve() and _cancel() compare this token to stay on the right one.
     coordinator_id: ListenerCoordinatorIdT | None = None
 
-
     def resolve(self, update) -> None:
         self.future.set_result(update)
 
@@ -134,7 +128,7 @@ class ListenerModel:
 
 
 class _WeakSlots:
-    __slots__ = "__weakref__",
+    __slots__ = ("__weakref__",)
 
 
 @dataclass(slots=True)
@@ -152,16 +146,16 @@ class UpdateRecord(_WeakSlots):
         weakref.finalize(self, cls._SEQ_IDS.pop, id(self), None)
 
     def __lt__(self, other: UpdateRecord) -> bool:
-        return (
-            (self.created_at, type(self)._SEQ_IDS[id(self)])
-            < (other.created_at, type(other)._SEQ_IDS[id(other)])
-        )
-    def __gt__(self, other: UpdateRecord) -> bool:
-        return (
-            (self.created_at, type(self)._SEQ_IDS[id(self)])
-            > (other.created_at, type(other)._SEQ_IDS[id(other)])
+        return (self.created_at, type(self)._SEQ_IDS[id(self)]) < (
+            other.created_at,
+            type(other)._SEQ_IDS[id(other)],
         )
 
+    def __gt__(self, other: UpdateRecord) -> bool:
+        return (self.created_at, type(self)._SEQ_IDS[id(self)]) > (
+            other.created_at,
+            type(other)._SEQ_IDS[id(other)],
+        )
 
 
 __all__ = (
@@ -169,5 +163,3 @@ __all__ = (
     "ListenerModel",
     "UpdateRecord",
 )
-
-

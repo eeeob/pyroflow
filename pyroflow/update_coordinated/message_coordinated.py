@@ -6,11 +6,11 @@ from ..types import Message
 from .update_coordinated import UpdateCoordinated
 
 
-
 class MessageCoordinated(UpdateCoordinated[Message]):
     __update_type__ = Message
 
     if not TYPE_CHECKING:
+
         def __init__(self, *args, **kw):
             super().__init__(*args, **kw)
 
@@ -23,7 +23,6 @@ class MessageCoordinated(UpdateCoordinated[Message]):
             if self.extract_update_id_func is None:
                 self.extract_update_id_func = self._extract_update_id
 
-
     async def _extract_key(self, update):
         """Lock per message, so messages never wait on each other.
 
@@ -31,16 +30,10 @@ class MessageCoordinated(UpdateCoordinated[Message]):
         serialise a whole chat instead — deduplication is unaffected, since
         it keys on :meth:`_extract_update_id` independently.
         """
-        return (
-            get_peer_id(update.raw.peer_id),
-            update.id
-        )
+        return (get_peer_id(update.raw.peer_id), update.id)
 
     async def _extract_update_id(self, update):
-        return (
-            get_peer_id(update.raw.peer_id),
-            update.id
-        )
+        return (get_peer_id(update.raw.peer_id), update.id)
 
     async def _is_coordinatable(self, update):
         return True

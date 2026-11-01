@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 LockKeyT: TypeAlias = int | tuple[int | None, ...] | ListenerKey
 
+
 class ListenerCoordinator(ABC):
     """Abstract base for listener registries.
 
@@ -89,7 +90,9 @@ class ListenerCoordinator(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def unregister(self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None) -> bool:
+    async def unregister(
+        self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
+    ) -> bool:
         """Remove a listener coordinator by key and optional listener coordinator id.
 
         If ``coordinator_id`` is provided, only the listener coordinator
@@ -121,7 +124,9 @@ class ListenerCoordinator(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def registered(self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None) -> bool:
+    async def registered(
+        self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
+    ) -> bool:
         """Check whether a listener coordinator exists for the given key.
 
         Parameters:
@@ -134,26 +139,8 @@ class ListenerCoordinator(ABC):
         """
         raise NotImplementedError
 
-
     async def start(self) -> None:
         pass
 
     async def stop(self) -> None:
         pass
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

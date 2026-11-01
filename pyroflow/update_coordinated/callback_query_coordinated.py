@@ -9,6 +9,7 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
     __update_type__ = CallbackQuery
 
     if not TYPE_CHECKING:
+
         def __init__(self, *args, **kw):
             super().__init__(*args, **kw)
 
@@ -28,10 +29,10 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
         the originating chat — without affecting deduplication, which keys
         on :meth:`_extract_update_id` independently.
         """
-        return (update.id, )
+        return (update.id,)
 
     async def _extract_update_id(self, update):
-        return (update.id, )
+        return (update.id,)
 
     async def _is_coordinatable(self, update):
         return True

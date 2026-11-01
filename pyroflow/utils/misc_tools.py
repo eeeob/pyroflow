@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from ..types import Message
 
 
-
 def patch_setter(cls, name, attr) -> None:
     setattr(cls, name, attr)
 
@@ -43,14 +42,14 @@ def patch_cls(
     preserve_old: bool = True,
     setter: Callable[[type, str, Any], None] = patch_setter,
     include_dunders: tuple[str, ...] = ("__init__",),
-    ) -> Callable[[_CT], _CT]: ...
+) -> Callable[[_CT], _CT]: ...
 def patch_cls(
     patch_class: _CT | None = None,
     *,
     preserve_old: bool = True,
     setter: Callable[[type, str, Any], None] = patch_setter,
     include_dunders: tuple[str, ...] = ("__init__",),
-    ):
+):
     """pytrove.misc_tools.patch_cls, with pyroflow's own default setter.
 
     pytrove's own default (``setattr``) has no notion of pyrogram's
@@ -77,6 +76,7 @@ def split_bot_command_entry(entry: BotCommandEntryT) -> BotCommandPartsT:
     if len(entry) == 2:
         return None, *entry
     return entry
+
 
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
     """Decorator that marks a handler function with the bot commands it answers
@@ -129,11 +129,12 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
 
     return decorator
 
+
 async def handle_ask_error(
     exc: Exception,
     m: Message,
     *handlers: AskErrorHandlersT | None,
-    ) -> bool:
+) -> bool:
     """Dispatch ``exc`` to the first matching entry across ``handlers``, awaited
     as ``handler(exc, m)``.
 

@@ -15,6 +15,7 @@ class AsyncioLock(asyncio.Lock):
     async def __aexit__(self, exc_type, exc, tb):
         await self.release()
 
+
 class UpdateBound(Generic[UpdateType]):
     """binds a class to a specific Pyrogram update type.
 
@@ -37,33 +38,22 @@ class UpdateBound(Generic[UpdateType]):
             return
 
         if not hasattr(cls, "__update_type__"):
-            raise TypeError(
-                f"{cls.__name__} must define __update_type__"
-            )
+            raise TypeError(f"{cls.__name__} must define __update_type__")
 
         update_type = cls.__update_type__
 
-        if not (
-            isinstance(update_type, type)
-            and issubclass(update_type, PyroUpdate)
-        ):
+        if not (isinstance(update_type, type) and issubclass(update_type, PyroUpdate)):
             raise TypeError(
-                f"{cls.__name__}.__update_type__ must be a subclass of "
-                f"{PyroUpdate.__name__}"
+                f"{cls.__name__}.__update_type__ must be a subclass of {PyroUpdate.__name__}"
             )
 
     def __init__(self, **kw) -> None:
         update_type = getattr(self.__class__, "__update_type__", None)
 
         if update_type is None:
-            raise TypeError(
-                f"{self.__class__.__name__} must define __update_type__"
-            )
+            raise TypeError(f"{self.__class__.__name__} must define __update_type__")
 
-        if not (
-            isinstance(update_type, type)
-            and issubclass(update_type, PyroUpdate)
-        ):
+        if not (isinstance(update_type, type) and issubclass(update_type, PyroUpdate)):
             raise TypeError(
                 f"{self.__class__.__name__}.__update_type__ must be a subclass of "
                 f"{PyroUpdate.__name__}"
@@ -82,9 +72,7 @@ class UpdateBound(Generic[UpdateType]):
             TypeError: If the update is not an instance of __update_type__.
         """
         if not isinstance(update, cls.__update_type__):
-            raise TypeError(
-                f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}"
-            )
+            raise TypeError(f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}")
 
 
 __all__ = (

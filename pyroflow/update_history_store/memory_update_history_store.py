@@ -36,7 +36,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         ttl: Number = TimeUnit.DAY / 2,
         max_history_len: int = 2,
         max_keys: int = 1000,
-        **kw
+        **kw,
     ):
         super().__init__(update_type, **kw)
 
@@ -61,7 +61,6 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
             heapq.heappop(heap)
 
         return heap
-
 
     def _update(self, key, *records):
         heap = self.histories.setdefault(key, [])
@@ -90,7 +89,6 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
     def _delete(self, key):
         self.histories.pop(key, None)
-
 
     async def update(self, *args, **kw):
         return self._update(*args, **kw)

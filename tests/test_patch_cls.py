@@ -3,6 +3,7 @@
 These cover the library's most load-bearing and least obvious mechanism:
 monkey-patching Pyrogram base classes in-place.
 """
+
 from __future__ import annotations as _annotations
 
 from abc import ABC

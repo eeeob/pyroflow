@@ -5,6 +5,7 @@ handle_ask_error() is the exact function ask()'s except block calls, so
 matching and precedence are tested by calling it directly rather than by
 reimplementing its routing logic in the test.
 """
+
 from __future__ import annotations as _annotations
 
 from types import SimpleNamespace
@@ -192,9 +193,7 @@ async def test_ask_routes_a_listening_error_to_the_scoped_client_handler():
     calls = []
     _install_raising_ask(c, update_type=Message)
 
-    c.register_ask_error_handler(
-        ExcA, lambda exc, m: calls.append("message"), update_type=Message
-    )
+    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append("message"), update_type=Message)
     c.register_ask_error_handler(
         ExcA, lambda exc, m: calls.append("callback_query"), update_type=CallbackQuery
     )
