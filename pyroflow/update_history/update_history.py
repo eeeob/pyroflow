@@ -1,22 +1,28 @@
+"""Abstract base class for recording which handlers processed an update."""
+
 from __future__ import annotations as _annotations
 from abc import ABC
-from typing import Any
-from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any, cast
 
-from pyrogram.handlers import Handler as PyroHandler
 from pyrogram.types import Update as PyroUpdate
 
 from ..utils import UpdateBound
 from pytrove import maybe_awaitable
 from ..utils.typings import UpdateType
-from pytrove.typings import MaybeCoroutineCallable
 
-from ..typings import UpdateHistoryKeyT
 from ..models import UpdateRecord
 from ..update_history_store import UpdateHistoryStore, MemoryUpdateHistoryStore
 
 import time
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pyrogram.handlers import Handler as PyroHandler
+    from pytrove.typings import MaybeCoroutineCallable
+
+    from ..typings import UpdateHistoryKeyT
 
 
 class UpdateHistory(ABC, UpdateBound[UpdateType]):
@@ -61,9 +67,9 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         is_recordable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateHistoryKeyT] | None = None,
         extract_data_func: MaybeCoroutineCallable[[UpdateType], Any] | None = None,
-        **kw,
+        **kw: Any,
     ) -> None:
-
+        """Initialise the history and create its store."""
         super().__init__(**kw)
 
         if store_factory is None:
@@ -91,14 +97,15 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             ``True`` if the update should be recorded, ``False`` otherwise.
         """
         if self.is_recordable_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass is_recordable_func "
                 f"or override is_recordable()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
             self.is_recordable_func, update, executor=self._get_executor(update)
         )
 
@@ -115,14 +122,15 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             (chat, user) context.
         """
         if self.extract_key_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass extract_key_func "
                 f"or override extract_key()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
             self.extract_key_func, update, executor=self._get_executor(update)
         )
 
@@ -138,10 +146,11 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             Any data worth storing alongside the handler record.
         """
         if self.extract_data_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass extract_data_func "
                 f"or override extract_data()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
@@ -213,13 +222,16 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             A sequence of :class:`UpdateRecord` ordered from oldest
             to newest, or an empty sequence if none exist.
         """
-        key = update
+        if isinstance(update, PyroUpdate):
+            # ty keeps a theoretical `tuple & Update` member; a real update lands here.
+            update = cast("UpdateType", update)
 
-        if isinstance(key, PyroUpdate):
             if not await self.is_recordable(update):
                 return []
 
             key = await self.extract_key(update)
+        else:
+            key = update
 
         return await self.store.get(key)
 
@@ -239,13 +251,16 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             A sequence of :class:`UpdateRecord` ordered from oldest
             to newest, or an empty sequence if none exist.
         """
-        key = update
+        if isinstance(update, PyroUpdate):
+            # ty keeps a theoretical `tuple & Update` member; a real update lands here.
+            update = cast("UpdateType", update)
 
-        if isinstance(key, PyroUpdate):
             if not await self.is_recordable(update):
                 return []
 
             key = await self.extract_key(update)
+        else:
+            key = update
 
         return await self.store.pop(key)
 
@@ -261,13 +276,16 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             update: The incoming Pyrogram update or a raw
                     :data:`UpdateHistoryKeyT` to delete directly.
         """
-        key = update
+        if isinstance(update, PyroUpdate):
+            # ty keeps a theoretical `tuple & Update` member; a real update lands here.
+            update = cast("UpdateType", update)
 
-        if isinstance(key, PyroUpdate):
             if not await self.is_recordable(update):
                 return
 
             key = await self.extract_key(update)
+        else:
+            key = update
 
         await self.store.delete(key)
 

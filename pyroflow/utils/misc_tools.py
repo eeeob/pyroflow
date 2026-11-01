@@ -1,6 +1,7 @@
+"""Miscellaneous helpers: class patching, bot command marking and ask error dispatch."""
+
 from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING, Any, overload
-from collections.abc import Callable
 
 from pyrogram.sync import async_to_sync
 from pyrogram.types import BotCommand
@@ -19,15 +20,25 @@ else:
 del MessageHandler
 
 from pytrove import iscoroutinefunction_wrapped, maybe_awaitable, patch_cls as _patch_cls
-from pytrove.typings import _CT, _FT
 from .constants import BOT_COMMANDS_ATTR
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pytrove.typings import _CT, _FT
+
     from ..typings import BotCommandEntryT, BotCommandPartsT, AskErrorHandlersT
     from ..types import Message
 
 
-def patch_setter(cls, name, attr) -> None:
+def patch_setter(cls: type, name: str, attr: Any) -> None:
+    """Set ``attr`` on ``cls`` as ``name``, adding Pyrogram's sync wrapper for coroutine functions.
+
+    Args:
+        cls: The class to set the attribute on.
+        name: The attribute name.
+        attr: The value to set.
+    """
     setattr(cls, name, attr)
 
     if iscoroutinefunction_wrapped(attr):
@@ -49,7 +60,7 @@ def patch_cls(
     preserve_old: bool = True,
     setter: Callable[[type, str, Any], None] = patch_setter,
     include_dunders: tuple[str, ...] = ("__init__",),
-):
+) -> _CT | Callable[[_CT], _CT]:
     """pytrove.misc_tools.patch_cls, with pyroflow's own default setter.
 
     pytrove's own default (``setattr``) has no notion of pyrogram's
@@ -58,18 +69,18 @@ def patch_cls(
     rather than plain ``setattr``. An explicit ``setter=`` still overrides
     it, same as calling pytrove's version directly.
     """
-    return _patch_cls(
-        patch_class,
+    decorator = _patch_cls(
         preserve_old=preserve_old,
         setter=setter,
         include_dunders=include_dunders,
     )
+    return decorator if patch_class is None else decorator(patch_class)
 
 
 def split_bot_command_entry(entry: BotCommandEntryT) -> BotCommandPartsT:
-    """Expand any :data:`BotCommandEntryT` shape into its
-    ``(language_code, scope, commands)`` parts, filling the parts the entry
-    left out with ``None``.
+    """Expand any :data:`BotCommandEntryT` shape into its ``(language_code, scope, commands)`` parts.
+
+    The parts the entry left out are filled with ``None``.
     """
     if isinstance(entry, (BotCommand, list)):
         return None, None, entry
@@ -79,9 +90,10 @@ def split_bot_command_entry(entry: BotCommandEntryT) -> BotCommandPartsT:
 
 
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
-    """Decorator that marks a handler function with the bot commands it answers
-    to, so :class:`~pyroflow.BotCommandsMixin` can publish them to Telegram
-    later, when the client starts.
+    """Mark a handler function with the bot commands it answers to.
+
+    :class:`~pyroflow.BotCommandsMixin` publishes them to Telegram later, when
+    the client starts.
 
     Nothing is sent to Telegram here — the declaration is only stored on the
     handler object, under :data:`BOT_COMMANDS_ATTR`. The actual
@@ -135,8 +147,7 @@ async def handle_ask_error(
     m: Message,
     *handlers: AskErrorHandlersT | None,
 ) -> bool:
-    """Dispatch ``exc`` to the first matching entry across ``handlers``, awaited
-    as ``handler(exc, m)``.
+    """Dispatch ``exc`` to the first matching entry across ``handlers``, awaited as ``handler(exc, m)``.
 
     Each mapping is scanned in order, and within a mapping its keys are tried in
     insertion order, so earlier ``handlers`` arguments take precedence — that is

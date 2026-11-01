@@ -1,3 +1,5 @@
+"""Internal helpers: class patching, update binding, bot command marking and typing aids."""
+
 from .classes import *
 from .misc_tools import *
 

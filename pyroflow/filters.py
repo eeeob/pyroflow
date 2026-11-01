@@ -20,7 +20,6 @@ from enum import Enum, EnumMeta as EnumType
 
 from pyrogram.filters import Filter, create
 
-from .types import Message, CallbackQuery as Query
 from pytrove import (
     iter_flat_cont,
     is_container,
@@ -28,10 +27,12 @@ from pytrove import (
     extract_pyro_update_text,
     to_coroutine,
 )
-from pytrove.typings import MaybeCoroutineCallable, NestedContainer
 
 if TYPE_CHECKING:
+    from pytrove.typings import MaybeCoroutineCallable, NestedContainer
+
     from .client import Client
+    from .types import Message, CallbackQuery as Query
 
 
 def _raise(exc: Exception) -> NoReturn:
@@ -72,8 +73,7 @@ def split_text(
     strip: bool = False,
     separator: str | None = None,
 ) -> Filter:
-    """Split the update's text by ``separator`` and match each part against the
-    corresponding ``rules`` entry.
+    """Split the update's text by ``separator`` and match each part against its ``rules`` entry.
 
     Each rule is one of:
 
@@ -102,7 +102,8 @@ def split_text(
                     nor a callable.
     """
     if not rules:
-        raise ValueError("split_text filter must be given at least one rule")
+        msg = "split_text filter must be given at least one rule"
+        raise ValueError(msg)
 
     normalized_rules = tuple(
         frozenset(e.value for e in rule if isinstance(e.value, str) and e.value)
@@ -117,22 +118,26 @@ def split_text(
 
     for rule in normalized_rules:
         if not rule:
-            raise ValueError("split_text rules must not be empty")
+            msg = "split_text rules must not be empty"
+            raise ValueError(msg)
 
     if len(normalized_rules) > 1 and separator is None:
-        raise ValueError("separator is required when split_text is given more than one rule")
+        msg = "separator is required when split_text is given more than one rule"
+        raise ValueError(msg)
 
-    async def caller(_, client: Client, update: Message | Query) -> bool:
+    async def caller(_: Filter, client: Client, update: Message | Query) -> bool:
         text = extract_pyro_update_text(update)
 
         if not text:
             return False
 
-        parts = (
-            [text]
-            if separator is None
-            else text.split(separator, maxsplit=len(normalized_rules) - 1)
-        )
+        if separator is None:
+            parts = [text]
+        elif isinstance(text, bytes):
+            # بيانات callback التي لا تُفك بـ UTF-8 تبقى bytes، ولا تنقسم بفاصل نصي
+            return False
+        else:
+            parts = text.split(separator, maxsplit=len(normalized_rules) - 1)
 
         if strip:
             parts = [p.strip() for p in parts]
@@ -140,8 +145,8 @@ def split_text(
         if len(parts) != len(normalized_rules):
             return False
 
-        for part, rule in zip(parts, normalized_rules):
-            if is_container(rule):
+        for part, rule in zip(parts, normalized_rules, strict=True):
+            if isinstance(rule, frozenset):
                 if part not in rule:
                     return False
             elif not await maybe_awaitable(rule, part, executor=client.executor, log_exc=False):

@@ -1,15 +1,22 @@
+"""Abstract base for update types that are processed under coordination."""
+
 from __future__ import annotations as _annotations
+from typing import TYPE_CHECKING, Any
 from abc import ABC
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 
 from ..utils.typings import UpdateType, AsyncLockProto
-from pytrove.typings import MaybeCoroutineCallable
 from ..utils import UpdateBound
 from pytrove import maybe_awaitable
 
-from ..typings import UpdateCoordinatorKeyT
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pytrove.typings import MaybeCoroutineCallable
+
+    from ..typings import UpdateCoordinatorKeyT
 
 import logging
 
@@ -71,9 +78,9 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT] | None = None,
         extract_update_id_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]
         | None = None,
-        **kw,
+        **kw: Any,
     ) -> None:
-
+        """Initialise the policy; see the class docstring for the parameters."""
         super().__init__(**kw)
 
         if coordinator_factory is None:
@@ -105,14 +112,15 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
                                  ``is_coordinatable_func`` was provided.
         """
         if self.is_coordinatable_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass is_coordinatable_func "
                 f"or override is_coordinatable()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove maybe_awaitable overloads resolve MaybeCoroutineCallable[..., T] to T | Coroutine[T]
             self.is_coordinatable_func,
             update,
             executor=self._get_executor(update),
@@ -138,14 +146,15 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
                                  ``extract_key_func`` was provided.
         """
         if self.extract_key_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass extract_key_func "
                 f"or override extract_key()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove maybe_awaitable overloads resolve MaybeCoroutineCallable[..., T] to T | Coroutine[T]
             self.extract_key_func,
             update,
             executor=self._get_executor(update),
@@ -174,14 +183,15 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
                                  ``extract_update_id_func`` was provided.
         """
         if self.extract_update_id_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass extract_update_id_func "
                 f"or override extract_update_id()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove maybe_awaitable overloads resolve MaybeCoroutineCallable[..., T] to T | Coroutine[T]
             self.extract_update_id_func,
             update,
             executor=self._get_executor(update),

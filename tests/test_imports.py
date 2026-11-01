@@ -9,7 +9,11 @@ from __future__ import annotations as _annotations
 
 import importlib
 
+import pyrogram.dispatcher
+import pyrogram.types
 import pytest
+
+import pyroflow
 
 MODULES = [
     "pyroflow",
@@ -51,23 +55,18 @@ MODULES = [
 
 
 @pytest.mark.parametrize("module", MODULES)
-def test_module_imports(module):
+def test_module_imports(module: str) -> None:
     assert importlib.import_module(module) is not None
 
 
-def test_redis_import_does_not_require_redis_installed():
+def test_redis_import_does_not_require_redis_installed() -> None:
     """The Redis backends must import even without ``redis`` present:
     every ``redis`` import is guarded by ``TYPE_CHECKING`` / local import."""
     importlib.import_module("pyroflow.listener_coordinator.redis_listener_coordinator")
     importlib.import_module("pyroflow.update_coordinator.redis_update_coordinator")
 
 
-def test_global_monkey_patch_applied():
-    import pyrogram.dispatcher
-    import pyrogram.types
-
-    import pyroflow
-
+def test_global_monkey_patch_applied() -> None:
     # types.py patches replaced the Pyrogram classes themselves
     assert pyroflow.Message is pyrogram.types.Message
     assert pyroflow.CallbackQuery is pyrogram.types.CallbackQuery
@@ -80,9 +79,7 @@ def test_global_monkey_patch_applied():
     assert hasattr(pyrogram.dispatcher.Dispatcher, "old__init__")
 
 
-def test_public_exports_present():
-    import pyroflow
-
+def test_public_exports_present() -> None:
     for name in (
         "Client",
         "Dispatcher",

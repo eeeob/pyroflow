@@ -1,17 +1,21 @@
+"""Abstract base class shared by every listener coordinator backend."""
+
 from __future__ import annotations as _annotations
 from abc import ABC, abstractmethod
-from typing import TypeAlias, TYPE_CHECKING
+from typing import Any, TypeAlias, TYPE_CHECKING
 
 
-from ..utils.typings import AsyncLockProto
-from ..typings import ListenerCoordinatorIdT
 from ..models import ListenerKey
 
 if TYPE_CHECKING:
+    from ..typings import ListenerCoordinatorIdT
     from ..update_listener import UpdateListener
+    from ..utils.typings import AsyncLockProto
 
 
-LockKeyT: TypeAlias = int | tuple[int | None, ...] | ListenerKey
+LockKeyT: TypeAlias = (
+    int | tuple[int] | tuple[int, int | None] | tuple[int, int | None, int | None] | ListenerKey
+)
 
 
 class ListenerCoordinator(ABC):
@@ -51,15 +55,15 @@ class ListenerCoordinator(ABC):
         **kw:     Passed to the next class in the MRO.
     """
 
-    def __init__(self, listener: UpdateListener, **kw):
+    def __init__(self, listener: UpdateListener, **kw: Any) -> None:
+        """Bind the coordinator to the listener that owns it."""
         super().__init__(**kw)
 
         self.listener = listener
 
     @abstractmethod
     def lock(self, key: LockKeyT) -> AsyncLockProto:
-        """Return an async context manager that serialises listener coordinator
-        operations for the given key.
+        """Return an async lock that serialises coordinator operations for ``key``.
 
         The returned object must support ``async with`` semantics.
 
@@ -74,8 +78,7 @@ class ListenerCoordinator(ABC):
 
     @abstractmethod
     async def register(self, key: ListenerKey) -> ListenerCoordinatorIdT:
-        """Register a listener for the given key and return a unique
-        listener coordinator id.
+        """Register a listener for ``key`` and return a unique coordinator id.
 
         The listener coordinator id can later be passed to :meth:`unregister`
         to safely remove this specific listener coordinator without affecting
@@ -139,8 +142,8 @@ class ListenerCoordinator(ABC):
         """
         raise NotImplementedError
 
-    async def start(self) -> None:
-        pass
+    async def start(self) -> None:  # noqa: B027  # optional hook; the default is a no-op
+        """Prepare the backend before use. Does nothing by default."""
 
-    async def stop(self) -> None:
-        pass
+    async def stop(self) -> None:  # noqa: B027  # optional hook; the default is a no-op
+        """Release the backend's resources. Does nothing by default."""

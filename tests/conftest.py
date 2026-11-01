@@ -9,6 +9,7 @@ suite relies on that global patch being active.
 from __future__ import annotations as _annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pyroflow  # noqa: F401 — activates the @patch_cls global monkey-patch
 import pytest
@@ -16,8 +17,13 @@ import pytest
 from pyrogram.types import Message, CallbackQuery, Chat, User
 from pyrogram.enums import ChatType
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def make_message(chat_id=100, user_id=7, message_id=5, **overrides):
+
+def make_message(
+    chat_id: int = 100, user_id: int = 7, message_id: int = 5, **overrides: object
+) -> Message:
     """Build a minimal, listenable :class:`Message` instance.
 
     Defaults produce a private, incoming, non-service message that
@@ -34,7 +40,13 @@ def make_message(chat_id=100, user_id=7, message_id=5, **overrides):
     return msg
 
 
-def make_callback_query(chat_id=100, user_id=7, message_id=5, data="cb", **overrides):
+def make_callback_query(
+    chat_id: int = 100,
+    user_id: int = 7,
+    message_id: int = 5,
+    data: str | bytes = "cb",
+    **overrides: object,
+) -> CallbackQuery:
     """Build a minimal :class:`CallbackQuery` whose ``message`` is listenable."""
     cbq = CallbackQuery(
         id="cbq-1",
@@ -49,20 +61,22 @@ def make_callback_query(chat_id=100, user_id=7, message_id=5, data="cb", **overr
 
 
 @pytest.fixture
-def message_factory():
+def message_factory() -> Callable[..., Message]:
     return make_message
 
 
 @pytest.fixture
-def callback_factory():
+def callback_factory() -> Callable[..., CallbackQuery]:
     return make_callback_query
 
 
 @pytest.fixture
-def raw_message_factory():
+def raw_message_factory() -> Callable[..., Message]:
     """A ``Message`` carrying a ``raw.peer_id`` for coordinator key extraction."""
 
-    def _factory(chat_id=100, user_id=7, message_id=5, peer_channel_id=100):
+    def _factory(
+        chat_id: int = 100, user_id: int = 7, message_id: int = 5, peer_channel_id: int = 100
+    ) -> Message:
         msg = make_message(chat_id, user_id, message_id)
         # get_peer_id() understands raw PeerChannel/PeerUser objects; a
         # SimpleNamespace with the right attribute name is enough here.

@@ -1,12 +1,19 @@
+"""In-memory update coordinator for a single process."""
+
 from __future__ import annotations as _annotations
+from typing import TYPE_CHECKING, Any
 from functools import partial
 from cachetools import TTLCache
 
 from ..utils import AsyncioLock
 from pytrove import DefaultWeakValueDict
-from pytrove.typings import Number
 
 from .update_coordinator import UpdateCoordinator
+
+if TYPE_CHECKING:
+    from pytrove.typings import Number
+
+    from ..typings import UpdateCoordinatorKeyT
 
 import asyncio
 
@@ -25,19 +32,31 @@ class TimedLock(AsyncioLock):
     """
 
     def __init__(self, blocking_timeout: Number) -> None:
+        """Create an unlocked lock that waits at most ``blocking_timeout`` seconds."""
         super().__init__()
 
         self.blocking_timeout = blocking_timeout
 
-    async def acquire(self) -> bool:
+    async def acquire(self) -> bool:  # ty: ignore[invalid-method-override]  # asyncio.Lock.acquire is typed Literal[True]; the bounded wait returns False on timeout
+        """Acquire the lock, waiting at most ``blocking_timeout`` seconds.
+
+        Returns:
+            ``True`` once the lock is held, ``False`` if the wait timed out.
+        """
         try:
             return await asyncio.wait_for(super().acquire(), self.blocking_timeout)
         except asyncio.TimeoutError:
             return False
 
     async def __aenter__(self) -> None:
+        """Acquire the lock for an ``async with`` block.
+
+        Raises:
+            TimeoutError: If the lock is not acquired within ``blocking_timeout``.
+        """
         if not await self.acquire():
-            raise TimeoutError(f"Timeout waiting for lock after {self.blocking_timeout}s")
+            msg = f"Timeout waiting for lock after {self.blocking_timeout}s"
+            raise TimeoutError(msg)
 
 
 class MemoryUpdateCoordinator(UpdateCoordinator):
@@ -54,7 +73,8 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
                      of the process.
     """
 
-    def __init__(self, *args, max_handled: int = 1000, **kw) -> None:
+    def __init__(self, *args: Any, max_handled: int = 1000, **kw: Any) -> None:
+        """Initialise the coordinator; other arguments go to :class:`UpdateCoordinator`."""
         super().__init__(*args, **kw)
 
         # Weakly held: a lock exists only while somebody is holding or
@@ -65,14 +85,18 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
 
         self.handled: TTLCache[str, None] = TTLCache(maxsize=max_handled, ttl=self.handled_ttl)
 
-    def lock(self, key):
+    def lock(self, key: UpdateCoordinatorKeyT) -> TimedLock:
+        """Return the process-local :class:`TimedLock` for ``key``."""
         return self.locks[self.build_key(key, "lock")]
 
-    async def is_handled(self, key):
+    async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
+        """Whether ``key`` is in the in-memory handled registry."""
         return self.build_key(key, "handled") in self.handled
 
-    async def mark_handled(self, key):
+    async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
+        """Add ``key`` to the in-memory handled registry."""
         self.handled[self.build_key(key, "handled")] = None
 
-    async def stop(self):
+    async def stop(self) -> None:
+        """Clear the handled registry."""
         self.handled.clear()

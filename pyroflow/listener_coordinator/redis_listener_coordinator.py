@@ -1,12 +1,20 @@
+"""Redis-backed listener coordinator shared by every session on the same Redis."""
+
 from __future__ import annotations as _annotations
 from typing import Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from redis.asyncio.client import PubSub
     from redis.asyncio import Redis
+    from redis.commands.core import AsyncScript
+    from pytrove.typings import Number
+
+    from ..typings import ListenerCoordinatorIdT
+    from ..update_listener import UpdateListener
+    from ..utils.typings import AsyncLockProto
+    from .listener_coordinator import LockKeyT
 
 from pytrove import cancel_task, gather_helper
-from pytrove.typings import Number
 from ..models import ListenerKey
 
 from .listener_coordinator import ListenerCoordinator
@@ -21,6 +29,13 @@ log = logging.getLogger(__name__)
 
 
 class RedisListenerCoordinator(ListenerCoordinator):
+    """Listener coordinator that stores registrations in Redis.
+
+    Registrations, locks and cancellations are visible to every session that
+    shares the same Redis, and cancellations are broadcast to peers over
+    pub/sub.
+    """
+
     LUA_UNREGISTER_SCRIPT = """
     local value = redis.call('GET', KEYS[1])
 
@@ -62,18 +77,20 @@ class RedisListenerCoordinator(ListenerCoordinator):
     return value
     """
 
-    lua_bulk_unregister = None
-    lua_unregister = None
-    lua_getdel = None
+    lua_bulk_unregister: AsyncScript | None = None
+    lua_unregister: AsyncScript | None = None
+    lua_getdel: AsyncScript | None = None
 
     def __init__(
         self,
         redis: Redis,
-        listener,
+        listener: UpdateListener,
         lock_timeout: Number = 30,
         lock_blocking_timeout: Number = 10,
-    ):
-        """Parameters:
+    ) -> None:
+        """Bind the coordinator to ``redis`` and register its Lua scripts.
+
+        Parameters:
         redis:    The async Redis client backing this coordinator.
         listener: The :class:`UpdateListener` that owns it.
 
@@ -122,7 +139,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
         self._register_scripts()
 
-    def _register_scripts(self):
+    def _register_scripts(self) -> None:
         if self.lua_unregister is None:
             self.lua_unregister = self.redis.register_script(self.LUA_UNREGISTER_SCRIPT)
         if self.lua_bulk_unregister is None:
@@ -131,9 +148,9 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.lua_getdel = self.redis.register_script(self.LUA_GETDEL_SCRIPT)
 
     def _unpack_key(self, packed_key: str) -> ListenerKey:
-        keys = [None if key == self._null else int(key) for key in packed_key.split(self._sep)[3:]]
+        chat_id, *rest = packed_key.split(self._sep)[3:]
 
-        return ListenerKey(*keys)
+        return ListenerKey(int(chat_id), *(None if key == self._null else int(key) for key in rest))
 
     def _pack_key(self, key: ListenerKey, section: Literal["registry", "lock"] = "registry") -> str:
         return self._key_format.format_map(
@@ -145,7 +162,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
             }
         )
 
-    def lock(self, key):
+    def lock(self, key: LockKeyT) -> AsyncLockProto:
         """Build the per-chat lock.
 
         ``timeout`` and ``blocking_timeout`` are always passed: leaving either
@@ -164,20 +181,25 @@ class RedisListenerCoordinator(ListenerCoordinator):
             thread_local=False,
         )
 
-    async def register(self, key):
+    async def register(self, key: ListenerKey) -> str:
+        """Claim ``key`` in Redis and return a fresh id; raise ``KeyError`` if taken."""
         packed_key = self._pack_key(key)
         coordinator_id = uuid.uuid4().hex
 
         success = await self.redis.set(packed_key, coordinator_id, nx=True)
 
         if not success:
-            raise KeyError(f"Key {key!r} already registered")
+            msg = f"Key {key!r} already registered"
+            raise KeyError(msg)
 
         self._owned_registrations[packed_key] = coordinator_id
 
         return coordinator_id
 
-    async def unregister(self, key, coordinator_id=None):
+    async def unregister(
+        self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
+    ) -> bool:
+        """Delete ``key`` from Redis, only if it still holds ``coordinator_id`` when given."""
         packed_key = self._pack_key(key)
 
         if coordinator_id is None:
@@ -186,7 +208,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
             return bool(await self.redis.delete(packed_key))
 
         if self.lua_unregister is None:
-            raise RuntimeError("Lua unregister script is not registered")
+            msg = "Lua unregister script is not registered"
+            raise RuntimeError(msg)
 
         if cid := self._owned_registrations.pop(packed_key, None):
             if cid != coordinator_id:
@@ -196,7 +219,10 @@ class RedisListenerCoordinator(ListenerCoordinator):
             await self.lua_unregister(keys=[packed_key], args=[coordinator_id], client=self.redis)
         )
 
-    async def registered(self, key, coordinator_id=None) -> bool:
+    async def registered(
+        self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
+    ) -> bool:
+        """Return whether ``key`` exists in Redis, optionally under ``coordinator_id``."""
         value = await self.redis.get(self._pack_key(key))
 
         if value is None:
@@ -207,7 +233,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
         return coordinator_id is None or value == coordinator_id
 
-    async def cancel(self, key) -> bool:
+    async def cancel(self, key: ListenerKey) -> bool:
         """Cancel the registration for ``key`` across every session.
 
         Deletion happens first and is what actually makes the cancellation
@@ -225,6 +251,10 @@ class RedisListenerCoordinator(ListenerCoordinator):
         Returns:
             ``True`` if a registration existed and was removed.
         """
+        if self.lua_getdel is None:
+            msg = "Lua getdel script is not registered"
+            raise RuntimeError(msg)
+
         packed_key = self._pack_key(key)
 
         self._owned_registrations.pop(packed_key, None)
@@ -245,7 +275,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
         return True
 
-    async def start(self):
+    async def start(self) -> None:
+        """Subscribe to the cancel channel and start listening for peer signals."""
         self.pubsub = self.redis.pubsub()
 
         await self.pubsub.subscribe(self.cancel_channel_name)
@@ -257,7 +288,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.cancel_channel_name,
         )
 
-    async def stop(self):
+    async def stop(self) -> None:
+        """Stop listening, close pub/sub and release this session's registrations."""
         task = self.listening_task
         pubsub = self.pubsub
 
@@ -284,12 +316,13 @@ class RedisListenerCoordinator(ListenerCoordinator):
             log.debug("PubSub unsubscribed and closed")
 
         if self._owned_registrations:
-            keys, ids = zip(*self._owned_registrations.items())
+            keys, ids = zip(*self._owned_registrations.items(), strict=True)
 
             log.warning("RedisListenerCoordinator stopped with pending registrations: %s", keys)
 
             if self.lua_bulk_unregister is None:
-                raise RuntimeError("Lua bulk unregister script is not registered")
+                msg = "Lua bulk unregister script is not registered"
+                raise RuntimeError(msg)
 
             keys, ids = list(keys), list(ids)
 
@@ -315,7 +348,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
     async def _listen_for_cancel_signals(self) -> None:
         if self.pubsub is None:
-            raise RuntimeError("PubSub has not been initialized. Call start() first.")
+            msg = "PubSub has not been initialized. Call start() first."
+            raise RuntimeError(msg)
 
         log.debug("Listening task started on channel %r", self.cancel_channel_name)
 

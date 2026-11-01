@@ -1,6 +1,7 @@
+"""Data models for listeners and handled-update records."""
+
 from __future__ import annotations as _annotations
 from typing import ClassVar, Any, TYPE_CHECKING
-from collections.abc import Generator
 from dataclasses import dataclass, field, fields, is_dataclass, Field
 from itertools import combinations, count
 from pyrogram.handlers import Handler as PyroHandler
@@ -12,6 +13,9 @@ from .typings import ListenerCoordinatorIdT
 import asyncio
 import time
 import weakref
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 def _get_plan(mask: int) -> tuple[int, ...]:
@@ -32,13 +36,16 @@ def _get_plan(mask: int) -> tuple[int, ...]:
 
 @dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
 class ListenerKey:
+    """Identifies a listener slot: a chat, optionally narrowed to a user and/or a message."""
+
     PLANS: ClassVar[KeyDefaultDict[int, tuple[int, ...]]] = KeyDefaultDict(_get_plan)
     FIELDS: ClassVar[tuple[Field[Any], ...]]
 
     if not TYPE_CHECKING:
 
         @classproperty(cached=True)
-        def FIELDS(cls):
+        def FIELDS(cls) -> tuple[Field[Any], ...]:
+            """Return the dataclass fields, in declaration order."""
             if not is_dataclass(cls):
                 return cls.__dict__["FIELDS"]
             return fields(cls)
@@ -49,11 +56,11 @@ class ListenerKey:
 
     @property
     def to_tuple(self) -> tuple[int, int | None, int | None]:
+        """The key's components, in field order."""
         return tuple(getattr(self, f.name) for f in self.FIELDS)
 
     def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
-        """Yield every key a listener for this update could be registered under,
-        most specific first.
+        """Yield every key a listener for this update could be registered under, most specific first.
 
         ``chat_id`` is always present; the remaining components are each
         independently optional, so the candidates are the *combinations* of the
@@ -82,15 +89,15 @@ class ListenerKey:
                      The default of ``1`` includes the chat-only key; ``2``
                      stops before it.
         """
-        values = self.to_tuple
+        chat_id, *rest = self.to_tuple
 
-        assert values[0] is not None
+        if chat_id is None:
+            msg = "ListenerKey.chat_id must not be None"
+            raise AssertionError(msg)
 
         mask = 0
 
-        for i, value in enumerate(values):
-            if i == 0:
-                continue
+        for i, value in enumerate(rest, 1):
             if value is not None:
                 mask |= 1 << i
 
@@ -99,12 +106,14 @@ class ListenerKey:
                 return
 
             yield ListenerKey(
-                *(value if (i == 0 or keep >> i & 1) else None for i, value in enumerate(values))
+                chat_id, *(value if keep >> i & 1 else None for i, value in enumerate(rest, 1))
             )
 
 
 @dataclass(slots=True)
 class ListenerModel:
+    """A registered listener: its key, optional metadata, and the future its update resolves."""
+
     key: ListenerKey
     meta: JsonValueT | None = None
     future: asyncio.Future = field(default_factory=asyncio.Future)
@@ -117,13 +126,16 @@ class ListenerModel:
     # resolve() and _cancel() compare this token to stay on the right one.
     coordinator_id: ListenerCoordinatorIdT | None = None
 
-    def resolve(self, update) -> None:
+    def resolve(self, update: object) -> None:
+        """Complete the listener's future with ``update``."""
         self.future.set_result(update)
 
     def set_exc(self, exc: Exception) -> None:
+        """Fail the listener's future with ``exc``."""
         self.future.set_exception(exc)
 
     def done(self) -> bool:
+        """Return whether the listener's future is done."""
         return self.future.done()
 
 
@@ -133,25 +145,30 @@ class _WeakSlots:
 
 @dataclass(slots=True)
 class UpdateRecord(_WeakSlots):
-    _SEQ: ClassVar[int] = count()
+    """A history entry: the handler that handled an update, with optional data; ordered by creation."""
+
+    _SEQ: ClassVar[count[int]] = count()
     _SEQ_IDS: ClassVar[dict[int, int]] = {}
 
     handler: PyroHandler
     data: Any | None = None
     created_at: Number = field(default_factory=time.time)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Assign the record its creation sequence number, dropped when the record is collected."""
         cls = type(self)
         cls._SEQ_IDS[id(self)] = next(cls._SEQ)
         weakref.finalize(self, cls._SEQ_IDS.pop, id(self), None)
 
     def __lt__(self, other: UpdateRecord) -> bool:
+        """Return whether this record was created before ``other``."""
         return (self.created_at, type(self)._SEQ_IDS[id(self)]) < (
             other.created_at,
             type(other)._SEQ_IDS[id(other)],
         )
 
     def __gt__(self, other: UpdateRecord) -> bool:
+        """Return whether this record was created after ``other``."""
         return (self.created_at, type(self)._SEQ_IDS[id(self)]) > (
             other.created_at,
             type(other)._SEQ_IDS[id(other)],

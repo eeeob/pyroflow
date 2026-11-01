@@ -1,16 +1,23 @@
+"""In-memory handler history store with per-record TTL and an LRU key cap."""
+
 from __future__ import annotations as _annotations
+from typing import TYPE_CHECKING, Any
+
 from cachetools import TTLCache
 
-from pytrove.typings import Number
 from pytrove.enums import TimeUnit
-
-from ..typings import UpdateHistoryKeyT
-from ..models import UpdateRecord
 
 from .update_history_store import UpdateHistoryStore
 
 import heapq
 import time
+
+if TYPE_CHECKING:
+    from pytrove.typings import Number
+
+    from ..utils.typings import UpdateType
+    from ..typings import UpdateHistoryKeyT
+    from ..models import UpdateRecord
 
 
 class MemoryUpdateHistoryStore(UpdateHistoryStore):
@@ -32,12 +39,13 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
     def __init__(
         self,
-        update_type,
+        update_type: type[UpdateType],
         ttl: Number = TimeUnit.DAY / 2,
         max_history_len: int = 2,
         max_keys: int = 1000,
-        **kw,
-    ):
+        **kw: Any,
+    ) -> None:
+        """Create the store and its bounded key cache."""
         super().__init__(update_type, **kw)
 
         self.ttl = ttl
@@ -62,7 +70,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
         return heap
 
-    def _update(self, key, *records):
+    def _update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
         heap = self.histories.setdefault(key, [])
 
         for record in records:
@@ -76,7 +84,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         if not heap:
             self._delete(key)
 
-    def _get(self, key):
+    def _get(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
         records = sorted(self._clean_up(self.histories.get(key, [])))
 
         if not records:
@@ -84,20 +92,24 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
         return records
 
-    def _pop(self, key):
+    def _pop(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
         return sorted(self._clean_up(self.histories.pop(key, [])))
 
-    def _delete(self, key):
+    def _delete(self, key: UpdateHistoryKeyT) -> None:
         self.histories.pop(key, None)
 
-    async def update(self, *args, **kw):
-        return self._update(*args, **kw)
+    async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
+        """Add records under ``key``, dropping expired ones and the oldest past the limit."""
+        return self._update(key, *records)
 
-    async def get(self, *args, **kw):
-        return self._get(*args, **kw)
+    async def get(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
+        """Return the unexpired records under ``key``, oldest first."""
+        return self._get(key)
 
-    async def pop(self, *args, **kw):
-        return self._pop(*args, **kw)
+    async def pop(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
+        """Remove ``key`` and return its unexpired records, oldest first."""
+        return self._pop(key)
 
-    async def delete(self, *args, **kw):
-        return self._delete(*args, **kw)
+    async def delete(self, key: UpdateHistoryKeyT) -> None:
+        """Delete all records under ``key``."""
+        return self._delete(key)

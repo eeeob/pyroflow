@@ -1,25 +1,32 @@
+"""Patched Pyrogram dispatcher that routes updates through listeners, coordinators and histories."""
+
 from __future__ import annotations as _annotations
-from collections.abc import Callable
 from contextvars import ContextVar
-from concurrent.futures import Future
+from typing import TYPE_CHECKING, Any
 
 from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
-from pyrogram.types import Update as PyroUpdate
 
-from .utils.typings import UpdateType, AsyncLockProto
 from .utils import patch_cls
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
 from .errors import UnresolvedUpdate, UnhandledUpdate
-from .typings import UpdateCoordinatorKeyT
-from .update_listener import UpdateListener
-from .update_coordinated import UpdateCoordinated
-from .update_history import UpdateHistory
 
 import asyncio
 import logging
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from concurrent.futures import Future
+
+    from pyrogram.types import Update as PyroUpdate
+
+    from .utils.typings import UpdateType, AsyncLockProto
+    from .typings import UpdateCoordinatorKeyT
+    from .update_listener import UpdateListener
+    from .update_coordinated import UpdateCoordinated
+    from .update_history import UpdateHistory
 
 
 log = logging.getLogger(__name__)
@@ -50,7 +57,7 @@ class _CoordinatedRelease:
         self._coordinated = coordinated
         self._lock = lock
         self._loop = loop
-        self._early: Future | None = None
+        self._early: Future[None] | asyncio.Future[None] | None = None
         self._released: bool = False
 
         # Set once the update's identity is known, which happens after the
@@ -126,8 +133,7 @@ _handled_marker: ContextVar[_CoordinatedRelease | None] = ContextVar(
 
 
 def mark_handled() -> bool:
-    """Declare the current update handled *now*, without waiting for the handler
-    to return.
+    """Declare the current update handled *now*, without waiting for the handler to return.
 
     By default an update is settled only once its handler finishes: it is
     registered as handled and its lock released together, at the end. That is
@@ -183,8 +189,9 @@ def mark_handled() -> bool:
 
 @patch_cls(setter=setattr)
 class Dispatcher(PyroDispatcher):
-    """Extended Pyrogram dispatcher that layers three systems on top of
-    the standard handler pipeline: listeners, coordinators, and histories.
+    """Extended Pyrogram dispatcher with listeners, coordinators, and histories.
+
+    It layers these three systems on top of the standard handler pipeline.
 
     Applied via ``@patch_cls``, which monkey-patches
     :class:`pyrogram.dispatcher.Dispatcher` in-place so that every
@@ -240,20 +247,26 @@ class Dispatcher(PyroDispatcher):
         is_started:   ``True`` while the dispatcher is running.
     """
 
-    old__init__: Callable
-    oldstart: Callable
-    oldstop: Callable
+    old__init__: Callable[..., None]
+    oldstart: Callable[..., Awaitable[None]]
+    oldstop: Callable[..., Awaitable[None]]
 
-    def __init__(self, *args, **kw) -> None:
+    def __init__(self, *args: Any, **kw: Any) -> None:
+        """Run the original initializer, then set up empty registries.
+
+        Parameters:
+            *args: Passed directly to the original dispatcher.
+            **kw: Passed directly to the original dispatcher.
+        """
         self.old__init__(*args, **kw)
 
-        self.listeners: dict[type[UpdateType], UpdateListener[UpdateType]] = {}
-        self.coordinateds: dict[type[UpdateType], UpdateCoordinated[UpdateType]] = {}
-        self.histories: dict[type[UpdateType], UpdateHistory[UpdateType]] = {}
+        self.listeners: dict[type[PyroUpdate], UpdateListener[Any]] = {}
+        self.coordinateds: dict[type[PyroUpdate], UpdateCoordinated[Any]] = {}
+        self.histories: dict[type[PyroUpdate], UpdateHistory[Any]] = {}
 
         self.is_started = False
 
-    async def start(self, *args, **kw):
+    async def start(self, *args: Any, **kw: Any) -> None:
         """Start the dispatcher and all registered listeners, coordinators and histories.
 
         Parameters:
@@ -273,7 +286,7 @@ class Dispatcher(PyroDispatcher):
 
         return r
 
-    async def stop(self, *args, **kw):
+    async def stop(self, *args: Any, **kw: Any) -> None:
         """Stop the dispatcher and all registered listeners, coordinators and histories.
 
         Parameters:
@@ -308,12 +321,14 @@ class Dispatcher(PyroDispatcher):
                           already registered.
         """
         if self.is_started:
-            raise RuntimeError("Cannot register listener while dispatcher is already running")
+            msg = "Cannot register listener while dispatcher is already running"
+            raise RuntimeError(msg)
 
         update_type = listener.__class__.__update_type__
 
         if update_type in self.listeners:
-            raise ValueError(f"UpdateListener for {update_type!r} is already registered")
+            msg = f"UpdateListener for {update_type!r} is already registered"
+            raise ValueError(msg)
 
         self.listeners[update_type] = listener
 
@@ -332,12 +347,14 @@ class Dispatcher(PyroDispatcher):
                           already registered.
         """
         if self.is_started:
-            raise RuntimeError("Cannot register coordinated while dispatcher is already running")
+            msg = "Cannot register coordinated while dispatcher is already running"
+            raise RuntimeError(msg)
 
         update_type = coordinated.__class__.__update_type__
 
         if update_type in self.coordinateds:
-            raise ValueError(f"UpdateCoordinated for {update_type!r} is already registered")
+            msg = f"UpdateCoordinated for {update_type!r} is already registered"
+            raise ValueError(msg)
 
         self.coordinateds[update_type] = coordinated
 
@@ -356,12 +373,14 @@ class Dispatcher(PyroDispatcher):
                           already registered.
         """
         if self.is_started:
-            raise RuntimeError("Cannot register history while dispatcher is already running")
+            msg = "Cannot register history while dispatcher is already running"
+            raise RuntimeError(msg)
 
         update_type = history.__class__.__update_type__
 
         if update_type in self.histories:
-            raise ValueError(f"UpdateHistory for {update_type!r} is already registered")
+            msg = f"UpdateHistory for {update_type!r} is already registered"
+            raise ValueError(msg)
 
         self.histories[update_type] = history
 
@@ -525,7 +544,7 @@ class Dispatcher(PyroDispatcher):
 
                 break
 
-        if records:
+        if history is not None and records:
             try:
                 await history.record_many(parsed_update, records, check=False)
             except Exception:
@@ -539,8 +558,7 @@ class Dispatcher(PyroDispatcher):
         parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None],
     ) -> None:
-        """Process a single update under coordination, if a coordinator is
-        registered for its type.
+        """Process a single update under coordination, if a coordinator is registered for its type.
 
         If none is registered — or the update is not coordinatable — falls
         through to :meth:`_handle_update` immediately.
@@ -629,9 +647,8 @@ class Dispatcher(PyroDispatcher):
             # mark_handled(). Always releases the lock.
             await release.settle(handled)
 
-    async def handler_worker(self, lock: asyncio.Lock):
-        """Worker coroutine that consumes updates from the queue and
-        dispatches them.
+    async def handler_worker(self, lock: asyncio.Lock) -> None:
+        """Worker coroutine that consumes updates from the queue and dispatches them.
 
         Runs in a loop until a ``None`` sentinel is received. Each
         update is parsed and dispatched under an async lock to
@@ -650,7 +667,7 @@ class Dispatcher(PyroDispatcher):
             try:
                 update, users, chats = packet
                 parsed_update, handler_type = (
-                    await parser(update, users, chats)
+                    await parser(update, users, chats)  # ty: ignore[invalid-argument-type]  # kurigram's update_parsers is an untyped dict of differently-typed parsers, so ty infers their union
                     if (parser := self.update_parsers.get(type(update))) is not None
                     else (None, type(None))
                 )

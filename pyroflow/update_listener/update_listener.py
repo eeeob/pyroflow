@@ -1,11 +1,11 @@
+"""Base class for per-update-type listeners that back ``ask``/``listen``."""
+
 from __future__ import annotations as _annotations
-from collections.abc import Callable
 from abc import ABC
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
 
 from ..utils.typings import UpdateType
-from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
 from ..utils import UpdateBound
 from pytrove import gather_helper, maybe_awaitable
 
@@ -14,8 +14,15 @@ from ..errors import ListenerCancelled, ListenerTimeout, ListenerAlreadyExists, 
 
 from ..enums import DuplicatePolicy
 from ..models import ListenerModel, ListenerKey
-from ..typings import ListenerCoordinatorIdT
 from ..listener_coordinator import ListenerCoordinator, MemoryListenerCoordinator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
+
+    from ..typings import ListenerCoordinatorIdT
 
 import logging
 import asyncio
@@ -90,9 +97,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey] | None = None,
         bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
         timeout: Number | None = None,
-        **kw,
+        **kw: Any,
     ) -> None:
-
+        """Initialize the listener; see the class docstring for the parameters."""
         super().__init__(**kw)
 
         if coordinator_factory is None:
@@ -115,9 +122,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self.listeners: dict[ListenerKey, ListenerModel] = {}
 
     async def start(self) -> None:
+        """Start the listener coordinator."""
         await self.coordinator.start()
 
-    async def stop(self):
+    async def stop(self) -> None:
+        """Cancel every local listener, then stop the coordinator.
+
+        Logs a warning if any listener is still registered afterwards.
+        """
         active = list(self.listeners.keys())
 
         await gather_helper(
@@ -139,8 +151,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         is_duplicate: bool = False,
         coordinator_id: ListenerCoordinatorIdT | None = None,
     ) -> bool:
-        """Cancel a listener by key, setting a :class:`ListenerCancelled`
-        exception on its future.
+        """Cancel a listener by key without taking the chat lock.
+
+        Sets a :class:`ListenerCancelled` exception on the listener's future.
 
         Parameters:
             key:             The key identifying the listener to cancel.
@@ -159,8 +172,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                              same key.
 
         Returns:
-            ``True`` if a local listener was cancelled, ``False`` if the key
-            held nothing or held a different generation.
+            ``False`` only if ``coordinator_id`` was given and a different
+            generation holds the key; ``True`` otherwise, including when no
+            local listener existed.
         """
         listener = self.listeners.get(key)
 
@@ -203,7 +217,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             coordinator_id:  See :meth:`_cancel`.
 
         Returns:
-            ``True`` if a local listener was cancelled.
+            Same as :meth:`_cancel`.
         """
         async with self.coordinator.lock(key.chat_id):
             return await self._cancel(key, cancel_coordinator, is_duplicate, coordinator_id)
@@ -270,10 +284,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 elif self.duplicate_policy == DuplicatePolicy.REPLACE:
                     await self._cancel(key, is_duplicate=True)
                 else:
-                    raise TypeError(f"Unknown {self.duplicate_policy} duplicate_policy")
+                    msg = f"Unknown {self.duplicate_policy} duplicate_policy"
+                    raise TypeError(msg)
 
             elif key in self.listeners:
-                raise RuntimeError("ListenerCoordinator and listeners are out of sync")
+                msg = "ListenerCoordinator and listeners are out of sync"
+                raise RuntimeError(msg)
 
             fut = asyncio.get_running_loop().create_future()
             fut.add_done_callback(partial(self._cleanup_listen, key))
@@ -302,7 +318,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             raise exc from None
         except BaseException as e:
             if not listener.done():
-                listener.set_exc(e)
+                # set_exc يقبل Exception فقط، والـ future يقبل أي BaseException
+                listener.future.set_exception(e)
             raise e
 
         finally:
@@ -448,14 +465,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                                  ``is_listenable_func`` was provided.
         """
         if self.is_listenable_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass is_listenable_func "
                 f"or override is_listenable()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
             self.is_listenable_func,
             update,
             executor=self._get_executor(update),
@@ -478,22 +496,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                                  ``extract_key_func`` was provided.
         """
         if self.extract_key_func is None:
-            raise NotImplementedError(
+            msg = (
                 f"{self.__class__.__name__} must either pass extract_key_func "
                 f"or override extract_key()"
             )
+            raise NotImplementedError(msg)
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
             self.extract_key_func,
             update,
             executor=self._get_executor(update),
         )
 
     async def is_bypass(self, update: UpdateType) -> bool:
-        """Determine whether a listener that already matched this update
-        should be cancelled instead of resolved with it.
+        """Determine whether a matched listener should be cancelled instead of resolved.
 
         Only called from :meth:`resolve`, after a listener has matched
         the update's key — never as a substitute for :meth:`is_listenable`.
@@ -517,7 +535,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
             self.bypass_func,
             update,
             executor=self._get_executor(update),

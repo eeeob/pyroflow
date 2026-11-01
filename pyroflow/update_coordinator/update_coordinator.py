@@ -1,12 +1,16 @@
+"""Abstract base class for update coordinator backends."""
+
 from __future__ import annotations as _annotations
-from typing import Literal, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
 from abc import ABC, abstractmethod
 
-from ..utils.typings import AsyncLockProto, UpdateType
-from pytrove.typings import Number
 from pytrove.enums import TimeUnit
 
-from ..typings import UpdateCoordinatorKeyT
+if TYPE_CHECKING:
+    from ..utils.typings import AsyncLockProto, UpdateType
+    from pytrove.typings import Number
+
+    from ..typings import UpdateCoordinatorKeyT
 
 
 _SECTION = Literal["lock", "handled"]
@@ -68,9 +72,9 @@ class UpdateCoordinator(ABC):
         lock_ttl: Number = TimeUnit.HOUR,
         handled_ttl: Number = TimeUnit.HOUR,
         blocking_timeout: Number = 5,
-        **kw,
+        **kw: Any,
     ) -> None:
-
+        """Initialise the coordinator; see the class docstring for the parameters."""
         self.lock_ttl = lock_ttl
         self.handled_ttl = handled_ttl
         self.blocking_timeout = blocking_timeout
@@ -143,8 +147,8 @@ class UpdateCoordinator(ABC):
         """
         raise NotImplementedError
 
-    async def start(self) -> None:
-        pass
+    async def start(self) -> None:  # noqa: B027  # optional lifecycle hook; subclasses override only when needed
+        """Prepare the backend before use. Does nothing by default."""
 
-    async def stop(self) -> None:
-        pass
+    async def stop(self) -> None:  # noqa: B027  # optional lifecycle hook; subclasses override only when needed
+        """Release the backend's resources. Does nothing by default."""

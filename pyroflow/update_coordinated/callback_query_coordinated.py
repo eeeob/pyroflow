@@ -1,16 +1,24 @@
+"""Coordination policy for :class:`CallbackQuery` updates."""
+
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..types import CallbackQuery
 from .update_coordinated import UpdateCoordinated
 
+if TYPE_CHECKING:
+    from ..typings import UpdateCoordinatorKeyT
+
 
 class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
+    """Coordinates callback queries, locked and deduplicated per query by default."""
+
     __update_type__ = CallbackQuery
 
     if not TYPE_CHECKING:
 
-        def __init__(self, *args, **kw):
+        def __init__(self, *args: Any, **kw: Any) -> None:
+            """Initialise the policy, defaulting any callable not passed to this class's own."""
             super().__init__(*args, **kw)
 
             if self.is_coordinatable_func is None:
@@ -22,7 +30,7 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
             if self.extract_update_id_func is None:
                 self.extract_update_id_func = self._extract_update_id
 
-    async def _extract_key(self, update):
+    async def _extract_key(self, update: CallbackQuery) -> UpdateCoordinatorKeyT:
         """Lock per query, so queries never wait on each other.
 
         Pass ``extract_key_func`` to serialise a wider scope instead — e.g.
@@ -31,8 +39,8 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
         """
         return (update.id,)
 
-    async def _extract_update_id(self, update):
+    async def _extract_update_id(self, update: CallbackQuery) -> UpdateCoordinatorKeyT:
         return (update.id,)
 
-    async def _is_coordinatable(self, update):
+    async def _is_coordinatable(self, update: CallbackQuery) -> bool:
         return True

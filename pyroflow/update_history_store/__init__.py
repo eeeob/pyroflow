@@ -1,3 +1,5 @@
+"""Storage backends for handler history records."""
+
 from .update_history_store import UpdateHistoryStore
 from .memory_update_history_store import MemoryUpdateHistoryStore
 

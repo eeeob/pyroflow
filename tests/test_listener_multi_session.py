@@ -17,6 +17,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 from functools import partial
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -31,7 +32,12 @@ from pyroflow.listener_coordinator.redis_listener_coordinator import (  # noqa: 
 from pyroflow.models import ListenerKey  # noqa: E402
 from pyroflow.update_listener import MessageListener  # noqa: E402
 
+from redis.exceptions import LockError  # noqa: E402
+
 from .conftest import make_message  # noqa: E402
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 CHAT, USER = 100, 7
@@ -39,7 +45,7 @@ KEY = ListenerKey(CHAT, USER)
 
 
 @pytest.fixture
-async def redis():
+async def redis() -> AsyncIterator[fake_aioredis.FakeRedis]:
     server = fake_aioredis.FakeRedis()
     try:
         yield server
@@ -48,7 +54,7 @@ async def redis():
 
 
 @pytest.fixture
-async def sessions(redis):
+async def sessions(redis: fake_aioredis.FakeRedis) -> AsyncIterator[list[MessageListener]]:
     """Two independent listeners sharing one Redis, as in a multi-server deploy."""
     made = [
         MessageListener(coordinator_factory=partial(RedisListenerCoordinator, redis))
@@ -64,7 +70,7 @@ async def sessions(redis):
             await listener.coordinator.stop()
 
 
-async def _quiesce():
+async def _quiesce() -> None:
     """Yield enough for pub/sub delivery and dispatched cancels to settle."""
     for _ in range(10):
         await asyncio.sleep(0)
@@ -74,7 +80,7 @@ async def _quiesce():
 # --- direction 1: a superseded listener must not resolve -----------------
 
 
-async def _silence_cancel_signals(listener):
+async def _silence_cancel_signals(listener: MessageListener) -> None:
     """Stop this session from applying cancel signals.
 
     Models the case the fencing exists for: the signal is lost, dropped, or
@@ -88,7 +94,7 @@ async def _silence_cancel_signals(listener):
     listener.coordinator.listening_task = None
 
 
-async def test_superseded_listener_refuses_to_resolve(sessions):
+async def test_superseded_listener_refuses_to_resolve(sessions: list[MessageListener]) -> None:
     """Session A takes the key over from B, but B never gets the signal. B
     still holds a live local listener — and must still refuse to deliver the
     update, because it no longer owns the registration."""
@@ -119,7 +125,7 @@ async def test_superseded_listener_refuses_to_resolve(sessions):
     await asyncio.gather(b_task, return_exceptions=True)
 
 
-async def test_owner_still_resolves_normally(sessions):
+async def test_owner_still_resolves_normally(sessions: list[MessageListener]) -> None:
     """The fencing check must not get in the way of the happy path."""
     a, _ = sessions
     task = asyncio.ensure_future(a.listen(CHAT, USER, timeout=5))
@@ -133,7 +139,7 @@ async def test_owner_still_resolves_normally(sessions):
 # --- direction 2: a stale signal must not cancel a newer listener --------
 
 
-async def test_stale_cancel_signal_spares_a_newer_listener(sessions):
+async def test_stale_cancel_signal_spares_a_newer_listener(sessions: list[MessageListener]) -> None:
     """The signal for generation N must not cancel generation N+1, which may
     have registered while that signal was still in flight."""
     _, b = sessions
@@ -163,7 +169,7 @@ async def test_stale_cancel_signal_spares_a_newer_listener(sessions):
     await asyncio.gather(second, return_exceptions=True)
 
 
-async def test_matching_cancel_signal_still_cancels(sessions):
+async def test_matching_cancel_signal_still_cancels(sessions: list[MessageListener]) -> None:
     """The guard must not make cancellation ineffective for its real target."""
     _, b = sessions
 
@@ -184,7 +190,7 @@ async def test_matching_cancel_signal_still_cancels(sessions):
 # --- lock bounds ----------------------------------------------------------
 
 
-async def test_lock_always_carries_both_timeouts(sessions):
+async def test_lock_always_carries_both_timeouts(sessions: list[MessageListener]) -> None:
     """redis-py defaults both to None. A lock with no TTL outlives the session
     that took it — a process dying mid-critical-section would leave that chat
     locked in Redis permanently — and a waiter with no blocking timeout hangs
@@ -200,12 +206,8 @@ async def test_lock_always_carries_both_timeouts(sessions):
     )
 
 
-async def test_lock_acquire_fails_fast_instead_of_hanging(redis):
+async def test_lock_acquire_fails_fast_instead_of_hanging(redis: fake_aioredis.FakeRedis) -> None:
     """Contention must surface as a recoverable error, not a silent stall."""
-    from redis.exceptions import LockError
-
-    from pyroflow.update_listener import MessageListener
-
     listener = MessageListener(
         coordinator_factory=partial(
             RedisListenerCoordinator,
@@ -217,7 +219,7 @@ async def test_lock_acquire_fails_fast_instead_of_hanging(redis):
     held = listener.coordinator.lock(CHAT)
     await held.acquire()
 
-    async def _contend():
+    async def _contend() -> None:
         async with listener.coordinator.lock(CHAT):
             pass
 
@@ -233,10 +235,8 @@ async def test_lock_acquire_fails_fast_instead_of_hanging(redis):
         pytest.fail("acquired a lock that was already held")
 
 
-async def test_lock_ttl_reclaims_an_abandoned_lock(redis):
+async def test_lock_ttl_reclaims_an_abandoned_lock(redis: fake_aioredis.FakeRedis) -> None:
     """A holder that dies without releasing must not lock the chat forever."""
-    from pyroflow.update_listener import MessageListener
-
     listener = MessageListener(
         coordinator_factory=partial(
             RedisListenerCoordinator,
@@ -248,7 +248,7 @@ async def test_lock_ttl_reclaims_an_abandoned_lock(redis):
     abandoned = listener.coordinator.lock(CHAT)
     await abandoned.acquire()  # never released, as if the session died
 
-    async def _reclaim():
+    async def _reclaim() -> None:
         async with listener.coordinator.lock(CHAT):
             pass  # reclaimed once the TTL lapses
 
@@ -258,7 +258,9 @@ async def test_lock_ttl_reclaims_an_abandoned_lock(redis):
         pytest.fail("abandoned lock was never reclaimed: no TTL on the lock")
 
 
-async def test_cancel_reports_whether_a_registration_existed(sessions):
+async def test_cancel_reports_whether_a_registration_existed(
+    sessions: list[MessageListener],
+) -> None:
     a, _ = sessions
     assert await a.coordinator.cancel(KEY) is False, "nothing registered yet"
 
@@ -267,7 +269,9 @@ async def test_cancel_reports_whether_a_registration_existed(sessions):
     assert await a.coordinator.registered(KEY) is False
 
 
-async def test_cancel_signal_carries_the_invalidated_token(redis, sessions):
+async def test_cancel_signal_carries_the_invalidated_token(
+    redis: fake_aioredis.FakeRedis, sessions: list[MessageListener]
+) -> None:
     """Peers can only guard the right generation if the signal names it."""
     a, _ = sessions
 
@@ -292,7 +296,7 @@ async def test_cancel_signal_carries_the_invalidated_token(redis, sessions):
     assert payload.endswith(token)
 
 
-async def test_stop_propagates_its_own_cancellation(redis):
+async def test_stop_propagates_its_own_cancellation(redis: fake_aioredis.FakeRedis) -> None:
     """stop() waits for the listening task to clean up; if stop() itself is
     cancelled meanwhile, the caller must see that cancellation, not lose it."""
     listener = MessageListener(coordinator_factory=partial(RedisListenerCoordinator, redis))
@@ -301,7 +305,7 @@ async def test_stop_propagates_its_own_cancellation(redis):
     await coordinator.start()
     await _silence_cancel_signals(listener)
 
-    async def _slow_cleanup():
+    async def _slow_cleanup() -> None:
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:

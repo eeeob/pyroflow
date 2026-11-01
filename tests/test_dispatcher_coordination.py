@@ -16,6 +16,7 @@ from __future__ import annotations as _annotations
 import asyncio
 import contextvars
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
@@ -31,13 +32,21 @@ from pyroflow.update_coordinator.memory_update_coordinator import (
 
 from .conftest import make_message
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from pyroflow.typings import UpdateCoordinatorKeyT
+
+    # يعيد (claimed, lock_free) من داخل الـ handler.
+    PeerProbe = Callable[[], Awaitable[tuple[bool, bool]]]
+
 
 CHAT_SCOPE = staticmethod(lambda u: (get_peer_id(u.raw.peer_id),))
 
 PACKET = (None, None, None)
 
 
-def make_coordinated(**kw):
+def make_coordinated(**kw: Any) -> MessageCoordinated:
     """A MessageCoordinated over an in-memory coordinator.
 
     ``extract_key_func`` may be passed to widen the lock scope; the default
@@ -52,7 +61,7 @@ def make_coordinated(**kw):
     )
 
 
-def fake_dispatcher(**kw):
+def fake_dispatcher(**kw: Any) -> SimpleNamespace:
     """A minimal stand-in exposing only what handle_update() touches.
 
     `client.loop` is among those: the early-settlement path schedules onto it.
@@ -60,10 +69,14 @@ def fake_dispatcher(**kw):
     return SimpleNamespace(client=SimpleNamespace(loop=asyncio.get_event_loop()), **kw)
 
 
-def make_dispatcher(coordinated, handle_result):
+def make_dispatcher(
+    coordinated: MessageCoordinated, handle_result: tuple[int, int] | Exception
+) -> SimpleNamespace:
     fake = fake_dispatcher(coordinateds={Message: coordinated})
 
-    async def _handle_update(packet, parsed_update, handler_type):
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
         if isinstance(handle_result, Exception):
             raise handle_result
         return handle_result
@@ -72,19 +85,19 @@ def make_dispatcher(coordinated, handle_result):
     return fake
 
 
-def coordinatable_message(message_id=5, chat_id=100, user_id=7):
+def coordinatable_message(message_id: int = 5, chat_id: int = 100, user_id: int = 7) -> Message:
     """A Message carrying the raw.peer_id that MessageCoordinated keys on."""
     msg = make_message(chat_id, user_id, message_id)
     msg.raw = SimpleNamespace(peer_id=SimpleNamespace(channel_id=chat_id))
     return msg
 
 
-async def _is_claimed(coordinated, msg):
+async def _is_claimed(coordinated: MessageCoordinated, msg: Message) -> bool:
     """Whether the update is registered as handled, so peers will skip it."""
     return await coordinated.coordinator.is_handled(await coordinated.extract_update_id(msg))
 
 
-async def _is_lock_free(coordinated, msg):
+async def _is_lock_free(coordinated: MessageCoordinated, msg: Message) -> bool:
     """Whether this update's lock scope is available to the next caller."""
     return await (await coordinated.lock(msg)).acquire()
 
@@ -92,7 +105,7 @@ async def _is_lock_free(coordinated, msg):
 # --- what gets registered as handled --------------------------------------
 
 
-async def test_handled_update_is_claimed_so_peers_skip_it():
+async def test_handled_update_is_claimed_so_peers_skip_it() -> None:
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
@@ -101,7 +114,7 @@ async def test_handled_update_is_claimed_so_peers_skip_it():
     assert await _is_claimed(coordinated, msg) is True
 
 
-async def test_raising_handler_still_claims_the_update():
+async def test_raising_handler_still_claims_the_update() -> None:
     """A handler that raised still *ran*: the update reached its owner, so
     replaying it on a peer would duplicate work rather than recover.
     `sum(result)` counts exc_count deliberately — see Dispatcher docs."""
@@ -113,7 +126,7 @@ async def test_raising_handler_still_claims_the_update():
     assert await _is_claimed(coordinated, msg) is True
 
 
-async def test_untouched_update_is_left_for_a_peer_to_retry():
+async def test_untouched_update_is_left_for_a_peer_to_retry() -> None:
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
@@ -122,7 +135,7 @@ async def test_untouched_update_is_left_for_a_peer_to_retry():
     assert await _is_claimed(coordinated, msg) is False
 
 
-async def test_unhandled_update_hands_the_update_back():
+async def test_unhandled_update_hands_the_update_back() -> None:
     """Raising UnhandledUpdate stops this session and leaves the update
     unregistered, so a peer may still take it."""
     coordinated = make_coordinated()
@@ -135,7 +148,7 @@ async def test_unhandled_update_hands_the_update_back():
     assert await _is_claimed(coordinated, msg) is False
 
 
-async def test_already_handled_update_is_not_reprocessed():
+async def test_already_handled_update_is_not_reprocessed() -> None:
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
@@ -144,7 +157,7 @@ async def test_already_handled_update_is_not_reprocessed():
 
     ran = False
 
-    async def _handle_update(*a, **kw):
+    async def _handle_update(*a: object, **kw: object) -> tuple[int, int]:
         nonlocal ran
         ran = True
         return (1, 0)
@@ -157,11 +170,13 @@ async def test_already_handled_update_is_not_reprocessed():
     assert ran is False, "update already handled by a peer must not be reprocessed"
 
 
-async def test_uncoordinated_update_type_passes_straight_through():
+async def test_uncoordinated_update_type_passes_straight_through() -> None:
     fake = fake_dispatcher(coordinateds={})
     seen = []
 
-    async def _handle_update(packet, parsed_update, handler_type):
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
         seen.append(parsed_update)
         return (1, 0)
 
@@ -172,7 +187,7 @@ async def test_uncoordinated_update_type_passes_straight_through():
     assert seen == [msg]
 
 
-async def test_uncoordinatable_update_is_processed_without_a_lock():
+async def test_uncoordinatable_update_is_processed_without_a_lock() -> None:
     coordinated = make_coordinated()
     coordinated.is_coordinatable_func = lambda u: False
     msg = coordinatable_message()
@@ -186,7 +201,7 @@ async def test_uncoordinatable_update_is_processed_without_a_lock():
 # --- the lock is always given back ----------------------------------------
 
 
-async def test_lock_is_released_after_a_handled_update():
+async def test_lock_is_released_after_a_handled_update() -> None:
     """The core regression: the scope must reopen once the update is done.
     The old coordinator kept its key marked forever, so the next update in
     that scope was skipped as an already-handled duplicate."""
@@ -198,7 +213,7 @@ async def test_lock_is_released_after_a_handled_update():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_lock_is_released_after_a_raising_handler():
+async def test_lock_is_released_after_a_raising_handler() -> None:
     coordinated = make_coordinated()
     msg = coordinatable_message()
     dispatcher = make_dispatcher(coordinated, RuntimeError("boom"))
@@ -209,7 +224,7 @@ async def test_lock_is_released_after_a_raising_handler():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_lock_is_released_when_the_update_was_already_handled():
+async def test_lock_is_released_when_the_update_was_already_handled() -> None:
     """The skip path returns early — from inside the lock. It still has to
     unwind through the settlement, or the scope stays wedged."""
     coordinated = make_coordinated()
@@ -221,7 +236,7 @@ async def test_lock_is_released_when_the_update_was_already_handled():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_lock_is_released_when_identity_extraction_fails():
+async def test_lock_is_released_when_identity_extraction_fails() -> None:
     """extract_update_id runs *after* the lock is taken, so a hook that
     raises must not strand it."""
     coordinated = make_coordinated()
@@ -236,7 +251,7 @@ async def test_lock_is_released_when_identity_extraction_fails():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_a_contended_lock_makes_the_update_skip():
+async def test_a_contended_lock_makes_the_update_skip() -> None:
     coordinated = make_coordinated(blocking_timeout=0.01)
     msg = coordinatable_message()
 
@@ -245,7 +260,7 @@ async def test_a_contended_lock_makes_the_update_skip():
 
     ran = False
 
-    async def _handle_update(*a, **kw):
+    async def _handle_update(*a: object, **kw: object) -> tuple[int, int]:
         nonlocal ran
         ran = True
         return (1, 0)
@@ -259,7 +274,7 @@ async def test_a_contended_lock_makes_the_update_skip():
     assert await _is_claimed(coordinated, msg) is False, "a skipped update must stay available"
 
 
-async def test_many_updates_in_a_row_each_get_the_lock():
+async def test_many_updates_in_a_row_each_get_the_lock() -> None:
     coordinated = make_coordinated()
 
     for i in range(20):
@@ -273,7 +288,7 @@ async def test_many_updates_in_a_row_each_get_the_lock():
 # --- wide lock + narrow identity: ordering without loss -------------------
 
 
-async def test_chat_wide_lock_serialises_every_update_without_loss():
+async def test_chat_wide_lock_serialises_every_update_without_loss() -> None:
     """The whole point of splitting the two keys.
 
     Ten updates arrive concurrently for one chat. The chat-scoped lock must
@@ -284,7 +299,9 @@ async def test_chat_wide_lock_serialises_every_update_without_loss():
     processed = []
     concurrent = peak = 0
 
-    async def _handle_update(packet, parsed_update, handler_type):
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
         nonlocal concurrent, peak
         concurrent += 1
         peak = max(peak, concurrent)
@@ -311,11 +328,13 @@ async def test_chat_wide_lock_serialises_every_update_without_loss():
     )
 
 
-async def test_chat_wide_lock_still_skips_a_redelivered_update():
+async def test_chat_wide_lock_still_skips_a_redelivered_update() -> None:
     coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
     runs = []
 
-    async def _handle_update(packet, parsed_update, handler_type):
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
         runs.append(parsed_update.id)
         return (1, 0)
 
@@ -330,12 +349,14 @@ async def test_chat_wide_lock_still_skips_a_redelivered_update():
     assert runs == [1, 2], "a redelivered update was processed twice"
 
 
-async def test_separate_chats_do_not_block_each_other():
+async def test_separate_chats_do_not_block_each_other() -> None:
     coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
 
     concurrent = peak = 0
 
-    async def _handle_update(packet, parsed_update, handler_type):
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
         nonlocal concurrent, peak
         concurrent += 1
         peak = max(peak, concurrent)
@@ -361,7 +382,9 @@ async def test_separate_chats_do_not_block_each_other():
 # --- early settlement via mark_handled() ----------------------------------
 
 
-def make_marking_dispatcher(coordinated, body):
+def make_marking_dispatcher(
+    coordinated: MessageCoordinated, body: Callable[[PeerProbe], Awaitable[tuple[int, int]]]
+) -> SimpleNamespace:
     """A dispatcher whose _handle_update runs `body(peer)`.
 
     `peer` probes coordination from *inside* the handler, while it is still
@@ -369,8 +392,10 @@ def make_marking_dispatcher(coordinated, body):
     """
     fake = fake_dispatcher(coordinateds={Message: coordinated})
 
-    async def _handle_update(packet, parsed_update, handler_type):
-        async def peer():
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
+        async def peer() -> tuple[bool, bool]:
             return (
                 await _is_claimed(coordinated, parsed_update),
                 await _is_lock_free(coordinated, parsed_update),
@@ -382,13 +407,13 @@ def make_marking_dispatcher(coordinated, body):
     return fake
 
 
-async def test_lock_is_held_for_the_whole_handler_by_default():
+async def test_lock_is_held_for_the_whole_handler_by_default() -> None:
     """The baseline the feature departs from: without mark_handled() a slow
     handler keeps the scope locked for its entire duration."""
     coordinated = make_coordinated(blocking_timeout=0.01)
     msg = coordinatable_message()
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> tuple[int, int]:
         await asyncio.sleep(0)
         claimed, lock_free = await peer()
         assert claimed is False, "not settled yet"
@@ -400,13 +425,13 @@ async def test_lock_is_held_for_the_whole_handler_by_default():
     )
 
 
-async def test_mark_handled_settles_before_the_handler_returns():
+async def test_mark_handled_settles_before_the_handler_returns() -> None:
     """The point of the feature: hold time tracks how long the update takes
     to *claim*, not how long the handler takes to *finish*."""
     coordinated = make_coordinated(blocking_timeout=0.05)
     msg = coordinatable_message()
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> tuple[int, int]:
         assert mark_handled() is True
         # Give the scheduled settlement a chance to run, as any awaiting
         # handler inevitably would.
@@ -428,12 +453,14 @@ async def test_mark_handled_settles_before_the_handler_returns():
     assert await _is_claimed(coordinated, msg) is True
 
 
-async def test_mark_handled_lets_the_next_update_in_the_scope_start():
+async def test_mark_handled_lets_the_next_update_in_the_scope_start() -> None:
     """With a chat-wide lock, settling early is what hands the chat over."""
     coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
     order = []
 
-    async def _handle_update(packet, parsed_update, handler_type):
+    async def _handle_update(
+        packet: object, parsed_update: Message, handler_type: object
+    ) -> tuple[int, int]:
         order.append(("start", parsed_update.id))
 
         if parsed_update.id == 1:
@@ -457,11 +484,11 @@ async def test_mark_handled_lets_the_next_update_in_the_scope_start():
     )
 
 
-async def test_mark_handled_is_idempotent():
+async def test_mark_handled_is_idempotent() -> None:
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> tuple[int, int]:
         assert mark_handled() is True
         assert mark_handled() is False, "second call must not settle twice"
         return (1, 0)
@@ -474,16 +501,17 @@ async def test_mark_handled_is_idempotent():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_mark_handled_survives_a_raising_handler():
+async def test_mark_handled_survives_a_raising_handler() -> None:
     """Already settled — an exception afterwards must not hand the update
     back to a peer that would redo the part already done."""
     coordinated = make_coordinated()
     msg = coordinatable_message()
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> NoReturn:
         mark_handled()
         await asyncio.sleep(0)
-        raise RuntimeError("boom")
+        msg = "boom"
+        raise RuntimeError(msg)
 
     with pytest.raises(RuntimeError):
         await Dispatcher.handle_update(
@@ -494,7 +522,7 @@ async def test_mark_handled_survives_a_raising_handler():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
+async def test_mark_handled_works_from_a_sync_handler_in_the_executor() -> None:
     """Sync handlers run through to_thread, off the event loop. The
     settlement has to be scheduled thread-safely rather than awaited, which
     is why mark_handled() is a plain function.
@@ -511,10 +539,10 @@ async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
     msg = coordinatable_message()
     result = {}
 
-    def sync_handler():
+    def sync_handler() -> None:
         result["marked"] = mark_handled()
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> tuple[int, int]:
         await asyncio.to_thread(sync_handler)  # copies the context
         await asyncio.sleep(0.05)
 
@@ -531,12 +559,12 @@ async def test_mark_handled_works_from_a_sync_handler_in_the_executor():
     assert await _is_claimed(coordinated, msg) is True
 
 
-def count_settlements(coordinated):
+def count_settlements(coordinated: MessageCoordinated) -> list[UpdateCoordinatorKeyT]:
     """Record every mark_handled() the dispatcher performs."""
     calls = []
     original = coordinated.coordinator.mark_handled
 
-    async def counting(key):
+    async def counting(key: UpdateCoordinatorKeyT) -> None:
         calls.append(key)
         return await original(key)
 
@@ -544,7 +572,7 @@ def count_settlements(coordinated):
     return calls
 
 
-async def test_a_leaked_context_cannot_settle_twice():
+async def test_a_leaked_context_cannot_settle_twice() -> None:
     """A handler that spawns background work leaks its context — and with it
     a live reference to the releaser — well past its own return. A late
     mark_handled() from there must not settle a second time: by then the lock
@@ -555,7 +583,7 @@ async def test_a_leaked_context_cannot_settle_twice():
     msg = coordinatable_message()
     escaped = {}
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> tuple[int, int]:
         escaped["ctx"] = contextvars.copy_context()  # as create_task() does
         return (1, 0)
 
@@ -571,7 +599,7 @@ async def test_a_leaked_context_cannot_settle_twice():
     assert len(calls) == 1, "the update was settled twice"
 
 
-async def test_settle_twice_settles_once():
+async def test_settle_twice_settles_once() -> None:
     """The releaser is a one-shot regardless of who calls it or how often."""
     coordinated = make_coordinated()
     calls = count_settlements(coordinated)
@@ -590,7 +618,7 @@ async def test_settle_twice_settles_once():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_settling_before_the_identity_is_known_marks_nothing():
+async def test_settling_before_the_identity_is_known_marks_nothing() -> None:
     """The window between taking the lock and extracting the identity: there
     is nothing to register yet, but the lock must still come back."""
     coordinated = make_coordinated()
@@ -607,17 +635,17 @@ async def test_settling_before_the_identity_is_known_marks_nothing():
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_mark_handled_outside_update_processing_is_a_noop():
+async def test_mark_handled_outside_update_processing_is_a_noop() -> None:
     assert mark_handled() is False
 
 
-async def test_marker_does_not_leak_between_updates():
+async def test_marker_does_not_leak_between_updates() -> None:
     """The ContextVar is reset per update; a handler for update B must not be
     able to settle update A."""
     coordinated = make_coordinated()
     first = coordinatable_message(message_id=1)
 
-    async def body(peer):
+    async def body(peer: PeerProbe) -> tuple[int, int]:
         mark_handled()
         return (1, 0)
 

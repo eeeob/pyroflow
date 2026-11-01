@@ -23,26 +23,26 @@ from pyroflow.models import ListenerKey
 from .conftest import make_callback_query, make_message
 
 
-async def _started(listener):
+async def _started(listener: MessageListener) -> MessageListener:
     await listener.start()
     return listener
 
 
-async def test_message_listener_is_listenable_and_key():
+async def test_message_listener_is_listenable_and_key() -> None:
     lis = MessageListener()
     msg = make_message(chat_id=100, user_id=7, message_id=5)
     assert await lis.is_listenable(msg) is True
     assert await lis.extract_key(msg) == ListenerKey(100, 7, 5)
 
 
-async def test_message_listener_rejects_service_and_self():
+async def test_message_listener_rejects_service_and_self() -> None:
     lis = MessageListener()
     assert await lis.is_listenable(make_message(chat_id=100)) is True
     assert await lis.is_listenable(make_message(service=True)) is False
     assert await lis.is_listenable(make_message(outgoing=True)) is False
 
 
-async def test_listen_then_resolve_returns_update():
+async def test_listen_then_resolve_returns_update() -> None:
     lis = await _started(MessageListener())
     try:
         task = asyncio.ensure_future(lis.listen(100, 7))
@@ -54,7 +54,7 @@ async def test_listen_then_resolve_returns_update():
         await lis.stop()
 
 
-async def test_resolve_matches_less_specific_key():
+async def test_resolve_matches_less_specific_key() -> None:
     """A listener on (chat, user) matches an update with a message id via
     progressive ListenerKey.sub_keys() fallback."""
     lis = await _started(MessageListener())
@@ -68,7 +68,7 @@ async def test_resolve_matches_less_specific_key():
         await lis.stop()
 
 
-async def test_resolve_matches_a_message_only_listener():
+async def test_resolve_matches_a_message_only_listener() -> None:
     """`listen(chat, None, message_id)` — "whoever answers *this* message,
     regardless of who they are" — has always been registrable. Before the
     combination-based sub_keys() it could never be reached: resolution only
@@ -88,7 +88,7 @@ async def test_resolve_matches_a_message_only_listener():
         await lis.stop()
 
 
-async def test_user_listener_still_outranks_a_message_only_one():
+async def test_user_listener_still_outranks_a_message_only_one() -> None:
     """Ordering is by specificity, then by field order: a (chat, user)
     listener must keep winning over a (chat, None, message) one, so the new
     rung cannot steal updates from listeners that already worked."""
@@ -109,7 +109,7 @@ async def test_user_listener_still_outranks_a_message_only_one():
         await lis.stop()
 
 
-async def test_listen_timeout_raises():
+async def test_listen_timeout_raises() -> None:
     lis = await _started(MessageListener())
     try:
         with pytest.raises(ListenerTimeout):
@@ -118,7 +118,7 @@ async def test_listen_timeout_raises():
         await lis.stop()
 
 
-async def test_cancel_raises_listener_cancelled():
+async def test_cancel_raises_listener_cancelled() -> None:
     lis = await _started(MessageListener())
     try:
         task = asyncio.ensure_future(lis.listen(100, 7))
@@ -130,7 +130,7 @@ async def test_cancel_raises_listener_cancelled():
         await lis.stop()
 
 
-async def test_duplicate_policy_replace_cancels_previous():
+async def test_duplicate_policy_replace_cancels_previous() -> None:
     lis = await _started(MessageListener(duplicate_policy=DuplicatePolicy.REPLACE))
     try:
         first = asyncio.ensure_future(lis.listen(100, 7))
@@ -149,7 +149,7 @@ async def test_duplicate_policy_replace_cancels_previous():
         await lis.stop()
 
 
-async def test_duplicate_policy_reject_raises():
+async def test_duplicate_policy_reject_raises() -> None:
     lis = await _started(MessageListener(duplicate_policy=DuplicatePolicy.REJECT))
     try:
         first = asyncio.ensure_future(lis.listen(100, 7))
@@ -163,7 +163,7 @@ async def test_duplicate_policy_reject_raises():
         await lis.stop()
 
 
-async def test_listener_default_timeout_used_when_not_overridden():
+async def test_listener_default_timeout_used_when_not_overridden() -> None:
     lis = await _started(MessageListener(timeout=0.05))
     try:
         with pytest.raises(ListenerTimeout):
@@ -172,7 +172,7 @@ async def test_listener_default_timeout_used_when_not_overridden():
         await lis.stop()
 
 
-async def test_callback_listener_is_listenable_and_key():
+async def test_callback_listener_is_listenable_and_key() -> None:
     lis = CallbackQueryListener()
     cbq = make_callback_query(chat_id=100, user_id=7, message_id=5)
     assert await lis.is_listenable(cbq) is True

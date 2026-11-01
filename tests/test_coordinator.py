@@ -14,6 +14,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import gc
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -28,21 +29,24 @@ from pyroflow.update_coordinator.memory_update_coordinator import (
 
 from .conftest import make_callback_query
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 
 # --- the lock: a plain mutex, nothing more --------------------------------
 
 
-def _coord(**kw):
+def _coord(**kw: float) -> MemoryUpdateCoordinator:
     kw.setdefault("blocking_timeout", 0.05)
     return MemoryUpdateCoordinator(Message, **kw)
 
 
-async def test_lock_is_acquirable():
+async def test_lock_is_acquirable() -> None:
     coord = _coord()
     assert await coord.lock((1, 2)).acquire() is True
 
 
-async def test_lock_is_reusable_after_release():
+async def test_lock_is_reusable_after_release() -> None:
     """The defining difference from the old design: releasing a lock leaves
     no trace, so the next caller takes it normally. The old coordinator
     remembered HANDLED forever and answered False to every later acquirer,
@@ -58,7 +62,7 @@ async def test_lock_is_reusable_after_release():
     )
 
 
-async def test_lock_is_exclusive_while_held():
+async def test_lock_is_exclusive_while_held() -> None:
     coord = _coord()
 
     held = coord.lock((1, 2))
@@ -68,13 +72,13 @@ async def test_lock_is_exclusive_while_held():
     assert await coord.lock((1, 2)).acquire() is False
 
 
-async def test_lock_scopes_are_independent():
+async def test_lock_scopes_are_independent() -> None:
     coord = _coord()
     assert await coord.lock((1, 2)).acquire() is True
     assert await coord.lock((3, 4)).acquire() is True
 
 
-async def test_lock_wakes_a_waiter_on_release():
+async def test_lock_wakes_a_waiter_on_release() -> None:
     coord = _coord(blocking_timeout=2)
     lock = coord.lock((1, 2))
     await lock.acquire()
@@ -87,7 +91,7 @@ async def test_lock_wakes_a_waiter_on_release():
     assert await waiter is True
 
 
-async def test_lock_returns_false_rather_than_raising_on_timeout():
+async def test_lock_returns_false_rather_than_raising_on_timeout() -> None:
     """redis-py's Lock reports failure by returning False; the in-memory one
     must agree, or the dispatcher would need two different error paths."""
     coord = _coord(blocking_timeout=0.01)
@@ -98,7 +102,7 @@ async def test_lock_returns_false_rather_than_raising_on_timeout():
     assert await coord.lock((1, 2)).acquire() is False
 
 
-async def test_async_with_raises_instead_of_running_unlocked():
+async def test_async_with_raises_instead_of_running_unlocked() -> None:
     """asyncio.Lock.__aenter__ ignores acquire()'s return value, so a timed
     lock that merely returned False would let `async with` fall straight
     into the critical section holding nothing."""
@@ -112,7 +116,7 @@ async def test_async_with_raises_instead_of_running_unlocked():
             pytest.fail("entered the critical section without the lock")
 
 
-async def test_holder_must_keep_the_lock_referenced():
+async def test_holder_must_keep_the_lock_referenced() -> None:
     """Locks are held weakly, so an abandoned one is collected and the scope
     reopens. That is correct rather than a leak: releasing a lock requires a
     reference to it, so a locked-but-unreferenced lock could never have been
@@ -131,7 +135,7 @@ async def test_holder_must_keep_the_lock_referenced():
     )
 
 
-async def test_timed_lock_honours_its_timeout():
+async def test_timed_lock_honours_its_timeout() -> None:
     lock = TimedLock(0.02)
     await lock.acquire()
 
@@ -144,30 +148,30 @@ async def test_timed_lock_honours_its_timeout():
 # --- the handled registry: membership is the whole state ------------------
 
 
-async def test_unknown_key_is_not_handled():
+async def test_unknown_key_is_not_handled() -> None:
     assert await _coord().is_handled((1, 2)) is False
 
 
-async def test_mark_handled_then_is_handled():
+async def test_mark_handled_then_is_handled() -> None:
     coord = _coord()
     await coord.mark_handled((1, 2))
     assert await coord.is_handled((1, 2)) is True
 
 
-async def test_mark_handled_is_idempotent():
+async def test_mark_handled_is_idempotent() -> None:
     coord = _coord()
     await coord.mark_handled((1, 2))
     await coord.mark_handled((1, 2))
     assert await coord.is_handled((1, 2)) is True
 
 
-async def test_handled_keys_are_independent():
+async def test_handled_keys_are_independent() -> None:
     coord = _coord()
     await coord.mark_handled((1, 2))
     assert await coord.is_handled((1, 3)) is False
 
 
-async def test_handled_entries_expire():
+async def test_handled_entries_expire() -> None:
     coord = _coord(handled_ttl=0.05)
     await coord.mark_handled((1, 2))
     assert await coord.is_handled((1, 2)) is True
@@ -176,7 +180,7 @@ async def test_handled_entries_expire():
     assert await coord.is_handled((1, 2)) is False
 
 
-async def test_handled_registry_is_bounded():
+async def test_handled_registry_is_bounded() -> None:
     coord = _coord(max_handled=50, handled_ttl=3600)
     for i in range(500):
         await coord.mark_handled((1, i))
@@ -184,7 +188,7 @@ async def test_handled_registry_is_bounded():
     assert len(coord.handled) <= 50
 
 
-async def test_stop_clears_the_registry():
+async def test_stop_clears_the_registry() -> None:
     coord = _coord()
     await coord.mark_handled((1, 2))
     await coord.stop()
@@ -194,7 +198,7 @@ async def test_stop_clears_the_registry():
 # --- the two primitives must not collide ----------------------------------
 
 
-async def test_holding_a_lock_does_not_mark_it_handled():
+async def test_holding_a_lock_does_not_mark_it_handled() -> None:
     """By default the same tuple keys both, so without separate namespaces a
     held lock would read back as an already-handled update — and every
     update would be skipped the moment it was locked."""
@@ -204,19 +208,19 @@ async def test_holding_a_lock_does_not_mark_it_handled():
     assert await coord.is_handled((1, 2)) is False
 
 
-async def test_marking_handled_does_not_lock():
+async def test_marking_handled_does_not_lock() -> None:
     coord = _coord()
     await coord.mark_handled((1, 2))
 
     assert await coord.lock((1, 2)).acquire() is True
 
 
-def test_lock_and_handled_build_distinct_keys():
+def test_lock_and_handled_build_distinct_keys() -> None:
     coord = _coord()
     assert coord.build_key((1, 2), "lock") != coord.build_key((1, 2), "handled")
 
 
-def test_build_key_namespaces_by_update_type():
+def test_build_key_namespaces_by_update_type() -> None:
     assert MemoryUpdateCoordinator(Message).build_key((1,)) != MemoryUpdateCoordinator(
         type("Other", (Message,), {})
     ).build_key((1,))
@@ -225,7 +229,7 @@ def test_build_key_namespaces_by_update_type():
 # --- the pairing: wide lock + narrow identity -----------------------------
 
 
-async def test_chat_wide_lock_serialises_without_losing_updates():
+async def test_chat_wide_lock_serialises_without_losing_updates() -> None:
     """The scenario the split exists for. Locking per chat while registering
     per message must process every update exactly once, one at a time.
 
@@ -236,7 +240,7 @@ async def test_chat_wide_lock_serialises_without_losing_updates():
     processed = []
     concurrent = peak = 0
 
-    async def process(message_id):
+    async def process(message_id: int) -> None:
         nonlocal concurrent, peak
 
         lock = coord.lock((100,))  # scope: the chat
@@ -261,12 +265,12 @@ async def test_chat_wide_lock_serialises_without_losing_updates():
     assert sorted(processed) == list(range(10)), "updates were lost"
 
 
-async def test_wide_lock_still_deduplicates_each_update():
+async def test_wide_lock_still_deduplicates_each_update() -> None:
     coord = MemoryUpdateCoordinator(Message, blocking_timeout=5)
 
     runs = []
 
-    async def process(message_id):
+    async def process(message_id: int) -> None:
         lock = coord.lock((100,))
         await lock.acquire()
         try:
@@ -287,7 +291,9 @@ async def test_wide_lock_still_deduplicates_each_update():
 # --- UpdateCoordinated wrappers -------------------------------------------
 
 
-async def test_message_coordinated_defaults_lock_per_message(raw_message_factory):
+async def test_message_coordinated_defaults_lock_per_message(
+    raw_message_factory: Callable[..., Message],
+) -> None:
     """The shipped default keeps both keys at the update's own granularity,
     so behaviour matches the pre-split library until a scope is chosen."""
     mc = MessageCoordinated()
@@ -297,7 +303,7 @@ async def test_message_coordinated_defaults_lock_per_message(raw_message_factory
     assert await mc.extract_key(msg) == await mc.extract_update_id(msg)
 
 
-async def test_message_coordinated_lock_flow(raw_message_factory):
+async def test_message_coordinated_lock_flow(raw_message_factory: Callable[..., Message]) -> None:
     mc = MessageCoordinated()
     msg = raw_message_factory()
 
@@ -312,8 +318,8 @@ async def test_message_coordinated_lock_flow(raw_message_factory):
 
 
 async def test_extract_key_can_be_widened_without_touching_identity(
-    raw_message_factory,
-):
+    raw_message_factory: Callable[..., Message],
+) -> None:
     mc = MessageCoordinated(extract_key_func=lambda u: (get_peer_id(u.raw.peer_id),))
     first = raw_message_factory(message_id=1)
     second = raw_message_factory(message_id=2)
@@ -324,7 +330,7 @@ async def test_extract_key_can_be_widened_without_touching_identity(
     assert await mc.extract_update_id(first) != await mc.extract_update_id(second)
 
 
-async def test_callback_coordinated_is_coordinatable_returns_true():
+async def test_callback_coordinated_is_coordinatable_returns_true() -> None:
     """Regression guard for C3: a missing ``return`` made this yield None,
     silently disabling CallbackQuery coordination entirely."""
     cc = CallbackQueryCoordinated()
@@ -335,7 +341,7 @@ async def test_callback_coordinated_is_coordinatable_returns_true():
     )
 
 
-async def test_callback_coordinated_keys():
+async def test_callback_coordinated_keys() -> None:
     cc = CallbackQueryCoordinated()
     cbq = make_callback_query()
 
@@ -343,7 +349,7 @@ async def test_callback_coordinated_keys():
     assert await cc.extract_update_id(cbq) == (cbq.id,)
 
 
-async def test_callback_coordinated_lock_flow():
+async def test_callback_coordinated_lock_flow() -> None:
     cc = CallbackQueryCoordinated()
     cbq = make_callback_query()
 
@@ -353,7 +359,7 @@ async def test_callback_coordinated_lock_flow():
     assert await (await cc.lock(cbq)).acquire() is True
 
 
-async def test_hooks_raise_when_not_supplied():
+async def test_hooks_raise_when_not_supplied() -> None:
     """Every hook follows the same contract: override it or inject it."""
 
     class Bare(MessageCoordinated):
@@ -374,7 +380,7 @@ async def test_hooks_raise_when_not_supplied():
 # --- liveness (audit finding H1) -----------------------------------------
 
 
-def test_blocking_timeout_default_is_short():
+def test_blocking_timeout_default_is_short() -> None:
     """The dispatcher waits on the lock while holding its worker lock, so a
     contended update stalls every other update on that worker for the full
     timeout. The default must stay small."""

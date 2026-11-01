@@ -1,5 +1,7 @@
+"""Listener for callback query updates."""
+
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..models import ListenerKey
 from ..types import CallbackQuery
@@ -8,11 +10,14 @@ from .update_listener import UpdateListener
 
 
 class CallbackQueryListener(UpdateListener[CallbackQuery]):
+    """Listener keyed by the chat, user and message a callback query belongs to."""
+
     __update_type__ = CallbackQuery
 
     if not TYPE_CHECKING:
 
-        def __init__(self, *args, **kw):
+        def __init__(self, *args: Any, **kw: Any) -> None:
+            """Initialize the listener, defaulting to the built-in key functions."""
             super().__init__(*args, **kw)
 
             if self.is_listenable_func is None:
@@ -21,17 +26,26 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
-    async def _is_listenable(self, update):
+    async def _is_listenable(self, update: CallbackQuery) -> bool:
         m = update.message
 
         return m is not None and m.chat is not None
 
-    async def _extract_key(self, update):
+    async def _extract_key(self, update: CallbackQuery) -> ListenerKey:
         m = update.message
 
-        return ListenerKey(m.chat.id, update.from_user.id, m.id)
+        # _is_listenable يضمن أن message و chat ليسا None قبل استخراج المفتاح
+        return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[unresolved-attribute, invalid-argument-type]  # _is_listenable guarantees message and chat are set
 
-    async def on_unresolved(self, key, update):
+    async def on_unresolved(self, key: ListenerKey, update: CallbackQuery) -> None:
+        """Cancel the message listener waiting on this callback's message, then raise.
+
+        A message listener matching one of ``key``'s sub-keys is cancelled only if
+        its ``meta["message_id"]`` equals the callback's message id.
+
+        Raises:
+            UnresolvedUpdate: Always, via the base implementation.
+        """
         client = update._client
         m = update.message
 

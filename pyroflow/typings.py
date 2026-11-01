@@ -1,3 +1,5 @@
+"""Type aliases shared across pyroflow."""
+
 from __future__ import annotations as _annotations
 from typing import (
     TYPE_CHECKING,

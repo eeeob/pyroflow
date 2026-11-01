@@ -1,16 +1,28 @@
+"""Handler history for :class:`CallbackQuery` updates."""
+
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from ..types import CallbackQuery
 from .update_history import UpdateHistory
 
+if TYPE_CHECKING:
+    from pyrogram.types import Chat, Message
+
 
 class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
+    """Handler history for callback queries, keyed by ``(chat_id, user_id, message_id)``.
+
+    The key comes from the query's message; queries without a message in a chat are
+    not recorded. The stored data is the callback data.
+    """
+
     __update_type__ = CallbackQuery
 
     if not TYPE_CHECKING:
 
-        def __init__(self, *args, **kw):
+        def __init__(self, *args: Any, **kw: Any) -> None:
+            """Initialise the history, defaulting any unset callable to the built-in one."""
             super().__init__(*args, **kw)
 
             if self.is_recordable_func is None:
@@ -22,15 +34,17 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
             if self.extract_data_func is None:
                 self.extract_data_func = self._extract_data
 
-    async def _is_recordable(self, update):
+    async def _is_recordable(self, update: CallbackQuery) -> bool:
         m = update.message
 
-        return m and m.chat is not None
+        return m is not None and m.chat is not None
 
-    async def _extract_key(self, update):
-        m = update.message
+    async def _extract_key(self, update: CallbackQuery) -> tuple[int | None, int | None, int]:
+        # is_recordable() guarantees the message and its chat exist.
+        m = cast("Message", update.message)
+        chat = cast("Chat", m.chat)
 
-        return (m.chat.id, getattr(update.from_user, "id", None), m.id)
+        return (chat.id, getattr(update.from_user, "id", None), m.id)
 
-    async def _extract_data(self, update):
+    async def _extract_data(self, update: CallbackQuery) -> str | bytes | None:
         return update.data

@@ -13,6 +13,7 @@ from __future__ import annotations as _annotations
 import ast
 import pathlib
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -21,23 +22,26 @@ if sys.version_info >= (3, 11):
 else:  # pragma: no cover - exercised only on 3.10
     import tomli as tomllib
 
+if TYPE_CHECKING:
+    from typing import Any
+
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PKG_ROOT = PROJECT_ROOT / "pyroflow"
 PY_FILES = sorted(PKG_ROOT.rglob("*.py"))
 FILE_IDS = [str(p.relative_to(PROJECT_ROOT)) for p in PY_FILES]
 
 
-def _parse(path):
+def _parse(path: pathlib.Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
 @pytest.mark.parametrize("path", PY_FILES, ids=FILE_IDS)
-def test_every_source_file_compiles(path):
+def test_every_source_file_compiles(path: pathlib.Path) -> None:
     """Belt-and-braces: the file parses as valid Python."""
     compile(_parse(path), filename=str(path), mode="exec")
 
 
-def test_strenum_import_is_version_guarded():
+def test_strenum_import_is_version_guarded() -> None:
     """``StrEnum`` is 3.11+ — still newer than the 3.10 floor. It must never
     be imported at module top level; a ``sys.version_info`` fallback has to
     guard it (regression guard for C1)."""
@@ -59,12 +63,12 @@ def test_strenum_import_is_version_guarded():
 # --------------------------------------------------------------------------
 
 
-def _load_pyproject():
+def _load_pyproject() -> dict[str, Any]:
     with open(PROJECT_ROOT / "pyproject.toml", "rb") as fh:
         return tomllib.load(fh)
 
 
-def test_declared_dependencies_are_pinned_where_needed():
+def test_declared_dependencies_are_pinned_where_needed() -> None:
     """cachetools is used for ``TLRUCache`` (added in 4.1.0); an unbounded
     ``cachetools`` spec can resolve an incompatible version."""
     deps = _load_pyproject()["project"]["dependencies"]
@@ -72,7 +76,7 @@ def test_declared_dependencies_are_pinned_where_needed():
     assert cachetools is not None, "cachetools missing from dependencies"
 
 
-def test_requires_python_floor_is_310():
+def test_requires_python_floor_is_310() -> None:
     project = _load_pyproject()["project"]
     assert project["requires-python"] == ">=3.10"
     assert "Programming Language :: Python :: 3.9" not in project["classifiers"]

@@ -1,3 +1,5 @@
+"""Constants shared by pyroflow's internals."""
+
 from __future__ import annotations as _annotations
 from typing import Final
 

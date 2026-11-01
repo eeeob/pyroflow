@@ -1,17 +1,17 @@
+"""Pyrogram update types patched with conversation helpers such as ``Message.ask``."""
+
 from __future__ import annotations as _annotations
 from typing import (
     TYPE_CHECKING,
     Literal,
     Any,
     overload,
-    cast,
 )
-from collections.abc import Mapping, Iterable
-from datetime import datetime
+import sys
 
-try:
+if sys.version_info >= (3, 11):
     from typing import Self
-except ImportError:  # Python < 3.11
+else:
     from typing_extensions import Self
 
 from pyrogram import types as pyro_types, enums as pyro_enums
@@ -22,20 +22,30 @@ from pyrogram.types import (
     Update as PyroUpdate,
 )
 
-from .utils.typings import UpdateType
-from pytrove.typings import Number, JsonValue as JsonValueT
 from .utils import patch_cls
-from .typings import AskErrorHandlersT, ListenMessageIdT
 
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Iterable
+    from datetime import datetime
+
+    from pytrove.typings import Number, JsonValue as JsonValueT
+
     from .client import Client
+    from .utils.typings import UpdateType
+    from .typings import AskErrorHandlersT, ListenMessageIdT
 
 
 @patch_cls
 class Update(PyroUpdate):
+    """Pyrogram ``Update`` extended with a per-update :attr:`context` dict."""
+
     @property
     def context(self) -> dict[str, Any] | None:
+        """Arbitrary data attached to this update, or ``None`` if none is set.
+
+        Setting it to ``None`` removes it.
+        """
         try:
             return self.__context
         except AttributeError:
@@ -56,14 +66,15 @@ class Update(PyroUpdate):
         del self.__context
 
     @overload
-    def with_ctx(self, __m: Mapping[str, Any], **kwargs: Any) -> Self: ...
+    def with_ctx(self, m: Mapping[str, Any], /, **kwargs: Any) -> Self: ...
     @overload
-    def with_ctx(self, __m: Iterable[tuple[str, Any]], **kwargs: Any) -> Self: ...
+    def with_ctx(self, m: Iterable[tuple[str, Any]], /, **kwargs: Any) -> Self: ...
     @overload
     def with_ctx(self, **kwargs: Any) -> Self: ...
     def with_ctx(self, *args: Any, **kwargs: Any) -> Self:
-        """Merge into :attr:`context` (same arguments as ``dict.update``) and
-        return ``self``, for chaining right after the update is built.
+        """Merge into :attr:`context` (same arguments as ``dict.update``) and return ``self``.
+
+        Meant for chaining right after the update is built.
         """
         context = self.context
         if context is None:
@@ -75,21 +86,26 @@ class Update(PyroUpdate):
 
 @patch_cls
 class User(PyroUser):
+    """Pyrogram ``User`` extended with :attr:`lang_code`."""
+
     _client: Client
 
     @property
     def lang_code(self) -> str | None:
+        """Primary language subtag of ``language_code``, lowercased, or ``None`` if unknown."""
         return lang.split("-")[0].lower() if (lang := self.language_code) else None
 
 
 if TYPE_CHECKING:
 
     class User(User, Update):
-        pass
+        """Typing-only view of :class:`User` that also exposes the patched :class:`Update` members."""
 
 
 @patch_cls
 class Message(PyroMessage):
+    """Pyrogram ``Message`` extended with :meth:`ask`, :attr:`editable` and :attr:`respond`."""
+
     _client: Client
     from_user: User | None
 
@@ -108,7 +124,26 @@ class Message(PyroMessage):
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
         timeout: Number | None = None,
-        update_type: type[UpdateType] = cast("type[Message]", PyroMessage),
+        update_type: type[Message] = ...,
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> Message: ...
+    @overload
+    async def ask(
+        self,
+        text: str,
+        force_send: Literal[False] = False,
+        *,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
@@ -142,7 +177,41 @@ class Message(PyroMessage):
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
         timeout: Number | None = None,
-        update_type: type[UpdateType] = cast("type[Message]", PyroMessage),
+        update_type: type[Message] = ...,
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> Message: ...
+    @overload
+    async def ask(
+        self,
+        text: str,
+        force_send: Literal[True],
+        *,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        schedule_date: datetime | None = None,
+        repeat_period: int | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        paid_message_star_count: int | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup
+        | pyro_types.ReplyKeyboardMarkup
+        | pyro_types.ReplyKeyboardRemove
+        | pyro_types.ForceReply
+        | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
@@ -176,10 +245,10 @@ class Message(PyroMessage):
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
         timeout: Number | None = None,
-        update_type: type[UpdateType] = cast("type[Message]", PyroMessage),
+        update_type: type[PyroUpdate] = PyroMessage,
         error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
-    ) -> UpdateType:
+    ) -> PyroUpdate:
         """Send a new message or edit the current one, then wait for a matching update.
 
         This method dynamically evaluates the context of the current message to determine
@@ -304,7 +373,8 @@ class Message(PyroMessage):
                 If the timeout limit is reached before a valid update arrives.
         """
         if self.service or self.empty:
-            raise ValueError("Cannot call 'ask' on a service or empty message.")
+            msg = "Cannot call 'ask' on a service or empty message."
+            raise ValueError(msg)
 
         message_id = None
 
@@ -338,13 +408,16 @@ class Message(PyroMessage):
                     suggested_post_parameters,
                 )
             ):
-                raise ValueError(
+                msg = (
                     "Cannot pass additional send options when reusing an existing message. "
                     "Use force_send=True to send a new message."
                 )
+                raise ValueError(msg)
 
-        return await self._client.ask(
-            self.chat.id,
+        # Client.ask splits send/edit across overloads on message_id, which is
+        # only known here at runtime; Client.ask enforces that contract itself.
+        return await self._client.ask(  # ty: ignore[no-matching-overload]
+            self.chat.id,  # ty: ignore[unresolved-attribute]  # kurigram types Message.chat as optional; a non-empty message always has one
             text,
             message_id,
             parse_mode=parse_mode,
@@ -374,23 +447,27 @@ class Message(PyroMessage):
 
     @property
     def editable(self) -> bool:
+        """``True`` if this message was sent by the client itself, so it can be edited."""
         return getattr(self.from_user, "is_self", False) or getattr(
             self.sender_chat, "id", None
         ) == getattr(self._client.me, "id", 0)
 
     @property
-    def respond(self):
+    def respond(self) -> Callable[..., Awaitable[PyroMessage | None]]:
+        """``edit`` if this message is :attr:`editable`, otherwise ``reply``."""
         return self.edit if self.editable else self.reply
 
 
 if TYPE_CHECKING:
 
     class Message(Message, Update):
-        pass
+        """Typing-only view of :class:`Message` that also exposes the patched :class:`Update` members."""
 
 
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
+    """Pyrogram ``CallbackQuery`` with its ``message`` and ``from_user`` typed as the patched classes."""
+
     _client: Client
     message: Message | None
     from_user: User
@@ -399,7 +476,7 @@ class CallbackQuery(PyroCallbackQuery):
 if TYPE_CHECKING:
 
     class CallbackQuery(CallbackQuery, Update):
-        pass
+        """Typing-only view of :class:`CallbackQuery` that also exposes the patched :class:`Update` members."""
 
 
 __all__ = (

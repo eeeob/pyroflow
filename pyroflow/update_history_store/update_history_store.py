@@ -1,11 +1,16 @@
+"""Abstract base class for handler history storage backends."""
+
 from __future__ import annotations as _annotations
-from collections.abc import Sequence
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
-from ..utils.typings import UpdateType
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-from ..typings import UpdateHistoryKeyT
-from ..models import UpdateRecord
+    from ..utils.typings import UpdateType
+
+    from ..typings import UpdateHistoryKeyT
+    from ..models import UpdateRecord
 
 
 class UpdateHistoryStore(ABC):
@@ -22,7 +27,8 @@ class UpdateHistoryStore(ABC):
         **kw:        Passed to the next class in the MRO.
     """
 
-    def __init__(self, update_type: type[UpdateType], **kw) -> None:
+    def __init__(self, update_type: type[UpdateType], **kw: Any) -> None:
+        """Bind the store to its update type."""
         self.update_type = update_type
 
         super().__init__(**kw)
@@ -77,8 +83,8 @@ class UpdateHistoryStore(ABC):
         """
         raise NotImplementedError
 
-    async def start(self) -> None:
+    async def start(self) -> None:  # noqa: B027  # optional hook; backends override it when needed
         """Start the store. Override to initialise backend connections."""
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # noqa: B027  # optional hook; backends override it when needed
         """Stop the store. Override to close backend connections."""

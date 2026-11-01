@@ -14,17 +14,17 @@ from pyroflow.utils import patch_cls, UpdateBound
 from pyrogram.types import Message
 
 
-def test_patch_cls_moves_members_onto_base_and_returns_base():
+def test_patch_cls_moves_members_onto_base_and_returns_base() -> None:
     class Base:
-        def foo(self):
+        def foo(self) -> str:
             return "base-foo"
 
     @patch_cls
     class Patch(Base):
-        def foo(self):
+        def foo(self) -> str:
             return "patched-foo"
 
-        def bar(self):
+        def bar(self) -> str:
             return "patched-bar"
 
     # The decorator returns the *base* class, not the subclass.
@@ -33,14 +33,14 @@ def test_patch_cls_moves_members_onto_base_and_returns_base():
     assert Base().bar() == "patched-bar"
 
 
-def test_patch_cls_preserves_old_members():
+def test_patch_cls_preserves_old_members() -> None:
     class Base:
-        def greet(self):
+        def greet(self) -> str:
             return "old"
 
     @patch_cls
     class Patch(Base):
-        def greet(self):
+        def greet(self) -> str:
             return "new"
 
     instance = Base()
@@ -48,7 +48,7 @@ def test_patch_cls_preserves_old_members():
     assert instance.oldgreet() == "old"  # preserve_old=True default
 
 
-def test_patch_cls_rejects_multiple_bases():
+def test_patch_cls_rejects_multiple_bases() -> None:
     class A:
         pass
 
@@ -62,16 +62,16 @@ def test_patch_cls_rejects_multiple_bases():
             pass
 
 
-def test_patch_cls_only_patches_init_among_dunders_by_default():
+def test_patch_cls_only_patches_init_among_dunders_by_default() -> None:
     class Base:
         pass
 
     @patch_cls
     class Patch(Base):
-        def __init__(self):
+        def __init__(self) -> None:
             self.marked = True
 
-        def __repr__(self):  # pragma: no cover - should NOT be copied
+        def __repr__(self) -> str:  # pragma: no cover - should NOT be copied
             return "patched-repr"
 
     assert Base().marked is True
@@ -82,28 +82,28 @@ def test_patch_cls_only_patches_init_among_dunders_by_default():
 # --- UpdateBound ----------------------------------------------------------
 
 
-def test_update_bound_accepts_valid_pyrogram_update_type():
+def test_update_bound_accepts_valid_pyrogram_update_type() -> None:
     class Good(UpdateBound):
         __update_type__ = Message
 
     assert Good.__update_type__ is Message
 
 
-def test_update_bound_requires_update_type():
+def test_update_bound_requires_update_type() -> None:
     with pytest.raises(TypeError):
 
         class Missing(UpdateBound):  # pragma: no cover - class body raises
             pass
 
 
-def test_update_bound_rejects_non_update_type():
+def test_update_bound_rejects_non_update_type() -> None:
     with pytest.raises(TypeError):
 
         class BadType(UpdateBound):  # pragma: no cover - class body raises
             __update_type__ = int
 
 
-def test_update_bound_abstract_subclass_is_exempt():
+def test_update_bound_abstract_subclass_is_exempt() -> None:
     # An ABC subclass is allowed to omit __update_type__ (it is abstract).
     class StillAbstract(ABC, UpdateBound):
         pass
@@ -111,7 +111,7 @@ def test_update_bound_abstract_subclass_is_exempt():
     assert not hasattr(StillAbstract, "__update_type__")
 
 
-def test_validate_update_type_check():
+def test_validate_update_type_check() -> None:
     class Good(UpdateBound):
         __update_type__ = Message
 

@@ -1,3 +1,8 @@
+"""Conversation extensions for Pyrogram: ``ask``, listeners, update coordination and history.
+
+Importing this package patches Pyrogram's classes in place.
+"""
+
 from .__meta__ import __version__
 
 from .listener_coordinator import *

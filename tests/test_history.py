@@ -23,11 +23,11 @@ from .conftest import make_callback_query, make_message
 # --- MemoryUpdateHistoryStore ---------------------------------------------
 
 
-def _store(ttl=100, max_history_len=2):
+def _store(ttl: float = 100, max_history_len: int = 2) -> MemoryUpdateHistoryStore:
     return MemoryUpdateHistoryStore(Message, ttl=ttl, max_history_len=max_history_len)
 
 
-async def test_store_update_and_get_ordered():
+async def test_store_update_and_get_ordered() -> None:
     store = _store()
     now = time.time()
     await store.update(
@@ -39,7 +39,7 @@ async def test_store_update_and_get_ordered():
     assert [r.handler for r in recs] == ["h1", "h2"]  # oldest → newest
 
 
-async def test_store_enforces_max_history_len():
+async def test_store_enforces_max_history_len() -> None:
     store = _store(max_history_len=2)
     now = time.time()
     await store.update(
@@ -53,14 +53,14 @@ async def test_store_enforces_max_history_len():
     assert [r.handler for r in recs] == ["h2", "h3"]
 
 
-async def test_store_drops_expired_records():
+async def test_store_drops_expired_records() -> None:
     store = _store(ttl=100)
     now = time.time()
     await store.update(("k",), UpdateRecord(handler="old", created_at=now - 1000))
     assert await store.get(("k",)) == []
 
 
-async def test_store_bounds_the_key_space():
+async def test_store_bounds_the_key_space() -> None:
     """Per-record TTL is enforced lazily on access, so it can never reclaim a
     key that is written once and never read again. Without a cap on the key
     space itself, a long-running bot accumulates one entry per conversation
@@ -72,7 +72,7 @@ async def test_store_bounds_the_key_space():
     assert len(store.histories) <= 100
 
 
-async def test_store_expires_idle_keys_never_read_again():
+async def test_store_expires_idle_keys_never_read_again() -> None:
     store = MemoryUpdateHistoryStore(Message, ttl=0.05, max_history_len=2)
     for i in range(50):
         await store.update((1, 2, i), UpdateRecord(handler="h"))
@@ -82,7 +82,7 @@ async def test_store_expires_idle_keys_never_read_again():
     assert len(store.histories) == 0, "idle keys must not stay resident forever"
 
 
-async def test_store_pop_and_delete():
+async def test_store_pop_and_delete() -> None:
     store = _store()
     await store.update(("k",), UpdateRecord(handler="h1"))
     popped = await store.pop(("k",))
@@ -97,7 +97,7 @@ async def test_store_pop_and_delete():
 # --- Generic UpdateHistory flow (extractor injection) ---------------------
 
 
-async def test_update_history_record_and_get_with_injected_extractors():
+async def test_update_history_record_and_get_with_injected_extractors() -> None:
     """The base record→store→get pipeline works when the three extractors
     are supplied — proving the machinery itself is sound (independent of C4)."""
     history = MessageHistory(
@@ -116,7 +116,7 @@ async def test_update_history_record_and_get_with_injected_extractors():
         await history.stop()
 
 
-async def test_update_history_record_many():
+async def test_update_history_record_many() -> None:
     history = MessageHistory(
         is_recordable_func=lambda u: True,
         extract_key_func=lambda u: (u.chat.id,),
@@ -136,7 +136,7 @@ async def test_update_history_record_many():
 # --- Concrete histories ---------------------------------------------------
 
 
-async def test_callback_query_history_works_out_of_the_box():
+async def test_callback_query_history_works_out_of_the_box() -> None:
     history = CallbackQueryHistory()
     cbq = make_callback_query(100, 7, 5, data="payload")
     assert await history.is_recordable(cbq) is True
@@ -144,7 +144,7 @@ async def test_callback_query_history_works_out_of_the_box():
     assert await history.extract_data(cbq) == "payload"
 
 
-async def test_message_history_works_out_of_the_box():
+async def test_message_history_works_out_of_the_box() -> None:
     """C4 fixed: a bare MessageHistory() ships working extractors, matching
     CallbackQueryHistory, so it records without raising NotImplementedError."""
     history = MessageHistory()
@@ -154,7 +154,7 @@ async def test_message_history_works_out_of_the_box():
     assert await history.extract_data(msg) == "hello"
 
 
-async def test_message_history_records_end_to_end():
+async def test_message_history_records_end_to_end() -> None:
     history = MessageHistory()
     await history.start()
     try:
