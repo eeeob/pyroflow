@@ -43,10 +43,7 @@ MODULES = [
     "pyroflow.update_listener.callback_query_listener",
     "pyroflow.utils",
     "pyroflow.utils.classes",
-    "pyroflow.utils.enums",
-    "pyroflow.utils.errors",
     "pyroflow.utils.misc_tools",
-    "pyroflow.utils.models",
     "pyroflow.utils.typings",
 ]
 

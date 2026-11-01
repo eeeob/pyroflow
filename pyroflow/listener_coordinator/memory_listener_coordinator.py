@@ -1,6 +1,7 @@
 from itertools import count
 
-from ..utils import AsyncioLock, DefaultWeakValueDict
+from ..utils import AsyncioLock
+from pytrove import DefaultWeakValueDict
 from .listener_coordinator import ListenerCoordinator
 
 import logging

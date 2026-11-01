@@ -1,8 +1,9 @@
 from typing import Literal, Type, get_args
 from abc import ABC, abstractmethod
 
-from ..utils.typings import Number, AsyncLockProto, UpdateType
-from ..utils.enums import TimeUnit
+from ..utils.typings import AsyncLockProto, UpdateType
+from pytrove.typings import Number
+from pytrove.enums import TimeUnit
 
 from ..typings import UpdateCoordinatorKeyT
 

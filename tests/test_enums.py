@@ -1,8 +1,9 @@
 """Enum behaviour, including the StrEnum fallback used on Python < 3.11."""
 
+from pytrove.enums import TimeUnit
+
 import pyroflow.enums
 from pyroflow.enums import DuplicatePolicy
-from pyroflow.utils.enums import TimeUnit
 
 
 def test_no_update_lock_state():

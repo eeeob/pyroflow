@@ -17,7 +17,7 @@ else:
 del MessageHandler
 
 from pytrove import iscoroutinefunction_wrapped, maybe_awaitable, patch_cls as _patch_cls
-from .typings import _CT, _FT
+from pytrove.typings import _CT, _FT
 from .constants import BOT_COMMANDS_ATTR
 
 if TYPE_CHECKING:

@@ -12,7 +12,8 @@ from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHan
 from pyrogram.types import Update as PyroUpdate
 
 from .utils.typings import UpdateType, AsyncLockProto
-from .utils import maybe_awaitable, gather_helper, patch_cls, safe_await
+from .utils import patch_cls
+from pytrove import maybe_awaitable, gather_helper, safe_await
 
 from .errors import UnresolvedUpdate, UnhandledUpdate
 from .typings import UpdateCoordinatorKeyT

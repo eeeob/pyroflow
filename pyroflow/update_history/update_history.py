@@ -5,8 +5,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pyrogram.handlers import Handler as PyroHandler
 from pyrogram.types import Update as PyroUpdate
 
-from ..utils import UpdateBound, maybe_awaitable
-from ..utils.typings import UpdateType, MaybeCoroutineCallable
+from ..utils import UpdateBound
+from pytrove import maybe_awaitable
+from ..utils.typings import UpdateType
+from pytrove.typings import MaybeCoroutineCallable
 
 from ..typings import UpdateHistoryKeyT
 from ..models import UpdateRecord

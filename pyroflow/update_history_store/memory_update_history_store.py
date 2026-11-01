@@ -1,8 +1,8 @@
 from typing import List, Optional
 from cachetools import TTLCache
 
-from ..utils.typings import Number
-from ..utils.enums import TimeUnit
+from pytrove.typings import Number
+from pytrove.enums import TimeUnit
 
 from ..typings import UpdateHistoryKeyT
 from ..models import UpdateRecord

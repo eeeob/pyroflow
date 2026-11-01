@@ -20,8 +20,8 @@ from functools import wraps
 from pyrogram.filters import Filter, create
 
 from .types import Message, CallbackQuery as Query
-from .utils import iter_flat_cont, is_container, maybe_awaitable, extract_pyro_update_text, to_coroutine
-from .utils.typings import MaybeCoroutineCallable, NestedContainer
+from pytrove import iter_flat_cont, is_container, maybe_awaitable, extract_pyro_update_text, to_coroutine
+from pytrove.typings import MaybeCoroutineCallable, NestedContainer
 
 if TYPE_CHECKING:
     from .client import Client

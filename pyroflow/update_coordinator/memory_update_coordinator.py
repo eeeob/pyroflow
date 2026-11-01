@@ -1,8 +1,9 @@
 from functools import partial
 from cachetools import TTLCache
 
-from ..utils import AsyncioLock, DefaultWeakValueDict
-from ..utils.typings import Number
+from ..utils import AsyncioLock
+from pytrove import DefaultWeakValueDict
+from pytrove.typings import Number
 
 from .update_coordinator import UpdateCoordinator
 

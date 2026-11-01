@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, FrozenSet, Dict
 
-from ..utils import safe_await, is_exception
+from pytrove import safe_await, is_exception
 from ..models import ListenerKey
 from ..types import Message
 

@@ -4,8 +4,8 @@ if TYPE_CHECKING:
     from redis.asyncio.client import PubSub
     from redis.asyncio import Redis
 
-from ..utils import gather_helper
-from ..utils.typings import Number
+from pytrove import gather_helper
+from pytrove.typings import Number
 from ..models import ListenerKey
 
 from .listener_coordinator import ListenerCoordinator

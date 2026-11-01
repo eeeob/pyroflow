@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-from ..utils.typings import Number
+from pytrove.typings import Number
+
 from .update_coordinator import UpdateCoordinator
 
 

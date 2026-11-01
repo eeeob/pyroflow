@@ -2,8 +2,10 @@ from abc import ABC
 from typing import Optional, Callable, Type
 from concurrent.futures import ThreadPoolExecutor
 
-from ..utils.typings import UpdateType, MaybeCoroutineCallable, AsyncLockProto
-from ..utils import UpdateBound, maybe_awaitable
+from ..utils.typings import UpdateType, AsyncLockProto
+from pytrove.typings import MaybeCoroutineCallable
+from ..utils import UpdateBound
+from pytrove import maybe_awaitable
 
 from ..typings import UpdateCoordinatorKeyT
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator

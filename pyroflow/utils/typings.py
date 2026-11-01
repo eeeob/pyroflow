@@ -1,9 +1,6 @@
 from typing import Protocol, Any, TypeVar
 from pyrogram.types import Update as PyroUpdate
 
-from pytrove.typings import *
-from pytrove.typings import __all__ as _pytrove_all
-
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
 
 class AsyncLockProto(Protocol):
@@ -16,7 +13,6 @@ class AsyncLockProto(Protocol):
 
 
 __all__ = (
-    *_pytrove_all,
     "AsyncLockProto",
     "UpdateType",
 )

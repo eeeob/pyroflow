@@ -3,8 +3,10 @@ from abc import ABC
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 
-from ..utils.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT, UpdateType
-from ..utils import gather_helper, maybe_awaitable, UpdateBound
+from ..utils.typings import UpdateType
+from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
+from ..utils import UpdateBound
+from pytrove import gather_helper, maybe_awaitable
 
 from ..errors import (
     ListenerCancelled, 

@@ -17,7 +17,8 @@ from pyrogram.types import (
     Update as PyroUpdate
 )
 
-from .utils.typings import Number, JsonValue as JsonValueT, UpdateType
+from .utils.typings import UpdateType
+from pytrove.typings import Number, JsonValue as JsonValueT
 from .utils import patch_cls
 from .typings import AskErrorHandlersT, ListenMessageIdT
 

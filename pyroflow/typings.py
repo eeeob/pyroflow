@@ -2,7 +2,7 @@ from typing import (
     TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Type, TypeAlias, Union,
 )
 from pyrogram.types import BotCommand, BotCommandScope
-from .utils.typings import MaybeList, MaybeCoroutineCallable
+from pytrove.typings import MaybeList, MaybeCoroutineCallable
 
 if TYPE_CHECKING:
     from .types import Message

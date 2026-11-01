@@ -13,16 +13,19 @@ from pyrogram import (
 from pyrogram.sync import wrap as async_to_sync
 from pyrogram.types import BotCommand, BotCommandScope
 
-from .utils.typings import Number, JsonValue as JsonValueT, MaybeCoroutineCallable, MaybeList, UpdateType
+from .utils.typings import UpdateType
+from pytrove.typings import Number, JsonValue as JsonValueT, MaybeCoroutineCallable, MaybeList
 from .utils.constants import BOT_COMMANDS_ATTR
 from .utils import (
     patch_cls,
+    split_bot_command_entry,
+    handle_ask_error,
+)
+from pytrove import (
     to_list,
     gather_abort,
     clean_none_kw,
     safe_call,
-    split_bot_command_entry,
-    handle_ask_error,
     safe_await, 
 )
 from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT
