@@ -42,6 +42,9 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Run docstring examples
+        run: make test-doctest
+
   test-minimal:
     name: Minimal install, Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
