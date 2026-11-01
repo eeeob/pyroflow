@@ -1,14 +1,15 @@
 """In-process listener coordinator that keeps registrations in a dict."""
 
 from __future__ import annotations as _annotations
+
+import logging
 from itertools import count
 from typing import TYPE_CHECKING
 
-from ..utils import AsyncioLock
 from pytrove import DefaultWeakValueDict
-from .listener_coordinator import ListenerCoordinator
 
-import logging
+from ..utils import AsyncioLock
+from .listener_coordinator import ListenerCoordinator
 
 if TYPE_CHECKING:
     from ..models import ListenerKey
@@ -34,6 +35,11 @@ class MemoryListenerCoordinator(ListenerCoordinator):
         return self.locks[key]
 
     def _register(self, key: ListenerKey) -> int:
+        """Store ``key`` under the next id from the counter and return that id.
+
+        Raises:
+            KeyError: ``key`` is already registered.
+        """
         if self._registered(key):
             msg = f"Key {key} already registered"
             raise KeyError(msg)
@@ -46,6 +52,27 @@ class MemoryListenerCoordinator(ListenerCoordinator):
     def _unregister(
         self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
     ) -> bool:
+        """Drop ``key`` unless it is registered under an id other than ``coordinator_id``.
+
+        Returns:
+            ``False`` only when ``key`` holds a different id, which is then
+            kept; ``True`` otherwise, including when ``key`` was not registered.
+
+        Example:
+            >>> from pyroflow.models import ListenerKey
+            >>> coordinator = MemoryListenerCoordinator(listener=None)
+            >>> key = ListenerKey(1)
+            >>> coordinator._register(key)
+            0
+            >>> coordinator._unregister(key, coordinator_id=7)
+            False
+            >>> coordinator._registered(key)
+            True
+            >>> coordinator._unregister(key, coordinator_id=0)
+            True
+            >>> coordinator._registered(key)
+            False
+        """
         if (r_id := self.data.pop(key, None)) is not None:
             if coordinator_id is not None and coordinator_id != r_id:
                 self.data[key] = r_id
@@ -54,11 +81,13 @@ class MemoryListenerCoordinator(ListenerCoordinator):
         return True
 
     def _cancel(self, key: ListenerKey) -> bool:
+        """Drop ``key`` whatever its id; always returns ``True``."""
         return self._unregister(key)
 
     def _registered(
         self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
     ) -> bool:
+        """Return whether ``key`` is stored, and under ``coordinator_id`` when given."""
         if (r_id := self.data.get(key)) is not None:
             return coordinator_id is None or r_id == coordinator_id
 

@@ -1,7 +1,9 @@
 """Coordination policy for :class:`Message` updates."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any
+
+from typing import Any, TYPE_CHECKING
+
 from pyrogram.utils import get_peer_id
 
 from ..types import Message
@@ -38,12 +40,14 @@ class MessageCoordinated(UpdateCoordinated[Message]):
         serialise a whole chat instead — deduplication is unaffected, since
         it keys on :meth:`_extract_update_id` independently.
         """
-        return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # pyrogram types Message.raw as Optional; dispatched messages always carry it
+        return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
 
     async def _extract_update_id(self, update: Message) -> UpdateCoordinatorKeyT:
-        return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # pyrogram types Message.raw as Optional; dispatched messages always carry it
+        """Identify the message by its chat's peer id and its message id."""
+        return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
 
     async def _is_coordinatable(self, update: Message) -> bool:
+        """Coordinate every message."""
         return True
 
 

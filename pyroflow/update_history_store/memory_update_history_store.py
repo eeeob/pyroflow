@@ -1,22 +1,21 @@
 """In-memory handler history store with per-record TTL and an LRU key cap."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any
+
+import heapq
+import time
+from typing import Any, TYPE_CHECKING
 
 from cachetools import TTLCache
-
 from pytrove.enums import TimeUnit
 
 from .update_history_store import UpdateHistoryStore
 
-import heapq
-import time
-
 if TYPE_CHECKING:
     from pytrove.typings import Number
 
-    from ..typings import UpdateType, UpdateHistoryKeyT
     from ..models import UpdateRecord
+    from ..typings import UpdateType, UpdateHistoryKeyT
 
 
 class MemoryUpdateHistoryStore(UpdateHistoryStore):
@@ -28,12 +27,24 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
     same ``ttl`` — otherwise a long-running bot accumulates one entry per
     conversation, forever.
 
-    Parameters:
-        update_type:     The Pyrogram update class this store handles.
-        ttl:             Seconds a record (and an idle key) stays valid.
+    Args:
+        update_type: The Pyrogram update class this store handles.
+        ttl: Seconds a record (and an idle key) stays valid.
         max_history_len: Max records kept per key.
-        max_keys:        Max distinct keys retained; least-recently-used
-                         keys are evicted past this bound.
+        max_keys: Max distinct keys retained; least-recently-used keys are
+            evicted past this bound.
+        **kw: Passed to the next class in the MRO.
+
+    Example:
+        >>> import asyncio
+        >>> from pyroflow.models import UpdateRecord
+        >>> from pyroflow.types import Message
+        >>> store = MemoryUpdateHistoryStore(Message, max_history_len=2)
+        >>> async def demo():
+        ...     await store.update("key", *(UpdateRecord(handler=h) for h in "abc"))
+        ...     return [record.handler for record in await store.get("key")]
+        >>> asyncio.run(demo())
+        ['b', 'c']
     """
 
     def __init__(
@@ -55,12 +66,15 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         )
 
     def _expires_at(self, record: UpdateRecord) -> Number:
+        """Return the time at which ``record`` expires."""
         return record.created_at + self.ttl
 
     def _is_expired(self, record: UpdateRecord, now: Number | None = None) -> bool:
+        """Return whether ``record`` has expired at ``now``, or at the current time if ``None``."""
         return (time.time() if now is None else now) >= self._expires_at(record)
 
     def _clean_up(self, heap: list[UpdateRecord], now: Number | None = None) -> list[UpdateRecord]:
+        """Pop expired records off the front of ``heap`` in place and return it."""
         if now is None:
             now = time.time()
 
@@ -70,6 +84,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         return heap
 
     def _update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
+        """Push ``records`` under ``key``, then drop expired and oldest-past-the-limit ones."""
         heap = self.histories.setdefault(key, [])
 
         for record in records:
@@ -84,6 +99,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
             self._delete(key)
 
     def _get(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
+        """Return the unexpired records under ``key``, oldest first, dropping the key if none."""
         records = sorted(self._clean_up(self.histories.get(key, [])))
 
         if not records:
@@ -92,9 +108,11 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         return records
 
     def _pop(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
+        """Remove ``key`` and return its unexpired records, oldest first."""
         return sorted(self._clean_up(self.histories.pop(key, [])))
 
     def _delete(self, key: UpdateHistoryKeyT) -> None:
+        """Remove ``key`` if present."""
         self.histories.pop(key, None)
 
     async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:

@@ -1,17 +1,17 @@
 """Redis-backed update coordinator shared across sessions."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any
+
+from typing import Any, TYPE_CHECKING
+
+from .update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
+    from pytrove.typings import Number
     from redis.asyncio import Redis
     from redis.asyncio.lock import Lock
 
-    from pytrove.typings import Number
-
     from ..typings import UpdateCoordinatorKeyT
-
-from .update_coordinator import UpdateCoordinator
 
 
 class RedisUpdateCoordinator(UpdateCoordinator):
@@ -59,7 +59,7 @@ class RedisUpdateCoordinator(UpdateCoordinator):
 
     async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
         """Set the handled key for ``key`` in Redis, expiring after ``handled_ttl``."""
-        # px rather than ex so a sub-second handled_ttl survives the trip
+        # `px` rather than `ex` so a sub-second `handled_ttl` survives the trip
         # instead of being truncated to zero.
         await self.redis.set(
             self.build_key(key, "handled"),

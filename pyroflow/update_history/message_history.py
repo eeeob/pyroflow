@@ -1,7 +1,8 @@
 """Handler history for :class:`Message` updates."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any, cast
+
+from typing import Any, cast, TYPE_CHECKING
 
 from ..types import Message
 from .update_history import UpdateHistory
@@ -34,10 +35,12 @@ class MessageHistory(UpdateHistory[Message]):
                 self.extract_data_func = self._extract_data
 
     async def _is_recordable(self, update: Message) -> bool:
+        """Return whether the message belongs to a chat."""
         return update.chat is not None
 
     async def _extract_key(self, update: Message) -> tuple[int | None, int | None, int]:
-        # is_recordable() guarantees the chat exists.
+        """Return the ``(chat_id, user_id, message_id)`` key; ``user_id`` is ``None`` without a sender."""
+        # `is_recordable()` guarantees the chat exists.
         return (
             cast("Chat", update.chat).id,
             getattr(update.from_user, "id", None),
@@ -45,6 +48,7 @@ class MessageHistory(UpdateHistory[Message]):
         )
 
     async def _extract_data(self, update: Message) -> str | None:
+        """Return the message text."""
         return update.text
 
 

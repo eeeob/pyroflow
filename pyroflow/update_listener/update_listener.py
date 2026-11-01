@@ -1,19 +1,20 @@
 """Base class for per-update-type listeners that back ``ask``/``listen``."""
 
 from __future__ import annotations as _annotations
+
+import asyncio
+import logging
 from abc import ABC
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import Any, TYPE_CHECKING
+
+from pytrove import gather_helper, maybe_awaitable
 
 from ..typings import UpdateType
 from ..utils import UpdateBound
-from pytrove import gather_helper, maybe_awaitable
-
-from ..errors import ListenerCancelled, ListenerTimeout, ListenerAlreadyExists, UnresolvedUpdate
-
-
+from ..errors import ListenerAlreadyExists, ListenerCancelled, ListenerTimeout, UnresolvedUpdate
 from ..enums import DuplicatePolicy
-from ..models import ListenerModel, ListenerKey
+from ..models import ListenerKey, ListenerModel
 from ..listener_coordinator import ListenerCoordinator, MemoryListenerCoordinator
 
 if TYPE_CHECKING:
@@ -23,9 +24,6 @@ if TYPE_CHECKING:
     from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
 
     from ..typings import ListenerCoordinatorIdT
-
-import logging
-import asyncio
 
 
 log = logging.getLogger(__name__)
@@ -49,44 +47,29 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     subclass, or by passing callables at construction time via
     ``is_listenable_func`` and ``extract_key_func``.
 
-    Parameters:
-        coordinator_factory:
-            Optional callable receiving the listener instance and
-            returning a configured :class:`ListenerCoordinator`.
-            If ``None``, a :class:`MemoryListenerCoordinator`
-            will be used.
-
-        duplicate_policy:
-            Policy used when registering a listener whose key is already
-            in use. If ``None``, :attr:`DuplicatePolicy.REPLACE`
+    Args:
+        coordinator_factory: Optional callable receiving the listener
+            instance and returning a configured :class:`ListenerCoordinator`.
+            If ``None``, a :class:`MemoryListenerCoordinator` is used.
+        duplicate_policy: Policy used when registering a listener whose key
+            is already in use. If ``None``, :attr:`DuplicatePolicy.REPLACE`
             is used.
-
-        is_listenable_func:
-            Optional callable ``(update) -> bool`` used by
+        is_listenable_func: Optional callable ``(update) -> bool`` used by
             :meth:`is_listenable`. If ``None``, the method must be
             overridden in a subclass.
-
-        extract_key_func:
-            Optional callable ``(update) -> ListenerKey`` used by
-            :meth:`extract_key`. If ``None``, the method must be
+        extract_key_func: Optional callable ``(update) -> ListenerKey`` used
+            by :meth:`extract_key`. If ``None``, the method must be
             overridden in a subclass.
-
-        bypass_func:
-            Optional callable ``(update) -> bool`` used by
-            :meth:`is_bypass`. Only consulted once a listener has
-            already matched the update's key; returning ``True``
-            cancels that listener instead of resolving it, letting the
-            update fall through to the normal handler pipeline. If
-            ``None`` (the default), matched listeners are always
-            resolved and never bypassed.
-
-        timeout:
-            Optional timeout in seconds for listeners. If provided,
-            it is used as the default duration after which a listener
-            may be cancelled or expire.
-
-        **kw:
-            Passed to the next class in the MRO.
+        bypass_func: Optional callable ``(update) -> bool`` used by
+            :meth:`is_bypass`. Only consulted once a listener has already
+            matched the update's key; returning ``True`` cancels that
+            listener instead of resolving it, letting the update fall
+            through to the normal handler pipeline. If ``None`` (the
+            default), matched listeners are always resolved and never
+            bypassed.
+        timeout: Default number of seconds :meth:`listen` waits when it is
+            not given its own ``timeout``. ``None`` waits indefinitely.
+        **kw: Passed to the next class in the MRO.
     """
 
     def __init__(
@@ -155,21 +138,19 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Sets a :class:`ListenerCancelled` exception on the listener's future.
 
-        Parameters:
-            key:             The key identifying the listener to cancel.
+        Args:
+            key: The key identifying the listener to cancel.
             cancel_coordinator: If ``True``, also cancel the distributed
-                             coordinator entry.
-            is_duplicate:    Marks the cancellation as caused by a newer
-                             listener replacing this one, surfaced on the
-                             raised :class:`ListenerCancelled`.
-            coordinator_id:  If given, only cancel when the local listener
-                             still holds this exact ownership token. Cancel
-                             signals cross sessions asynchronously and can
-                             arrive after the listener they targeted has
-                             already finished and been replaced — without
-                             this check a stale signal would cancel a newer,
-                             perfectly valid listener that merely reuses the
-                             same key.
+                coordinator entry.
+            is_duplicate: Marks the cancellation as caused by a newer
+                listener replacing this one, surfaced on the raised
+                :class:`ListenerCancelled`.
+            coordinator_id: If given, only cancel when the local listener
+                still holds this exact ownership token. Cancel signals cross
+                sessions asynchronously and can arrive after the listener
+                they targeted has already finished and been replaced —
+                without this check a stale signal would cancel a newer,
+                perfectly valid listener that merely reuses the same key.
 
         Returns:
             ``False`` only if ``coordinator_id`` was given and a different
@@ -209,12 +190,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         All listener operations for the same chat share a single lock
         to avoid races between registration, cancellation and resolution.
 
-        Parameters:
-            key:             The key identifying the listener to cancel.
+        Args:
+            key: The key identifying the listener to cancel.
             cancel_coordinator: If ``True``, also cancel the distributed
-                             coordinator entry.
-            is_duplicate:    See :meth:`_cancel`.
-            coordinator_id:  See :meth:`_cancel`.
+                coordinator entry.
+            is_duplicate: See :meth:`_cancel`.
+            coordinator_id: See :meth:`_cancel`.
 
         Returns:
             Same as :meth:`_cancel`.
@@ -228,9 +209,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Removes the listener from ``self.listeners`` when its future
         completes, unless it has already been replaced by a newer one.
 
-        Parameters:
+        Args:
             key: The key identifying the listener.
-            f:   The future that just completed.
+            f: The future that just completed.
         """
         listener = self.listeners.get(key)
 
@@ -252,22 +233,23 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         then suspends until a matching update arrives or the timeout
         expires.
 
-        Parameters:
-            chat_id:    The chat to listen in.
-            user_id:    Optional user to filter by.
+        Args:
+            chat_id: The chat to listen in.
+            user_id: Optional user to filter by.
             message_id: Optional message to filter by.
-            meta:       Arbitrary metadata attached to the listener model.
-            timeout:    Seconds to wait before raising :class:`ListenerTimeout`.
-                        ``None`` waits indefinitely.
+            meta: Arbitrary metadata attached to the listener model.
+            timeout: Seconds to wait before raising :class:`ListenerTimeout`.
+                ``None`` falls back to the listener's own ``timeout``, and
+                waits indefinitely when that is ``None`` too.
 
         Returns:
             The matching Pyrogram update.
 
         Raises:
             ListenerAlreadyExists: If a listener for the same key exists and
-                                   ``duplicate_policy`` is ``REJECT``.
-            ListenerTimeout:       If the timeout expires before the update arrives.
-            ListenerCancelled:     If the listener is cancelled while waiting.
+                ``duplicate_policy`` is ``REJECT``.
+            ListenerTimeout: If the timeout expires before the update arrives.
+            ListenerCancelled: If the listener is cancelled while waiting.
         """
         key = ListenerKey(chat_id, user_id, message_id)
 
@@ -296,11 +278,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             listener = ListenerModel(key, meta, fut)
 
-            # Acquire distributed ownership of this key. coordinator_id is
+            # Acquire distributed ownership of this key. `coordinator_id` is
             # the generation token: it is later used to safely unregister
             # without removing a newer registration, to reject cancel signals
             # aimed at an older generation, and to prove ownership before
-            # resolving an update (see _cancel and resolve).
+            # resolving an update (see `_cancel` and `resolve`).
             coordinator_id = await self.coordinator.register(key)
             listener.coordinator_id = coordinator_id
             self.listeners[key] = listener
@@ -318,13 +300,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             raise exc from None
         except BaseException as e:
             if not listener.done():
-                # set_exc يقبل Exception فقط، والـ future يقبل أي BaseException
+                # `set_exc` يقبل `Exception` فقط، والـ `future` يقبل أي `BaseException`
                 listener.future.set_exception(e)
             raise e
 
         finally:
             # Release distributed ownership.
-            # The coordinator_id prevents deleting a newer registration
+            # The `coordinator_id` prevents deleting a newer registration
             # that may have replaced this one.
 
             self._cleanup_listen(key, fut)
@@ -351,12 +333,18 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         ``(chat_id, None, message_id)`` — "whoever answers this message" —
         is reachable. See :meth:`ListenerKey.sub_keys`.
 
-        Parameters:
+        A matched listener whose registration another session has taken
+        over is discarded and the next candidate is tried. When this
+        process holds no listeners at all, the method returns without
+        raising.
+
+        Args:
             update: The incoming Pyrogram update.
 
         Raises:
-            UnresolvedUpdate: If no matching listener is found and
-                              :meth:`on_unresolved` re-raises.
+            UnresolvedUpdate: If the update is not listenable, if
+                :meth:`is_bypass` cancels the matched listener, or if no
+                listener matches and :meth:`on_unresolved` raises it.
         """
         if not await self.is_listenable(update):
             raise UnresolvedUpdate(update)
@@ -371,7 +359,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             async with self.coordinator.lock(key.chat_id):
                 # Attempt progressively less specific matches, most specific
                 # first — every combination of the components this key carries,
-                # not just its prefixes. See ListenerKey.sub_keys().
+                # not just its prefixes. See `ListenerKey.sub_keys()`.
 
                 for sub in key.sub_keys():
                     if listener := listeners.get(sub):
@@ -400,7 +388,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                             # resolving it (e.g. the user sent a bot command
                             # instead of the expected reply). Cancel the
                             # listener and treat the update as unresolved so
-                            # handle_listen does not stop_propagation — the
+                            # `handle_listen` does not `stop_propagation` — the
                             # update falls through to the normal handler
                             # pipeline instead of being consumed here.
                             await self._cancel(sub, coordinator_id=listener.coordinator_id)
@@ -430,15 +418,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             what this class does for its own bookkeeping. Calling into a
             *different* listener instance is safe: it owns a separate lock.
 
-            .. code-block:: python
+            For example, an override that drops the pending listener must
+            call ``await self._cancel(key)``, never ``await self.cancel(key)``,
+            because :meth:`cancel` re-takes the lock the caller already holds.
 
-                async def on_unresolved(self, key, update):
-                    await self._cancel(key)          # correct — no re-lock
-                    # await self.cancel(key)         # DEADLOCK
-                    return await super().on_unresolved(key, update)
-
-        Parameters:
-            key:    The extracted key that had no matching listener.
+        Args:
+            key: The extracted key that had no matching listener.
             update: The incoming update that could not be resolved.
 
         Raises:
@@ -447,22 +432,31 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         raise UnresolvedUpdate(update)
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        return getattr(getattr(update, "_client", None), "executor", None)
+        """Return the executor of the client the update came from.
 
-    async def is_listenable(self, update: UpdateType) -> bool:
-        """Determine whether this update should be listening.
-
-        Called before any key extraction or lock acquisition.
-
-        Parameters:
+        Args:
             update: The incoming update object.
 
         Returns:
-            ``True`` if the update should be listening, ``False`` otherwise.
+            The client's ``executor``, or ``None`` when the update carries
+            no client or the client has no executor.
+        """
+        return getattr(getattr(update, "_client", None), "executor", None)
+
+    async def is_listenable(self, update: UpdateType) -> bool:
+        """Determine whether this update should be listened to.
+
+        Called before any key extraction or lock acquisition.
+
+        Args:
+            update: The incoming update object.
+
+        Returns:
+            ``True`` if the update should be listened to, ``False`` otherwise.
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
-                                 ``is_listenable_func`` was provided.
+                ``is_listenable_func`` was provided.
         """
         if self.is_listenable_func is None:
             msg = (
@@ -473,7 +467,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.is_listenable_func,
             update,
             executor=self._get_executor(update),
@@ -484,7 +478,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Only called when :meth:`is_listenable` returns ``True``.
 
-        Parameters:
+        Args:
             update: The incoming update object.
 
         Returns:
@@ -493,7 +487,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
-                                 ``extract_key_func`` was provided.
+                ``extract_key_func`` was provided.
         """
         if self.extract_key_func is None:
             msg = (
@@ -504,7 +498,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.extract_key_func,
             update,
             executor=self._get_executor(update),
@@ -521,9 +515,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         does not call ``stop_propagation()``: the update falls through to
         the normal handler pipeline instead of being consumed here.
 
-        Parameters:
+        Args:
             update: The incoming update object, already matched to a
-                    listener.
+                listener.
 
         Returns:
             ``True`` to bypass (cancel) the matched listener, ``False``
@@ -535,7 +529,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove overloads cannot resolve MaybeCoroutineCallable[..., T] to T
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.bypass_func,
             update,
             executor=self._get_executor(update),

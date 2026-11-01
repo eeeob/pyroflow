@@ -19,7 +19,6 @@ from typing import NoReturn, TYPE_CHECKING
 from enum import Enum, EnumMeta as EnumType
 
 from pyrogram.filters import Filter, create
-
 from pytrove import (
     iter_flat_cont,
     is_container,
@@ -41,7 +40,12 @@ def _raise(exc: Exception) -> NoReturn:
 
 
 def endswith(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text ends with any of ``texts``."""
+    """Match when the update's text ends with any of ``texts``.
+
+    Args:
+        *texts: Strings, or nested containers of them; empty strings and
+            non-strings are ignored.
+    """
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
     caller = to_coroutine(
         lambda _, __, update: extract_pyro_update_text(update).endswith(flat_texts)
@@ -51,7 +55,12 @@ def endswith(*texts: NestedContainer[str]) -> Filter:
 
 
 def startswith(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text starts with any of ``texts``."""
+    """Match when the update's text starts with any of ``texts``.
+
+    Args:
+        *texts: Strings, or nested containers of them; empty strings and
+            non-strings are ignored.
+    """
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
     caller = to_coroutine(
         lambda _, __, update: extract_pyro_update_text(update).startswith(flat_texts)
@@ -61,7 +70,12 @@ def startswith(*texts: NestedContainer[str]) -> Filter:
 
 
 def equal(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text is exactly one of ``texts``."""
+    """Match when the update's text is exactly one of ``texts``.
+
+    Args:
+        *texts: Strings, or nested containers of them; empty strings and
+            non-strings are ignored.
+    """
     flat_texts = frozenset(t for t in iter_flat_cont(texts) if isinstance(t, str) and t)
     caller = to_coroutine(lambda _, __, update: extract_pyro_update_text(update) in flat_texts)
 
@@ -75,31 +89,30 @@ def split_text(
 ) -> Filter:
     """Split the update's text by ``separator`` and match each part against its ``rules`` entry.
 
-    Each rule is one of:
+    The update matches only when the text splits into exactly one part per
+    rule and every part satisfies its rule.
 
-    - a container of strings, a bare string, or an :class:`~enum.Enum` class
-      (whose *values* are used) — the part must equal one of them;
-    - a callable — awaited (or run inline, if sync) as ``rule(part)`` and
-      must return truthy.
-
-    ``separator=None`` (the default) is only valid with exactly one rule: the
-    whole text is treated as a single, unsplit part.
-
-    Example:
-        .. code-block:: python
-
-            # "/ban <user_id> <reason>"
-            filters.split_text(
-                equal("/ban"), lambda p: p.isdigit(), lambda p: bool(p),
-                separator=" ",
-            )
+    Args:
+        *rules: One per part, each either a container of strings, a bare
+            string, or an :class:`~enum.Enum` class (whose *values* are used)
+            — the part must equal one of them; or a callable — called as
+            ``rule(part)`` and must return truthy.
+        strip: Whether to strip whitespace from each part before matching.
+        separator: What to split the text on, at most ``len(rules) - 1``
+            times. ``None`` (the default) is only valid with exactly one rule:
+            the whole text is treated as a single, unsplit part.
 
     Raises:
         ValueError: If no rules are given, a rule resolves to an empty set of
-                    strings, or more than one rule is given without a
-                    ``separator``.
-        TypeError:  If a rule is neither a container, a string, an Enum class,
-                    nor a callable.
+            strings, or more than one rule is given without a ``separator``.
+        TypeError: If a rule is neither a container, a string, an Enum class,
+            nor a callable.
+
+    Example:
+        >>> split_text("/ban", str.isdigit)
+        Traceback (most recent call last):
+        ...
+        ValueError: separator is required when split_text is given more than one rule
     """
     if not rules:
         msg = "split_text filter must be given at least one rule"
@@ -126,6 +139,7 @@ def split_text(
         raise ValueError(msg)
 
     async def caller(_: Filter, client: Client, update: Message | Query) -> bool:
+        """Return whether the update's text splits into parts that each satisfy their rule."""
         text = extract_pyro_update_text(update)
 
         if not text:
@@ -134,7 +148,7 @@ def split_text(
         if separator is None:
             parts = [text]
         elif isinstance(text, bytes):
-            # بيانات callback التي لا تُفك بـ UTF-8 تبقى bytes، ولا تنقسم بفاصل نصي
+            # بيانات callback التي لا تُفك بـ UTF-8 تبقى `bytes`، ولا تنقسم بفاصل نصي
             return False
         else:
             parts = text.split(separator, maxsplit=len(normalized_rules) - 1)

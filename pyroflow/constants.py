@@ -1,10 +1,11 @@
 """Public constants used by pyroflow."""
 
 from __future__ import annotations as _annotations
+
 from typing import Final
 
-# Attribute name under which the mark_bot_commands decorator stores its
-# declarations on a Pyrogram Handler object. Namespaced because the handler
+# Attribute name under which the `mark_bot_commands` decorator stores its
+# declarations on a Pyrogram `Handler` object. Namespaced because the handler
 # belongs to Pyrogram, not to us.
 BOT_COMMANDS_ATTR: Final[str] = "_pyroflow_bot_commands"
 

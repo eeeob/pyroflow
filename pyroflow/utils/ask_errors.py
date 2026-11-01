@@ -27,6 +27,11 @@ async def handle_ask_error(
     ``except`` block whose original exception is about to be re-raised, and a
     failing handler must not replace it.
 
+    Args:
+        exc: The exception to dispatch.
+        m: The message passed to the handler.
+        *handlers: Mappings of exception types to handlers, highest precedence first.
+
     Returns:
         ``True`` if a handler matched and ran, ``False`` otherwise.
     """

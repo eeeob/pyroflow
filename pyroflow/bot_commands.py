@@ -1,30 +1,28 @@
 """The :func:`mark_bot_commands` decorator, which declares the bot commands a handler answers to."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING
 
-from pyrogram.handlers import MessageHandler
+from typing import Final, TYPE_CHECKING
 
-# The handler types mark_bot_commands() is willing to mark. BusinessMessageHandler
-# is not present in every supported Pyrogram/Kurigram version.
-try:
-    from pyrogram.handlers import BusinessMessageHandler
-except ImportError:
-    _MESSAGES_HANDLER = MessageHandler
-else:
-    _MESSAGES_HANDLER = (MessageHandler, BusinessMessageHandler)
-    del BusinessMessageHandler
-
-del MessageHandler
+from pyrogram import handlers
 
 from .constants import BOT_COMMANDS_ATTR
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from pyrogram.handlers import Handler
     from pytrove.typings import _FT
 
     from .typings import BotCommandEntryT
+
+# The handler types `mark_bot_commands()` is willing to mark. `BusinessMessageHandler`
+# is not present in every supported Pyrogram/Kurigram version.
+_MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = tuple(
+    getattr(handlers, name)
+    for name in ("MessageHandler", "BusinessMessageHandler")
+    if hasattr(handlers, name)
+)
 
 
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
@@ -53,24 +51,27 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
     (``@app.on_message()``) registers the handler immediately and sets nothing,
     so there is nothing for this decorator to mark.
 
-    Parameters:
+    Args:
         *entries: The command declarations, each in one of the shapes
-                  described by :data:`~pyroflow.typings.BotCommandEntryT`.
+            described by :data:`~pyroflow.typings.BotCommandEntryT`.
+
+    Returns:
+        A decorator that stores ``entries`` on the function's message handlers
+        and returns the function unchanged.
 
     Example:
-        .. code-block:: python
-
-            from pyrogram import Client as PyroClient, filters
-            from pyrogram.types import BotCommand
-            from pyroflow import mark_bot_commands
-
-            @mark_bot_commands(BotCommand("start", "Start the bot"))
-            @PyroClient.on_message(filters.command("start"))
-            async def on_start(client, message):
-                await message.reply("Hi!")
+        >>> from pyrogram import Client as PyroClient, filters
+        >>> from pyrogram.types import BotCommand
+        >>> @mark_bot_commands(BotCommand("start", "Start the bot"))
+        ... @PyroClient.on_message(filters.command("start"))
+        ... async def on_start(client, message):
+        ...     await message.reply("Hi!")
+        >>> [c.command for h, _ in on_start.handlers for c in getattr(h, BOT_COMMANDS_ATTR)]
+        ['start']
     """
 
     def decorator(func: _FT) -> _FT:
+        """Store ``entries`` on each message handler in ``func.handlers``."""
         for handler, _ in getattr(func, "handlers", []):
             if not isinstance(handler, _MESSAGES_HANDLER):
                 continue

@@ -1,7 +1,8 @@
 """Handler history for :class:`CallbackQuery` updates."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any, cast
+
+from typing import Any, cast, TYPE_CHECKING
 
 from ..types import CallbackQuery
 from .update_history import UpdateHistory
@@ -35,18 +36,21 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
                 self.extract_data_func = self._extract_data
 
     async def _is_recordable(self, update: CallbackQuery) -> bool:
+        """Return whether the query has a message that belongs to a chat."""
         m = update.message
 
         return m is not None and m.chat is not None
 
     async def _extract_key(self, update: CallbackQuery) -> tuple[int | None, int | None, int]:
-        # is_recordable() guarantees the message and its chat exist.
+        """Return the ``(chat_id, user_id, message_id)`` key of the query's message."""
+        # `is_recordable()` guarantees the message and its chat exist.
         m = cast("Message", update.message)
         chat = cast("Chat", m.chat)
 
         return (chat.id, getattr(update.from_user, "id", None), m.id)
 
     async def _extract_data(self, update: CallbackQuery) -> str | bytes | None:
+        """Return the callback data."""
         return update.data
 
 

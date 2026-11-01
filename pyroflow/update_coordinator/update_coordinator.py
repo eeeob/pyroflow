@@ -1,16 +1,18 @@
 """Abstract base class for update coordinator backends."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any, get_args
+
 from abc import ABC, abstractmethod
+from typing import Any, get_args, TYPE_CHECKING
 
 from pytrove.enums import TimeUnit
 
 from ..typings import UpdateCoordinatorSectionT
 
 if TYPE_CHECKING:
-    from ..typings import AsyncLockProto, UpdateType, UpdateCoordinatorKeyT
     from pytrove.typings import Number
+
+    from ..typings import AsyncLockProto, UpdateType, UpdateCoordinatorKeyT
 
 
 class UpdateCoordinator(ABC):
@@ -39,27 +41,24 @@ class UpdateCoordinator(ABC):
     The two are namespaced apart in the backend (see :meth:`build_key`), so
     the same key tuple used for both never collides.
 
-    Parameters:
-        update_type:      The Pyrogram update class this coordinator handles.
-                          Its name is used to namespace the keys.
-        lock_ttl:         How long (seconds) the lock may be held before it
-                          expires on its own. Sized for the slowest handler
-                          you expect; a session that dies mid-handler keeps
-                          the lock until this elapses.
-        handled_ttl:      How long (seconds) an update id is remembered as
-                          handled. This is the deduplication window: once it
-                          lapses the same update would be processed again if
-                          it somehow arrived a second time.
+    Args:
+        update_type: The Pyrogram update class this coordinator handles.
+            Its name is used to namespace the keys.
+        lock_ttl: How long (seconds) the lock may be held before it expires
+            on its own. Sized for the slowest handler you expect; a session
+            that dies mid-handler keeps the lock until this elapses.
+        handled_ttl: How long (seconds) an update id is remembered as
+            handled. This is the deduplication window: once it lapses the
+            same update would be processed again if it somehow arrived a
+            second time.
         blocking_timeout: Max seconds :meth:`lock` waits before giving up and
-                          reporting failure.
+            reporting failure.
 
-                          **Keep this small.** The dispatcher waits on the
-                          lock while holding its worker lock, so a contended
-                          update stalls every other update on that worker for
-                          the full timeout. Waiting out a peer's whole
-                          ``lock_ttl`` buys nothing — the peer will have
-                          either finished or died long before — and meanwhile
-                          the worker sits idle.
+            **Keep this small.** The dispatcher waits on the lock while
+            holding its worker lock, so a contended update stalls every other
+            update on that worker for the full timeout. Waiting out a peer's
+            whole ``lock_ttl`` buys nothing — the peer will have either
+            finished or died long before — and meanwhile the worker sits idle.
         **kw: Passed to the next class in the MRO.
     """
 
@@ -96,6 +95,15 @@ class UpdateCoordinator(ABC):
         default the *same* tuple is used both to lock and to register, and
         without separate namespaces marking an update handled would look
         like a held lock, and vice versa.
+
+        Example:
+            >>> from pyroflow.types import Message
+            >>> from pyroflow.update_coordinator import MemoryUpdateCoordinator
+            >>> coordinator = MemoryUpdateCoordinator(Message)
+            >>> coordinator.build_key((-100123, 42))
+            'update|lock|Message|-100123|42'
+            >>> coordinator.build_key((-100123, 42), "handled")
+            'update|handled|Message|-100123|42'
         """
         return self._key_formats[section].format_map({"key": self._sep.join(str(i) for i in key)})
 
@@ -110,9 +118,9 @@ class UpdateCoordinator(ABC):
         The lock must also expire on its own after ``lock_ttl``, so a session
         that dies while holding it does not block the scope permanently.
 
-        Parameters:
+        Args:
             key: Identifies the scope to serialise — whatever the caller
-                 chose to key on (a chat, a single update, anything else).
+                chose to key on (a chat, a single update, anything else).
 
         Returns:
             An async lock compatible with ``async with``.
@@ -123,7 +131,7 @@ class UpdateCoordinator(ABC):
     async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
         """Whether ``key`` is registered as already handled.
 
-        Parameters:
+        Args:
             key: The update's identity — *not* the lock's scope.
 
         Returns:
@@ -139,7 +147,7 @@ class UpdateCoordinator(ABC):
         Idempotent: marking an already-marked key is a no-op beyond
         refreshing its expiry.
 
-        Parameters:
+        Args:
             key: The update's identity — *not* the lock's scope.
         """
         raise NotImplementedError

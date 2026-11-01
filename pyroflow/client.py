@@ -1,10 +1,10 @@
 """pyroflow's patched :class:`pyrogram.Client` and the opt-in :class:`BotCommandsMixin`."""
 
 from __future__ import annotations as _annotations
-import asyncio
 
-from typing import TYPE_CHECKING, Any, cast, overload
+import asyncio
 from functools import cached_property
+from typing import Any, cast, overload, TYPE_CHECKING
 
 from pyrogram import (
     Client as PyroClient,
@@ -13,13 +13,6 @@ from pyrogram import (
     utils as pyro_ut,
 )
 from pyrogram.sync import wrap as async_to_sync
-
-from .constants import BOT_COMMANDS_ATTR
-from .utils import (
-    patch_cls,
-    split_bot_command_entry,
-    handle_ask_error,
-)
 from pytrove import (
     to_list,
     gather_abort,
@@ -27,6 +20,13 @@ from pytrove import (
     safe_call,
     safe_await,
     yield_control,
+)
+
+from .constants import BOT_COMMANDS_ATTR
+from .utils import (
+    patch_cls,
+    split_bot_command_entry,
+    handle_ask_error,
 )
 from .types import Message, CallbackQuery
 
@@ -50,16 +50,10 @@ class Client(PyroClient):
     lets you ``await`` a specific reply from a specific user rather than
     wiring up global handlers for every possible update.
 
-    Why this exists
-    ---------------
-    Pyrogram's built-in model is handler-based: you register a function and
-    it fires for *every* incoming update of that type. That works well for
-    broadcast-style bots, but breaks down the moment you need a back-and-forth
-    conversation — you end up managing state machines by hand just to know
-    whose answer you are waiting for.
-
-    This client solves that by integrating three systems from :class:`Dispatcher`
-    and exposing them through a single, convenient interface:
+    Pyrogram's built-in model is handler-based: a registered function fires for
+    *every* incoming update of its type, so a back-and-forth conversation needs
+    a hand-written state machine just to know whose answer you are waiting for.
+    This client integrates three systems from :class:`Dispatcher` instead:
 
     - **Listeners** — typed queues that let any coroutine ``await`` the next
       update from a particular user/chat. An update claimed by a listener never
@@ -72,104 +66,26 @@ class Client(PyroClient):
     - **Histories** — per-update-type records of which handlers ran successfully,
       enabling features like ``back`` buttons that replay previous steps.
 
-    What this class provides
-    ------------------------
-    **Registration** — attach the above systems to the client before it starts:
+    Attach them before the client starts with :meth:`register_listener`,
+    :meth:`register_coordinated` and :meth:`register_history`. The two most
+    common listeners are exposed as the read-only :attr:`message_listen` and
+    :attr:`callback_listen` properties.
 
-    .. code-block:: python
-
-        client.register_listener(MyMessageListener())
-        client.register_coordinated(MyCoordinated())
-        client.register_history(MyHistory())
-
-    **Shortcuts** — read-only properties for the two most common listeners:
-
-    .. code-block:: python
-
-        client.message_listen    # UpdateListener[Message]
-        client.callback_listen   # UpdateListener[CallbackQuery]
-
-    **``ask()``** — the core high-level method. Sends (or edits) a message and
-    then suspends until a matching reply arrives, all in one ``await``:
-
-    .. code-block:: python
-
-        answer = await client.ask(chat_id, "What is your name?",
-                                  listen_user_id=user_id, timeout=30)
-
-    Under the hood ``ask()`` calls :meth:`send_message` (or
+    :meth:`ask` sends (or edits) a message and then suspends until a matching
+    reply arrives, all in one ``await``. It calls :meth:`send_message` (or
     :meth:`edit_message_text` when ``message_id`` is supplied), registers a
     one-shot wait on the appropriate :class:`UpdateListener`, and returns the
     matching update. A :exc:`ListenerTimeout` is raised if no reply arrives
     within ``timeout`` seconds.
 
-    Note on ``@patch_cls``
-    ------------------
     The class is decorated with ``@patch_cls``, which passes every ``async`` method
     through ``async_to_sync``. This means all methods can also be called
     synchronously from outside an event loop, matching the behaviour of the
     standard :class:`pyrogram.Client`.
-
-    Examples:
-    --------
-    **Using ``ask()``** — send a question and wait for the reply in one step:
-
-    .. code-block:: python
-
-        from pyroflow import Client, MessageListener
-
-        client = Client("my_session")
-        client.register_listener(MessageListener())
-
-        @client.on_message()
-        async def on_start(client, message):
-            if message.text != "/start":
-                return
-
-            answer = await message.ask(
-                text="What is your name?",
-                listen_user_id=message.from_user.id,
-                timeout=60,
-            )
-            await answer.reply(f"Hello, {answer.text}!")
-
-        client.run()
-
-    **Using ``listen`` directly** — wait for an update anywhere in your code
-    without sending a message first:
-
-    .. code-block:: python
-
-        from pyroflow import Client, MessageListener
-        from pyroflow.errors import ListenerTimeout
-
-        client = Client("my_session")
-        client.register_listener(MessageListener())
-
-        @client.on_message()
-        async def on_confirm(client, message):
-            if message.text != "/confirm":
-                return
-
-            await message.reply("Please send your confirmation code:")
-
-            try:
-                code_msg = await client.message_listen(
-                    chat_id=message.chat.id,
-                    user_id=message.from_user.id,
-                    timeout=120,
-                )
-            except ListenerTimeout:
-                await message.reply("Timed out. Please try again.")
-                return
-
-            await code_msg.reply(f"Code received: {code_msg.text}")
-
-        client.run()
     """
 
-    # patch_cls يجعل Dispatcher الخاص بـ pyroflow هو نفسه الخاص بـ pyrogram وقت التشغيل
-    dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via patch_cls
+    # `patch_cls` يجعل `Dispatcher` الخاص بـ `pyroflow` هو نفسه الخاص بـ `pyrogram` وقت التشغيل
+    dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
     ask_error_handlers: dict[type[pyro_types.Update], AskErrorHandlersT]
 
     if not TYPE_CHECKING:  # for typehints
@@ -248,13 +164,13 @@ class Client(PyroClient):
         present under the same ``update_type`` replaces its handler rather
         than raising.
 
-        Parameters:
-            exc_types:   One exception type, or a tuple of them, matched via
-                         ``isinstance(exc, exc_types)``.
-            handler:     Awaited as ``handler(exc, m)`` — see :attr:`ask_error_handlers`.
+        Args:
+            exc_types: One exception type, or a tuple of them, matched via
+                ``isinstance(exc, exc_types)``.
+            handler: Awaited as ``handler(exc, m)`` — see :attr:`ask_error_handlers`.
             update_type: Which :meth:`ask` update type this entry applies to.
-                         Matches the ``update_type`` argument of :meth:`ask`,
-                         defaulting the same way.
+                Matches the ``update_type`` argument of :meth:`ask`, defaulting
+                the same way.
         """
         self.ask_error_handlers.setdefault(update_type, {})[exc_types] = handler
 
@@ -416,7 +332,7 @@ class Client(PyroClient):
         | pyro_types.ReplyKeyboardRemove
         | pyro_types.ForceReply
         | None = None,
-        # send_message only params
+        # `send_message` only params
         disable_notification: bool | None = None,
         message_thread_id: int | None = None,
         direct_messages_topic_id: int | None = None,
@@ -446,68 +362,57 @@ class Client(PyroClient):
         ``update_type`` matching the given ``chat_id``, ``listen_user_id``, and
         ``listen_message_id``.
 
-        Parameters:
-            chat_id:                    Target chat.
-            text:                       Message text.
-            message_id:                 If provided, edit this message instead
-                                        of sending a new one.
-            parse_mode:                 Text parse mode.
-            entities:                   Message entities.
-            link_preview_options:       Link preview settings.
-            schedule_date:              Schedule the message.
-            business_connection_id:     Business connection id.
-            reply_markup:               Keyboard markup.
-            disable_notification:       Send silently (send only).
-            message_thread_id:          Thread id (send only).
-            direct_messages_topic_id:   DM topic id (send only).
-            effect_id:                  Message effect (send only).
-            reply_parameters:           Reply parameters (send only).
-            repeat_period:              Repeat period (send only).
-            protect_content:            Protect content (send only).
-            allow_paid_broadcast:       Allow paid broadcast (send only).
-            paid_message_star_count:    Paid message star count (send only).
-            suggested_post_parameters:  Suggested post parameters (send only).
-
-            listen_user_id:             Filter the awaited update by user.
-            listen_message_id:          Filter the awaited update by message.
-                                        Either an explicit id, or a
-                                        synchronous callable receiving the
-                                        sent/edited message (``m``) and
-                                        returning the id to filter by (or
-                                        ``None`` for no filtering). The
-                                        callable must be fast and
-                                        non-blocking — it runs inline on
-                                        the event loop, not in a thread.
-            meta:                       Metadata attached to the listener.
-            timeout:                    Seconds to wait before raising
-                                        :class:`ListenerTimeout`.
-            update_type:                The update type to wait for.
-                                        Determines the return type.
-            error_handlers:              Optional ``{exc_type_or_tuple: handler}``
-                                        mapping. If listening raises before
-                                        completing, the dict is scanned in
-                                        order and the handler for the first
-                                        key matching ``isinstance(exc, key)``
-                                        is awaited as ``handler(exc, m)``,
-                                        where ``m`` is the sent/edited
-                                        message. If nothing here matches,
-                                        the entry in
-                                        :attr:`Client.ask_error_handlers` for
-                                        this call's ``update_type`` is tried
-                                        the same way — a handler registered
-                                        for ``Message`` is never consulted for
-                                        a ``CallbackQuery``-flavoured call, or
-                                        vice versa. The original exception is
-                                        still re-raised afterwards either way.
+        Args:
+            chat_id: Target chat.
+            text: Message text.
+            message_id: If provided, edit this message instead of sending a new one.
+            parse_mode: Text parse mode.
+            entities: Message entities.
+            link_preview_options: Link preview settings.
+            schedule_date: Schedule the message.
+            business_connection_id: Business connection id.
+            reply_markup: Keyboard markup.
+            disable_notification: Send silently (send only).
+            message_thread_id: Thread id (send only).
+            direct_messages_topic_id: DM topic id (send only).
+            effect_id: Message effect (send only).
+            reply_parameters: Reply parameters (send only).
+            repeat_period: Repeat period (send only).
+            protect_content: Protect content (send only).
+            allow_paid_broadcast: Allow paid broadcast (send only).
+            paid_message_star_count: Paid message star count (send only).
+            suggested_post_parameters: Suggested post parameters (send only).
+            listen_user_id: Filter the awaited update by user.
+            listen_message_id: Filter the awaited update by message. Either an
+                explicit id, or a synchronous callable receiving the sent/edited
+                message (``m``) and returning the id to filter by (or ``None``
+                for no filtering). The callable must be fast and non-blocking —
+                it runs inline on the event loop, not in a thread.
+            meta: Metadata attached to the listener.
+            timeout: Seconds to wait before raising :class:`ListenerTimeout`.
+            update_type: The update type to wait for. Determines the return type.
+            error_handlers: Optional ``{exc_type_or_tuple: handler}`` mapping. If
+                listening raises before completing, the dict is scanned in order
+                and the handler for the first key matching ``isinstance(exc, key)``
+                is awaited as ``handler(exc, m)``, where ``m`` is the sent/edited
+                message. If nothing here matches, the entry in
+                :attr:`Client.ask_error_handlers` for this call's ``update_type``
+                is tried the same way — a handler registered for ``Message`` is
+                never consulted for a ``CallbackQuery``-flavoured call, or vice
+                versa. The original exception is still re-raised afterwards
+                either way.
             **kw: Additional keyword arguments passed directly to
-                  :meth:`send_message` or :meth:`edit_message_text`
-                  depending on which operation is performed.
+                :meth:`send_message` or :meth:`edit_message_text` depending on
+                which operation is performed.
 
         Returns:
             The matching update of type ``update_type``.
 
         Raises:
-            ListenerTimeout:  If the timeout expires before the update arrives.
+            RuntimeError: If no listener is registered for ``update_type``.
+            ValueError: If ``message_id`` is given with a ``reply_markup`` other
+                than :class:`~pyrogram.types.InlineKeyboardMarkup`.
+            ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
         listener = self.listeners.get(update_type)
@@ -526,7 +431,7 @@ class Client(PyroClient):
                 msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
                 raise ValueError(msg)
 
-            # patch_cls يجعل Message الخاصة بـ pyrogram هي نفسها الخاصة بـ pyroflow وقت التشغيل
+            # `patch_cls` يجعل `Message` الخاصة بـ `pyrogram` هي نفسها الخاصة بـ `pyroflow` وقت التشغيل
             m = cast(
                 "Message",
                 await self.edit_message_text(
@@ -543,7 +448,7 @@ class Client(PyroClient):
                 ),
             )
         else:
-            # send_message قد تُرجع None نظرياً، والسلوك (AttributeError عند m.chat) لم يتغيّر
+            # `send_message` قد تُرجع `None` نظرياً، والسلوك (`AttributeError` عند `m.chat`) لم يتغيّر
             m = cast(
                 "Message",
                 await self.send_message(
@@ -576,14 +481,14 @@ class Client(PyroClient):
 
         if not isinstance(listen_message_id, int) and callable(listen_message_id):
             # Must be a fast, synchronous, non-blocking call — it runs
-            # inline on the event loop, not through to_thread/maybe_awaitable.
+            # inline on the event loop, not through `to_thread`/`maybe_awaitable`.
             listen_message_id = listen_message_id(m)
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 
         if isinstance(final_chat_id, str):
             final_chat_id = pyro_ut.get_peer_id(
-                await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # resolve_peer returns None only for a None peer_id
+                await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
         try:
@@ -607,8 +512,8 @@ class Client(PyroClient):
 
 
 if TYPE_CHECKING:
-    # Type checking only: the mixin is written as if it were a Client, so calls
-    # like self.set_bot_commands() resolve. At runtime the base is plain object
+    # Type checking only: the mixin is written as if it were a `Client`, so calls
+    # like `self.set_bot_commands()` resolve. At runtime the base is plain `object`
     # — see the class docstring.
     _BotCommandsMixinBase = Client
 else:
@@ -623,17 +528,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
 
     It is deliberately *not* a :class:`Client` subclass and *not* applied via
     ``@patch_cls``: nothing changes unless you ask for it. Combine it with
-    :class:`Client` yourself, mixin first so its overrides win:
+    :class:`Client` yourself, mixin first so its overrides win
+    (``class MyClient(BotCommandsMixin, Client)``). It overrides:
 
-    .. code-block:: python
-
-        from pyroflow import Client, BotCommandsMixin
-
-        class MyClient(BotCommandsMixin, Client):
-            pass
-
-    What it overrides
-    -----------------
     - :meth:`add_handler` / :meth:`remove_handler` — defer to the normal
       Pyrogram behaviour, then collect (or drop) the commands marked on the
       handler, in a task of their own so the bookkeeping follows the real
@@ -682,6 +579,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         """
 
         async def apply() -> None:
+            """Collect or discard the commands of ``handler`` if its registration really changed."""
             if not getattr(handler, BOT_COMMANDS_ATTR, ()):
                 return
 
@@ -704,7 +602,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
                 for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
                     track(*split_bot_command_entry(entry))
             finally:
-                # Only what we took: asyncio.Lock has no notion of an owner, so
+                # Only what we took: `asyncio.Lock` has no notion of an owner, so
                 # releasing one we are merely *waiting* on — which is where a
                 # cancellation lands us — would hand it away from its holder.
                 for lock in reversed(acquired):
@@ -852,9 +750,11 @@ class BotCommandsMixin(_BotCommandsMixinBase):
     async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
         """Delete the published commands, then stop the client as usual.
 
-        Parameters:
+        Args:
+            *args: Passed to :meth:`pyrogram.Client.stop`.
             remove_commands: Set to ``False`` to leave the commands registered
-                             on Telegram's side after stopping.
+                on Telegram's side after stopping.
+            **kw: Passed to :meth:`pyrogram.Client.stop`.
         """
         if remove_commands:
             await self.remove_bot_commands()

@@ -1,20 +1,19 @@
 """Patched Pyrogram dispatcher that routes updates through listeners, coordinators and histories."""
 
 from __future__ import annotations as _annotations
+
+import asyncio
+import logging
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from typing import Any, Final, TYPE_CHECKING
 
 from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
-
-from .utils import patch_cls
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
 from .errors import UnresolvedUpdate, UnhandledUpdate
-
-import asyncio
-import logging
+from .utils import patch_cls
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -29,6 +28,16 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
+
+# Set for the duration of one coordinated update, to that update's
+# `_CoordinatedRelease`. A `ContextVar` rather than an attribute on the update
+# because copying the context is exactly what both `asyncio` tasks and
+# `to_thread` already do — so a sync handler running in the executor, and a
+# raw handler that never sees the parsed update at all, reach the same
+# releaser as an ordinary async handler.
+_HANDLED_MARKER: Final[ContextVar[_CoordinatedRelease | None]] = ContextVar(
+    "pyroflow_handled_marker", default=None
+)
 
 
 class _CoordinatedRelease:
@@ -52,7 +61,13 @@ class _CoordinatedRelease:
         lock: AsyncLockProto,
         loop: asyncio.AbstractEventLoop,
     ) -> None:
+        """Bind the settlement to the update's coordinated, its held lock and the event loop.
 
+        Args:
+            coordinated: The coordinated whose coordinator registers the update as handled.
+            lock: The already-acquired lock to release on settlement.
+            loop: The event loop an early settlement is scheduled onto.
+        """
         self._coordinated = coordinated
         self._lock = lock
         self._loop = loop
@@ -92,7 +107,12 @@ class _CoordinatedRelease:
         return True
 
     async def settle(self, handled: bool) -> None:
-        """Settle now, or wait out an early settlement if one won."""
+        """Settle now, or wait out an early settlement if one won.
+
+        Args:
+            handled: Whether to register the update as handled; ignored when an
+                early settlement already won.
+        """
         if self._early is not None:
             # Don't abandon a settlement that is only scheduled: the dispatcher
             # may be stopped the moment the handler returns.
@@ -102,6 +122,11 @@ class _CoordinatedRelease:
         await self._settle(handled)
 
     async def _settle(self, handled: bool) -> None:
+        """Register the update as handled if asked and known, then release the lock, once.
+
+        Args:
+            handled: Whether to register the update as handled.
+        """
         if self._released:
             return
 
@@ -120,72 +145,6 @@ class _CoordinatedRelease:
             await safe_await(self._lock.release())
 
 
-# Set for the duration of one coordinated update, to that update's
-# _CoordinatedRelease. A ContextVar rather than an attribute on the update
-# because copying the context is exactly what both `asyncio` tasks and
-# `to_thread` already do — so a sync handler running in the executor, and a
-# raw handler that never sees the parsed update at all, reach the same
-# releaser as an ordinary async handler.
-_handled_marker: ContextVar[_CoordinatedRelease | None] = ContextVar(
-    "pyroflow_handled_marker", default=None
-)
-
-
-def mark_handled() -> bool:
-    """Declare the current update handled *now*, without waiting for the handler to return.
-
-    By default an update is settled only once its handler finishes: it is
-    registered as handled and its lock released together, at the end. That is
-    the safe default, but it ties lock hold time to handler duration — a
-    handler that runs a long job (a download, a conversation, an external API)
-    holds the lock for all of it, and everything else in that lock's scope
-    waits meanwhile.
-
-    Calling this from inside a handler settles it early instead. The update is
-    registered as handled and **the lock is released immediately**, so waiters
-    proceed and no peer will reprocess it, while this handler carries on for as
-    long as it likes.
-
-    .. warning::
-        Releasing the lock early gives up the ordering it was providing. If the
-        lock's scope is wider than one update — a whole chat, say — the next
-        update in that scope starts as soon as this call returns, running
-        alongside the rest of this handler. Call it once the part that needed
-        serialising is genuinely done, not merely once the update is
-        acknowledged.
-
-    Callable from a sync handler too (those run in the client's executor): the
-    settlement is scheduled onto the event loop thread-safely rather than
-    awaited here, which is also why this is a plain function and not a
-    coroutine.
-
-    Idempotent — later calls, and the automatic settlement when the handler
-    returns, are no-ops.
-
-    Example:
-        .. code-block:: python
-
-            @app.on_message()
-            async def handler(client, message):
-                await message.reply("Working on it...")
-
-                mark_handled()          # lock released from here on
-
-                await slow_job()        # may take minutes; lock is long gone
-
-    Returns:
-        ``True`` if this call performed the early settlement. ``False`` if the
-        update is not under a coordinator, it was already settled, or this was
-        called outside of update processing entirely.
-    """
-    release = _handled_marker.get()
-
-    if release is None:
-        return False
-
-    return release.claim_early()
-
-
 @patch_cls(setter=setattr)
 class Dispatcher(PyroDispatcher):
     """Extended Pyrogram dispatcher with listeners, coordinators, and histories.
@@ -197,8 +156,6 @@ class Dispatcher(PyroDispatcher):
     :class:`pyrogram.Client` instance uses this implementation without
     requiring any subclassing on the user's side.
 
-    Update flow
-    -----------
     For every incoming update the pipeline runs in this order:
 
     1. **Listener** (:meth:`handle_listen`) — if a :class:`UpdateListener`
@@ -238,12 +195,6 @@ class Dispatcher(PyroDispatcher):
        history record via :meth:`UpdateHistory.record_many`. This allows
        later handlers (e.g. a ``back`` button) to inspect or replay
        previous processing steps.
-
-    Attributes:
-        listeners:    Mapping from update type to its :class:`UpdateListener`.
-        coordinateds: Mapping from update type to its :class:`UpdateCoordinated`.
-        histories:    Mapping from update type to its :class:`UpdateHistory`.
-        is_started:   ``True`` while the dispatcher is running.
     """
 
     old__init__: Callable[..., None]
@@ -253,7 +204,7 @@ class Dispatcher(PyroDispatcher):
     def __init__(self, *args: Any, **kw: Any) -> None:
         """Run the original initializer, then set up empty registries.
 
-        Parameters:
+        Args:
             *args: Passed directly to the original dispatcher.
             **kw: Passed directly to the original dispatcher.
         """
@@ -268,7 +219,7 @@ class Dispatcher(PyroDispatcher):
     async def start(self, *args: Any, **kw: Any) -> None:
         """Start the dispatcher and all registered listeners, coordinators and histories.
 
-        Parameters:
+        Args:
             *args: Passed directly to the original dispatcher.
             **kw: Passed directly to the original dispatcher.
         """
@@ -288,7 +239,7 @@ class Dispatcher(PyroDispatcher):
     async def stop(self, *args: Any, **kw: Any) -> None:
         """Stop the dispatcher and all registered listeners, coordinators and histories.
 
-        Parameters:
+        Args:
             *args: Passed directly to the original dispatcher.
             **kw: Passed directly to the original dispatcher.
         """
@@ -311,13 +262,13 @@ class Dispatcher(PyroDispatcher):
         Must be called before the dispatcher is started. Only one
         listener per update type is allowed.
 
-        Parameters:
+        Args:
             listener: The :class:`UpdateListener` instance to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError:   If a listener for the same update type is
-                          already registered.
+            ValueError: If a listener for the same update type is already
+                registered.
         """
         if self.is_started:
             msg = "Cannot register listener while dispatcher is already running"
@@ -337,13 +288,13 @@ class Dispatcher(PyroDispatcher):
         Must be called before the dispatcher is started. Only one
         coordinated per update type is allowed.
 
-        Parameters:
+        Args:
             coordinated: The :class:`UpdateCoordinated` instance to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError:   If a coordinated for the same update type is
-                          already registered.
+            ValueError: If a coordinated for the same update type is already
+                registered.
         """
         if self.is_started:
             msg = "Cannot register coordinated while dispatcher is already running"
@@ -363,13 +314,13 @@ class Dispatcher(PyroDispatcher):
         Must be called before the dispatcher is started. Only one
         history per update type is allowed.
 
-        Parameters:
+        Args:
             history: The :class:`UpdateHistory` instance to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError:   If a history for the same update type is
-                          already registered.
+            ValueError: If a history for the same update type is already
+                registered.
         """
         if self.is_started:
             msg = "Cannot register history while dispatcher is already running"
@@ -388,9 +339,9 @@ class Dispatcher(PyroDispatcher):
 
         Does nothing if no listener is registered for that type.
 
-        Parameters:
-            update_type: The Pyrogram update class whose listener should
-                         be removed.
+        Args:
+            update_type: The Pyrogram update class whose listener should be
+                removed.
         """
         listener = self.listeners.pop(update_type, None)
 
@@ -404,9 +355,9 @@ class Dispatcher(PyroDispatcher):
 
         Does nothing if no coordinated is registered for that type.
 
-        Parameters:
-            update_type: The Pyrogram update class whose coordinated should
-                         be removed.
+        Args:
+            update_type: The Pyrogram update class whose coordinated should be
+                removed.
         """
         coordinated = self.coordinateds.pop(update_type, None)
 
@@ -420,9 +371,9 @@ class Dispatcher(PyroDispatcher):
 
         Does nothing if no history is registered for that type.
 
-        Parameters:
-            update_type: The Pyrogram update class whose history should
-                         be removed.
+        Args:
+            update_type: The Pyrogram update class whose history should be
+                removed.
         """
         history = self.histories.pop(update_type, None)
 
@@ -438,7 +389,7 @@ class Dispatcher(PyroDispatcher):
         ``stop_propagation()`` is called on the update to prevent the
         normal handler pipeline from processing it further.
 
-        Parameters:
+        Args:
             parsed_update: The parsed Pyrogram update to resolve.
         """
         listener = self.listeners.get(type(parsed_update))
@@ -467,15 +418,15 @@ class Dispatcher(PyroDispatcher):
         then iterates over handler groups, invoking the first matching
         handler per group.
 
-        Parameters:
-            packet:        The raw ``(update, users, chats)`` tuple from Pyrogram.
+        Args:
+            packet: The raw ``(update, users, chats)`` tuple from Pyrogram.
             parsed_update: The parsed Pyrogram update, or ``None`` if parsing
-                           failed or was skipped.
-            handler_type:  The handler class expected to handle this update.
+                failed or was skipped.
+            handler_type: The handler class expected to handle this update.
 
         Returns:
-            Tuple[int, int]: ``(handled_count, exc_count)`` — number of
-            updates successfully handled and number that raised exceptions.
+            ``(handled_count, exc_count)`` — number of handlers that ran
+            successfully and number that raised exceptions.
         """
         handled_count = exc_count = 0
         update, users, chats = packet
@@ -585,10 +536,10 @@ class Dispatcher(PyroDispatcher):
         through to :meth:`_handle_update` uncoordinated rather than being
         lost.
 
-        Parameters:
-            packet:        The raw ``(update, users, chats)`` tuple from Pyrogram.
+        Args:
+            packet: The raw ``(update, users, chats)`` tuple from Pyrogram.
             parsed_update: The parsed Pyrogram update, or ``None``.
-            handler_type:  The handler class expected to handle this update.
+            handler_type: The handler class expected to handle this update.
         """
         coordinated = self.coordinateds.get(type(parsed_update))
 
@@ -617,7 +568,7 @@ class Dispatcher(PyroDispatcher):
 
         result = (0, 0)
         handled = False
-        token = _handled_marker.set(release)
+        token = _HANDLED_MARKER.set(release)
 
         try:
             release.update_id = update_id = await coordinated.extract_update_id(parsed_update)
@@ -633,9 +584,9 @@ class Dispatcher(PyroDispatcher):
             raise e
 
         finally:
-            _handled_marker.reset(token)
+            _HANDLED_MARKER.reset(token)
 
-            # sum() counts exc_count on purpose: a handler that raised still
+            # `sum()` counts `exc_count` on purpose: a handler that raised still
             # *ran*, so the update reached its owner. Retrying it elsewhere
             # would duplicate work instead of recovering. Only a fully
             # untouched update (0 handled, 0 raised) is left unregistered.
@@ -643,7 +594,7 @@ class Dispatcher(PyroDispatcher):
                 handled = sum(result) >= 1
 
             # A no-op if the handler already claimed the settlement through
-            # mark_handled(). Always releases the lock.
+            # `mark_handled()`. Always releases the lock.
             await release.settle(handled)
 
     async def handler_worker(self, lock: asyncio.Lock) -> None:
@@ -653,9 +604,9 @@ class Dispatcher(PyroDispatcher):
         update is parsed and dispatched under an async lock to
         serialise concurrent workers.
 
-        Parameters:
-            lock: An async lock shared across all worker tasks to
-                  serialise update processing.
+        Args:
+            lock: An async lock shared across all worker tasks to serialise
+                update processing.
         """
         while True:
             packet = await self.updates_queue.get()
@@ -666,7 +617,7 @@ class Dispatcher(PyroDispatcher):
             try:
                 update, users, chats = packet
                 parsed_update, handler_type = (
-                    await parser(update, users, chats)  # ty: ignore[invalid-argument-type]  # kurigram's update_parsers is an untyped dict of differently-typed parsers, so ty infers their union
+                    await parser(update, users, chats)  # ty: ignore[invalid-argument-type]  # `kurigram`'s `update_parsers` is an untyped dict of differently-typed parsers, so ty infers their union
                     if (parser := self.update_parsers.get(type(update))) is not None
                     else (None, type(None))
                 )
@@ -678,6 +629,54 @@ class Dispatcher(PyroDispatcher):
                 pass
             except Exception:
                 log.exception("Unexpected error in handler_worker")
+
+
+def mark_handled() -> bool:
+    """Declare the current update handled *now*, without waiting for the handler to return.
+
+    By default an update is settled only once its handler finishes: it is
+    registered as handled and its lock released together, at the end. That is
+    the safe default, but it ties lock hold time to handler duration — a
+    handler that runs a long job (a download, a conversation, an external API)
+    holds the lock for all of it, and everything else in that lock's scope
+    waits meanwhile.
+
+    Calling this from inside a handler settles it early instead. The update is
+    registered as handled and **the lock is released immediately**, so waiters
+    proceed and no peer will reprocess it, while this handler carries on for as
+    long as it likes.
+
+    .. warning::
+        Releasing the lock early gives up the ordering it was providing. If the
+        lock's scope is wider than one update — a whole chat, say — the next
+        update in that scope starts as soon as this call returns, running
+        alongside the rest of this handler. Call it once the part that needed
+        serialising is genuinely done, not merely once the update is
+        acknowledged.
+
+    Callable from a sync handler too (those run in the client's executor): the
+    settlement is scheduled onto the event loop thread-safely rather than
+    awaited here, which is also why this is a plain function and not a
+    coroutine.
+
+    Idempotent — later calls, and the automatic settlement when the handler
+    returns, are no-ops.
+
+    Returns:
+        ``True`` if this call performed the early settlement. ``False`` if the
+        update is not under a coordinator, it was already settled, or this was
+        called outside of update processing entirely.
+
+    Example:
+        >>> mark_handled()  # outside update processing there is nothing to settle
+        False
+    """
+    release = _HANDLED_MARKER.get()
+
+    if release is None:
+        return False
+
+    return release.claim_early()
 
 
 __all__ = (

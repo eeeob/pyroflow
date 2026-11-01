@@ -3,8 +3,6 @@
 Importing this package patches Pyrogram's classes in place.
 """
 
-__version__ = "0.2.1"
-
 from .listener_coordinator import *
 from .update_coordinated import *
 from .update_coordinator import *
@@ -21,6 +19,7 @@ from .types import *
 # filter factories stay namespaced as ``pyroflow.filters.<name>``.
 from . import filters
 
+__version__ = "0.2.1"
 
 __all__ = (
     *listener_coordinator.__all__,

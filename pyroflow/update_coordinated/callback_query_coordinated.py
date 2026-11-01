@@ -1,7 +1,8 @@
 """Coordination policy for :class:`CallbackQuery` updates."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any
+
+from typing import Any, TYPE_CHECKING
 
 from ..types import CallbackQuery
 from .update_coordinated import UpdateCoordinated
@@ -40,9 +41,11 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
         return (update.id,)
 
     async def _extract_update_id(self, update: CallbackQuery) -> UpdateCoordinatorKeyT:
+        """Identify the query by its id."""
         return (update.id,)
 
     async def _is_coordinatable(self, update: CallbackQuery) -> bool:
+        """Coordinate every callback query."""
         return True
 
 

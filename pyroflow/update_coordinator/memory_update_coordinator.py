@@ -1,21 +1,21 @@
 """In-memory update coordinator for a single process."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any
-from functools import partial
-from cachetools import TTLCache
 
-from ..utils import AsyncioLock
+import asyncio
+from functools import partial
+from typing import Any, TYPE_CHECKING
+
+from cachetools import TTLCache
 from pytrove import DefaultWeakValueDict
 
+from ..utils import AsyncioLock
 from .update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
     from pytrove.typings import Number
 
     from ..typings import UpdateCoordinatorKeyT
-
-import asyncio
 
 
 class TimedLock(AsyncioLock):
@@ -37,7 +37,7 @@ class TimedLock(AsyncioLock):
 
         self.blocking_timeout = blocking_timeout
 
-    async def acquire(self) -> bool:  # ty: ignore[invalid-method-override]  # asyncio.Lock.acquire is typed Literal[True]; the bounded wait returns False on timeout
+    async def acquire(self) -> bool:  # ty: ignore[invalid-method-override]  # `asyncio.Lock.acquire` is typed `Literal[True]`; the bounded wait returns `False` on timeout
         """Acquire the lock, waiting at most ``blocking_timeout`` seconds.
 
         Returns:
@@ -66,11 +66,10 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
     it serialises this process's own workers and remembers what this process
     has handled. Use the Redis backend to coordinate across sessions.
 
-    Parameters:
+    Args:
         max_handled: How many handled ids to retain. Together with
-                     ``handled_ttl`` this bounds the registry, which is
-                     otherwise append-only and would grow for the lifetime
-                     of the process.
+            ``handled_ttl`` this bounds the registry, which is otherwise
+            append-only and would grow for the lifetime of the process.
     """
 
     def __init__(self, *args: Any, max_handled: int = 1000, **kw: Any) -> None:
@@ -80,7 +79,7 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         # Weakly held: a lock exists only while somebody is holding or
         # waiting on it, so idle scopes cost nothing. Callers keep a strong
         # reference for as long as they use it, which is what keeps the
-        # entry alive across an acquire/release pair.
+        # entry alive across an `acquire`/`release` pair.
         self.locks = DefaultWeakValueDict(partial(TimedLock, self.blocking_timeout))
 
         self.handled: TTLCache[str, None] = TTLCache(maxsize=max_handled, ttl=self.handled_ttl)

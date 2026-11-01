@@ -11,12 +11,16 @@ class ListenerError(Exception):
 
         Args:
             value: The subject of the error, substituted for ``{value}``.
+
+        Example:
+            >>> str(ListenerTimeout(5))
+            'UpdateListener 5 timed out'
         """
         self.value = value
         # Subclasses carry their message as the class docstring. Fall back to
         # the class name if one is missing — or was shadowed by a statement
         # placed above it — so a malformed subclass degrades to a plain
-        # message instead of raising AttributeError from the constructor.
+        # message instead of raising `AttributeError` from the constructor.
         template = self.__class__.__doc__ or (self.__class__.__name__ + " {value}")
         super().__init__(template.format(value=value))
 

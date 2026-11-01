@@ -1,14 +1,16 @@
 """Abstract base for update types that are processed under coordination."""
 
 from __future__ import annotations as _annotations
-from typing import TYPE_CHECKING, Any
-from abc import ABC
 
-from ..typings import UpdateType, AsyncLockProto
-from ..utils import UpdateBound
+import logging
+from abc import ABC
+from typing import Any, TYPE_CHECKING
+
 from pytrove import maybe_awaitable
 
+from ..typings import AsyncLockProto, UpdateType
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
+from ..utils import UpdateBound
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -17,8 +19,6 @@ if TYPE_CHECKING:
     from pytrove.typings import MaybeCoroutineCallable
 
     from ..typings import UpdateCoordinatorKeyT
-
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +32,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     itself. The coordinator factory owns all backend details (locking,
     TTLs, timeouts).
 
-    The two keys are deliberately separate
-    -------------------------------------
     :meth:`extract_key` decides **what is locked** — the scope processed one
     update at a time. :meth:`extract_update_id` decides **what counts as
     the same update** — the identity registered as handled so it is never
@@ -54,21 +52,20 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     Nothing constrains the two to be related — the scope may be as wide or
     narrow as the subclass wants, independently of the identity.
 
-    Parameters:
-        coordinator_factory:   Optional callable that receives the update type and
-                               returns a configured :class:`UpdateCoordinator` instance.
-                               If ``None``, it defaults to creating a local
-                               :class:`MemoryUpdateCoordinator`.
+    Args:
+        coordinator_factory: Optional callable that receives the update type and
+            returns a configured :class:`UpdateCoordinator` instance. If ``None``,
+            it defaults to creating a local :class:`MemoryUpdateCoordinator`.
         is_coordinatable_func: Optional callable ``(update) -> bool`` used by
-                               :meth:`is_coordinatable`. If ``None``, the method
-                               must be overridden in a subclass.
-        extract_key_func:      Optional callable ``(update) -> UpdateCoordinatorKeyT``
-                               used by :meth:`extract_key`. If ``None``, the method
-                               must be overridden in a subclass.
+            :meth:`is_coordinatable`. If ``None``, the method must be overridden
+            in a subclass.
+        extract_key_func: Optional callable ``(update) -> UpdateCoordinatorKeyT``
+            used by :meth:`extract_key`. If ``None``, the method must be
+            overridden in a subclass.
         extract_update_id_func: Optional callable ``(update) -> UpdateCoordinatorKeyT``
-                               used by :meth:`extract_update_id`. If ``None``, the
-                               method must be overridden in a subclass.
-        **kw:                  Passed to the next class in the MRO.
+            used by :meth:`extract_update_id`. If ``None``, the method must be
+            overridden in a subclass.
+        **kw: Passed to the next class in the MRO.
     """
 
     def __init__(
@@ -93,6 +90,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.extract_update_id_func = extract_update_id_func
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
+        """Return the executor of the client bound to ``update``, or ``None`` if it has none."""
         return getattr(getattr(update, "_client", None), "executor", None)
 
     async def is_coordinatable(self, update: UpdateType) -> bool:
@@ -101,7 +99,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         Called before any key extraction or locking. Return ``False`` to
         process the update normally, with no lock and no registration.
 
-        Parameters:
+        Args:
             update: The incoming update object.
 
         Returns:
@@ -109,7 +107,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
-                                 ``is_coordinatable_func`` was provided.
+                ``is_coordinatable_func`` was provided.
         """
         if self.is_coordinatable_func is None:
             msg = (
@@ -120,7 +118,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove maybe_awaitable overloads resolve MaybeCoroutineCallable[..., T] to T | Coroutine[T]
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.is_coordinatable_func,
             update,
             executor=self._get_executor(update),
@@ -135,7 +133,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         This is not the update's identity — see :meth:`extract_update_id`.
 
-        Parameters:
+        Args:
             update: The incoming update object.
 
         Returns:
@@ -143,7 +141,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
-                                 ``extract_key_func`` was provided.
+                ``extract_key_func`` was provided.
         """
         if self.extract_key_func is None:
             msg = (
@@ -154,7 +152,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove maybe_awaitable overloads resolve MaybeCoroutineCallable[..., T] to T | Coroutine[T]
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.extract_key_func,
             update,
             executor=self._get_executor(update),
@@ -172,7 +170,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         like the same one, and every update after the first is dropped as an
         already-handled duplicate.
 
-        Parameters:
+        Args:
             update: The incoming update object.
 
         Returns:
@@ -180,7 +178,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
-                                 ``extract_update_id_func`` was provided.
+                ``extract_update_id_func`` was provided.
         """
         if self.extract_update_id_func is None:
             msg = (
@@ -191,7 +189,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # pytrove maybe_awaitable overloads resolve MaybeCoroutineCallable[..., T] to T | Coroutine[T]
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.extract_update_id_func,
             update,
             executor=self._get_executor(update),
@@ -203,7 +201,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         Returned unacquired — the caller decides when to take it and, more
         importantly, when to let it go (see :func:`~pyroflow.mark_handled`).
 
-        Parameters:
+        Args:
             update: The incoming update object.
 
         Returns:

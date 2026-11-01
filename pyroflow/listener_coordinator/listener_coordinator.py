@@ -1,6 +1,7 @@
 """Abstract base class shared by every listener coordinator backend."""
 
 from __future__ import annotations as _annotations
+
 from abc import ABC, abstractmethod
 from typing import Any, TYPE_CHECKING
 
@@ -19,20 +20,17 @@ class ListenerCoordinator(ABC):
     unregistration and lookup semantics appropriate for their storage
     backend (in-memory, Redis, etc.).
 
-    Locking contract
-    ----------------
-    Operations on the same chat are serialised under the lock returned by
-    :meth:`lock`, which prevents races between registration, cancellation
-    and update resolution. **The caller acquires that lock, not you.**
+    Locking contract: operations on the same chat are serialised under the
+    lock returned by :meth:`lock`, which prevents races between registration,
+    cancellation and update resolution. **The caller acquires that lock, not
+    you.**
 
     :class:`UpdateListener` already holds ``lock(key.chat_id)`` when it calls
     :meth:`register`, :meth:`unregister`, :meth:`registered` and
     :meth:`cancel`. Since the lock is a plain :class:`asyncio.Lock` and
     therefore not reentrant, an implementation that takes it again inside
     those methods deadlocks the worker permanently, with no timeout to
-    recover from:
-
-    .. code-block:: python
+    recover from::
 
         async def registered(self, key, coordinator_id=None):
             async with self.lock(key.chat_id):   # DEADLOCK — caller holds it
@@ -42,14 +40,15 @@ class ListenerCoordinator(ABC):
     lock for mutual exclusion. Only guard state that the lock does not
     already cover — e.g. a connection pool shared across chats — and use a
     *separate* lock for it.
-
-    Parameters:
-        listener: The :class:`UpdateListener` that owns this listener coordinator.
-        **kw:     Passed to the next class in the MRO.
     """
 
     def __init__(self, listener: UpdateListener, **kw: Any) -> None:
-        """Bind the coordinator to the listener that owns it."""
+        """Bind the coordinator to the listener that owns it.
+
+        Args:
+            listener: The :class:`UpdateListener` that owns this listener coordinator.
+            **kw: Passed to the next class in the MRO.
+        """
         super().__init__(**kw)
 
         self.listener = listener
@@ -58,11 +57,9 @@ class ListenerCoordinator(ABC):
     def lock(self, key: LockKeyT) -> AsyncLockProto:
         """Return an async lock that serialises coordinator operations for ``key``.
 
-        The returned object must support ``async with`` semantics.
-
-        Parameters:
+        Args:
             key: A chat id, a tuple of ids, or a :class:`ListenerKey`
-                 identifying the scope to lock.
+                identifying the scope to lock.
 
         Returns:
             An async lock compatible with ``async with``.
@@ -77,7 +74,7 @@ class ListenerCoordinator(ABC):
         to safely remove this specific listener coordinator without affecting
         a newer one that may have replaced it.
 
-        Parameters:
+        Args:
             key: The :class:`ListenerKey` to register.
 
         Returns:
@@ -95,10 +92,10 @@ class ListenerCoordinator(ABC):
         matching that id is removed, preventing accidental removal
         of a newer listener coordinator for the same key.
 
-        Parameters:
-            key:             The :class:`ListenerKey` to unregister.
+        Args:
+            key: The :class:`ListenerKey` to unregister.
             coordinator_id: If provided, only remove the listener coordinator
-                             with this id.
+                with this id.
 
         Returns:
             ``True`` if a listener coordinator was removed, ``False`` otherwise.
@@ -109,9 +106,9 @@ class ListenerCoordinator(ABC):
     async def cancel(self, key: ListenerKey) -> bool:
         """Cancel all registrations for the given key.
 
-        Parameters:
+        Args:
             key: The :class:`ListenerKey` whose registrations should
-                 be cancelled.
+                be cancelled.
 
         Returns:
             ``True`` if any registrations were cancelled, ``False``
@@ -125,10 +122,10 @@ class ListenerCoordinator(ABC):
     ) -> bool:
         """Check whether a listener coordinator exists for the given key.
 
-        Parameters:
-            key:             The :class:`ListenerKey` to check.
+        Args:
+            key: The :class:`ListenerKey` to check.
             coordinator_id: If provided, also verify that the listener coordinator
-                             matches this specific id.
+                matches this specific id.
 
         Returns:
             ``True`` if a matching listener coordinator exists, ``False`` otherwise.

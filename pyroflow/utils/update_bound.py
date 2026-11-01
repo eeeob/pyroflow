@@ -3,28 +3,30 @@
 from __future__ import annotations as _annotations
 from abc import ABC
 from typing import Any, Generic
+
 from pyrogram.types import Update as PyroUpdate
 
 from ..typings import UpdateType
 
 
 class UpdateBound(Generic[UpdateType]):
-    """binds a class to a specific Pyrogram update type.
+    """Bind a class to a specific Pyrogram update type.
 
     Enforces that any concrete subclass declares a valid Pyrogram update
-    type via __update_type__, and provides a validation helper to ensure
+    type via ``__update_type__``, and provides a validation helper to ensure
     incoming updates match the declared type.
 
     This class is not meant to be used directly — inherit from it only.
-
-    Attributes:
-        __update_type__: The Pyrogram update class this subclass is bound to.
     """
 
     __update_type__: type[UpdateType]
+    """The Pyrogram update class this subclass is bound to."""
 
     def __init_subclass__(cls, **kw: Any) -> None:
         """Check that a concrete subclass declares a Pyrogram update type.
+
+        Args:
+            **kw: Passed on to the next base's ``__init_subclass__``.
 
         Raises:
             TypeError: If ``__update_type__`` is missing or is not a Pyrogram update class.
@@ -47,6 +49,9 @@ class UpdateBound(Generic[UpdateType]):
     def __init__(self, **kw: Any) -> None:
         """Check the declared update type again, then pass ``kw`` on to the next base.
 
+        Args:
+            **kw: Passed on to the next base's ``__init__``.
+
         Raises:
             TypeError: If ``__update_type__`` is missing or is not a Pyrogram update class.
         """
@@ -67,13 +72,13 @@ class UpdateBound(Generic[UpdateType]):
 
     @classmethod
     def validate_update(cls, update: UpdateType) -> None:
-        """Validate that the given update matches the declared __update_type__.
+        """Validate that the given update matches the declared ``__update_type__``.
 
-        Parameters:
+        Args:
             update: The incoming Pyrogram update object.
 
         Raises:
-            TypeError: If the update is not an instance of __update_type__.
+            TypeError: If the update is not an instance of ``__update_type__``.
         """
         if not isinstance(update, cls.__update_type__):
             msg = f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}"

@@ -1,13 +1,14 @@
 """Pyrogram update types patched with conversation helpers such as ``Message.ask``."""
 
 from __future__ import annotations as _annotations
-from typing import (
-    TYPE_CHECKING,
-    Literal,
-    Any,
-    overload,
-)
+
 import sys
+from typing import (
+    Any,
+    Literal,
+    overload,
+    TYPE_CHECKING,
+)
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -52,6 +53,7 @@ class Update(PyroUpdate):
 
     @context.setter
     def context(self, value: dict[str, Any] | None) -> None:
+        """Attach ``value`` as the context, or remove it when ``value`` is ``None``."""
         if value is None:
             try:
                 del self.__context
@@ -62,6 +64,11 @@ class Update(PyroUpdate):
 
     @context.deleter
     def context(self) -> None:
+        """Remove the context.
+
+        Raises:
+            AttributeError: If no context is set.
+        """
         del self.__context
 
     @overload
@@ -260,116 +267,68 @@ class Message(PyroMessage):
            is explicitly requested, it sends a brand-new message configured as a direct
            reply to this message.
 
-        Parameters:
-            text (``str``):
-                The text of the message to be sent or edited.
-
-            force_send (``bool``, *optional*):
-                If set to ``True``, forces the bot to send a new reply message even if
-                the current message is editable. Defaults to ``False``.
-
-            parse_mode (:obj:`~pyrogram.enums.ParseMode`, *optional*):
-                By default, the text is parsed using both HTML and Markdown styles.
-                Pass None to disable parsing.
-
-            entities (List of :obj:`~pyrogram.types.MessageEntity`, *optional*):
-                A list of special entities to appear in the message text, which can be
-                specified instead of *parse_mode*.
-
-            link_preview_options (:obj:`~pyrogram.types.LinkPreviewOptions`, *optional*):
-                Link preview generation options for the message.
-
-            reply_parameters (:obj:`~pyrogram.types.ReplyParameters`, *optional*):
-                If sending a new message, configuration options for the reply.
+        Args:
+            text: The text of the message to be sent or edited.
+            force_send: If ``True``, send a new reply message even if the current message
+                is editable.
+            parse_mode: By default, the text is parsed using both HTML and Markdown styles.
+                Pass ``None`` to disable parsing.
+            entities: Special entities to appear in the message text, which can be specified
+                instead of ``parse_mode``.
+            link_preview_options: Link preview generation options for the message.
+            reply_parameters: If sending a new message, configuration options for the reply.
                 If omitted, it defaults to replying directly to this message.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            disable_notification (``bool``, *optional*):
-                Sends the message silently if a new message is dispatched. Users will
-                receive a notification with no sound. *(Forbidden in Auto-Edit Mode)*.
-
-            message_thread_id (``int``, *optional*):
-                Unique identifier for the target message thread/topic. Automatically
-                inherited from the current message if not provided.
+            disable_notification: Sends the message silently if a new message is dispatched.
+                Users will receive a notification with no sound.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            direct_messages_topic_id (``int``, *optional*):
-                Unique identifier for the business connection DM topic. Automatically
-                inherited from the current message if not provided.
+            message_thread_id: Unique identifier for the target message thread/topic.
+                Automatically inherited from the current message if not provided.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            effect_id (``int``, *optional*):
-                Unique identifier of the message effect to be applied.
+            direct_messages_topic_id: Unique identifier for the business connection DM topic.
+                Automatically inherited from the current message if not provided.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            schedule_date (:obj:`~datetime.datetime`, *optional*):
-                Date when the message will be automatically sent.
+            effect_id: Unique identifier of the message effect to be applied.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            repeat_period (``int``, *optional*):
-                Interval in seconds for message repetition.
+            schedule_date: Date when the message will be automatically sent.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            protect_content (``bool``, *optional*):
-                If set to ``True``, protects the contents of the sent message from
+            repeat_period: Interval in seconds for message repetition.
+                *(Forbidden in Auto-Edit Mode)*.
+            protect_content: If ``True``, protects the contents of the sent message from
                 forwarding and saving. *(Forbidden in Auto-Edit Mode)*.
-
-            allow_paid_broadcast (``bool``, *optional*):
-                Pass ``True`` to allow paid broadcast. *(Forbidden in Auto-Edit Mode)*.
-
-            paid_message_star_count (``int``, *optional*):
-                Amount of Telegram Stars required to view the message.
+            allow_paid_broadcast: Pass ``True`` to allow paid broadcast.
                 *(Forbidden in Auto-Edit Mode)*.
-
-            suggested_post_parameters (:obj:`~pyrogram.types.SuggestedPostParameters`, *optional*):
-                Parameters for suggested channel posts. *(Forbidden in Auto-Edit Mode)*.
-
-            reply_markup (:obj:`~pyrogram.types.InlineKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardRemove` | :obj:`~pyrogram.types.ForceReply`, *optional*):
-                Additional interface options. **Note:** Auto-Edit Mode strictly only
-                supports :obj:`~pyrogram.types.InlineKeyboardMarkup`.
-
-            listen_user_id (``int``, *optional*):
-                Filter the awaited update to listen only to a specific user ID.
-
-            listen_message_id (``int`` | ``Callable[[Message], Optional[int]]``, *optional*):
-                Filter the awaited update to listen only to a specific message ID.
-                Can also be a synchronous callable receiving the sent/edited
-                message and returning the id to filter by (or ``None`` for
-                no filtering) — e.g. ``lambda m: m.id + 1``. Must be fast
-                and non-blocking: it runs inline on the event loop.
-
-            meta (``JsonValueT``, *optional*):
-                Metadata to attach to the created listener.
-
-            timeout (``Number``, *optional*):
-                Maximum duration in seconds to wait for a response before raising
+            paid_message_star_count: Amount of Telegram Stars required to view the message.
+                *(Forbidden in Auto-Edit Mode)*.
+            suggested_post_parameters: Parameters for suggested channel posts.
+                *(Forbidden in Auto-Edit Mode)*.
+            reply_markup: Additional interface options. **Note:** Auto-Edit Mode strictly
+                only supports :obj:`~pyrogram.types.InlineKeyboardMarkup`.
+            listen_user_id: Filter the awaited update to listen only to a specific user ID.
+            listen_message_id: Filter the awaited update to listen only to a specific message
+                ID. Can also be a synchronous callable receiving the sent/edited message and
+                returning the id to filter by (or ``None`` for no filtering), e.g.
+                ``lambda m: m.id + 1``. Must be fast and non-blocking: it runs inline on the
+                event loop.
+            meta: Metadata to attach to the created listener.
+            timeout: Maximum duration in seconds to wait for a response before raising
                 ``ListenerTimeout``.
-
-            update_type (Type[``UpdateType``], *optional*):
-                The expected class type of the update to listen for.
+            update_type: The expected class of the update to listen for.
                 Defaults to :obj:`~pyroflow.types.Message`.
-
-            error_handlers (``AskErrorHandlersT``, *optional*):
-                ``{exc_type_or_tuple: handler}`` mapping. If listening raises
-                before completing, the dict is scanned in order and the
-                handler for the first key matching ``isinstance(exc, key)``
-                is awaited as ``handler(exc, m)``, where ``m`` is the
-                sent/edited message. The original exception is still
-                re-raised afterwards.
-
-            **kw (``Any``):
-                Additional keyword arguments passed directly down to the underlying client.
+            error_handlers: ``{exc_type_or_tuple: handler}`` mapping. If listening raises
+                before completing, the dict is scanned in order and the handler for the first
+                key matching ``isinstance(exc, key)`` is awaited as ``handler(exc, m)``, where
+                ``m`` is the sent/edited message. The original exception is still re-raised
+                afterwards.
+            **kw: Additional keyword arguments passed directly down to the underlying client.
 
         Returns:
-            ``UpdateType``: The matching update object received from the listener.
+            The matching update object received from the listener.
 
         Raises:
-            ValueError:
-                - If invoked on an empty or a service message.
-                - If explicit send-only parameters are passed while the function resolves
-                  into Auto-Edit Mode.
-            ListenerTimeout:
-                If the timeout limit is reached before a valid update arrives.
+            ValueError: If invoked on an empty or a service message, or if explicit
+                send-only parameters are passed while the call resolves into Auto-Edit Mode.
+            ListenerTimeout: If the timeout limit is reached before a valid update arrives.
         """
         if self.service or self.empty:
             msg = "Cannot call 'ask' on a service or empty message."
@@ -413,10 +372,10 @@ class Message(PyroMessage):
                 )
                 raise ValueError(msg)
 
-        # Client.ask splits send/edit across overloads on message_id, which is
-        # only known here at runtime; Client.ask enforces that contract itself.
+        # `Client.ask` splits send/edit across overloads on `message_id`, which is
+        # only known here at runtime; `Client.ask` enforces that contract itself.
         return await self._client.ask(  # ty: ignore[no-matching-overload]
-            self.chat.id,  # ty: ignore[unresolved-attribute]  # kurigram types Message.chat as optional; a non-empty message always has one
+            self.chat.id,  # ty: ignore[unresolved-attribute]  # `kurigram` types `Message.chat` as optional; a non-empty message always has one
             text,
             message_id,
             parse_mode=parse_mode,

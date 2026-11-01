@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from pyrogram.types import BotCommand
 
-# Public in pyroflow.bot_commands; re-exported so pyroflow.utils keeps offering it.
+# Public in `pyroflow.bot_commands`; re-exported so `pyroflow.utils` keeps offering it.
 from ..bot_commands import mark_bot_commands
 
 if TYPE_CHECKING:
@@ -16,6 +16,22 @@ def split_bot_command_entry(entry: BotCommandEntryT) -> BotCommandPartsT:
     """Expand any :data:`BotCommandEntryT` shape into its ``(language_code, scope, commands)`` parts.
 
     The parts the entry left out are filled with ``None``.
+
+    Args:
+        entry: Commands alone, a ``(scope, commands)`` pair, or a
+            ``(language_code, scope, commands)`` triple.
+
+    Returns:
+        The ``(language_code, scope, commands)`` triple.
+
+    Example:
+        >>> from pyrogram.types import BotCommandScopeDefault
+        >>> split_bot_command_entry([])
+        (None, None, [])
+        >>> split_bot_command_entry((BotCommandScopeDefault(), []))
+        (None, pyrogram.types.BotCommandScopeDefault(type='default'), [])
+        >>> split_bot_command_entry(("en", BotCommandScopeDefault(), []))
+        ('en', pyrogram.types.BotCommandScopeDefault(type='default'), [])
     """
     if isinstance(entry, (BotCommand, list)):
         return None, None, entry

@@ -1,29 +1,29 @@
 """Abstract base class for handler history storage backends."""
 
 from __future__ import annotations as _annotations
+
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ..typings import UpdateType, UpdateHistoryKeyT
-
     from ..models import UpdateRecord
+    from ..typings import UpdateType, UpdateHistoryKeyT
 
 
 class UpdateHistoryStore(ABC):
     """Abstract base for handler history storage backends.
 
     Responsible for persisting, retrieving, and expiring
-    :class:`UpdateRecord` entries under arbitrary UpdateHistoryKeyT keys.
+    :class:`UpdateRecord` entries under arbitrary ``UpdateHistoryKeyT`` keys.
 
     Capacity and TTL settings are left to each concrete backend.
 
-    Parameters:
+    Args:
         update_type: The Pyrogram update class this store handles.
-                    Its name is used to namespace the storage keys.
-        **kw:        Passed to the next class in the MRO.
+            Its name is used to namespace the storage keys.
+        **kw: Passed to the next class in the MRO.
     """
 
     def __init__(self, update_type: type[UpdateType], **kw: Any) -> None:
@@ -36,8 +36,8 @@ class UpdateHistoryStore(ABC):
     async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
         """Save records under the given key.
 
-        Parameters:
-            key: An arbitrary UpdateHistoryKeyT identifying the (chat, user) context.
+        Args:
+            key: An arbitrary ``UpdateHistoryKeyT`` identifying the (chat, user) context.
             *records: The :class:`UpdateRecord` to persist.
         """
         raise NotImplementedError
@@ -48,7 +48,7 @@ class UpdateHistoryStore(ABC):
 
         Expired records must not be returned.
 
-        Parameters:
+        Args:
             key: The storage key to retrieve records for.
 
         Returns:
@@ -64,7 +64,7 @@ class UpdateHistoryStore(ABC):
         Expired records must not be returned. If all records are expired,
         they should be discarded before attempting to pop.
 
-        Parameters:
+        Args:
             key: The storage key to pop a record from.
 
         Returns:
@@ -77,7 +77,7 @@ class UpdateHistoryStore(ABC):
     async def delete(self, key: UpdateHistoryKeyT) -> None:
         """Delete all records stored under the given key.
 
-        Parameters:
+        Args:
             key: The storage key whose records should be deleted.
         """
         raise NotImplementedError
