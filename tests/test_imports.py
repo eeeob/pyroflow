@@ -30,7 +30,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MODULES = [
     "pyroflow",
-    "pyroflow.bot_commands",
     "pyroflow.client",
     "pyroflow.constants",
     "pyroflow.dispatcher",
@@ -64,11 +63,9 @@ MODULES = [
     "pyroflow.update_listener.message_listener",
     "pyroflow.update_listener.callback_query_listener",
     "pyroflow.utils",
-    "pyroflow.utils.ask_errors",
     "pyroflow.utils.bot_commands",
-    "pyroflow.utils.locks",
+    "pyroflow.utils.helpers",
     "pyroflow.utils.patching",
-    "pyroflow.utils.update_bound",
 ]
 
 # The kind entry points: each gathers the public definitions of one kind.

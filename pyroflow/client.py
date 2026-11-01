@@ -27,6 +27,7 @@ from .utils import (
     patch_cls,
     split_bot_command_entry,
     handle_ask_error,
+    mark_bot_commands,
 )
 from .types import Message, CallbackQuery
 
@@ -770,4 +771,6 @@ async_to_sync(BotCommandsMixin)
 __all__ = (
     "Client",
     "BotCommandsMixin",
+    # Defined in `pyroflow.utils.bot_commands`; re-exported so `pyroflow` keeps offering it.
+    "mark_bot_commands",
 )

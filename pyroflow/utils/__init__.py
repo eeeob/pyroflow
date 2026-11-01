@@ -1,16 +1,12 @@
-"""Internal helpers: class patching, update binding, locks, bot command and ask error helpers."""
+"""Internal helpers: class patching, bot command helpers, locks, update binding and ask error dispatch."""
 
-from .locks import *
-from .update_bound import *
 from .patching import *
 from .bot_commands import *
-from .ask_errors import *
+from .helpers import *
 
 
 __all__ = (
-    *locks.__all__,
-    *update_bound.__all__,
     *patching.__all__,
     *bot_commands.__all__,
-    *ask_errors.__all__,
+    *helpers.__all__,
 )

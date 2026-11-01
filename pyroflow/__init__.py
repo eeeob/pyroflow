@@ -11,7 +11,6 @@ from .update_history_store import *
 from .update_listener import *
 
 from .client import *
-from .bot_commands import *
 from .dispatcher import *
 from .types import *
 
@@ -29,7 +28,6 @@ __all__ = (
     *update_history_store.__all__,
     *update_listener.__all__,
     *client.__all__,
-    *bot_commands.__all__,
     *dispatcher.__all__,
     *types.__all__,
     "filters",
