@@ -100,7 +100,7 @@ test = [
 include = ["/pyroflow", "/tests"]
 
 [tool.hatch.version]
-path = "pyroflow/__meta__.py"
+path = "pyroflow/__init__.py"
 
 
 [tool.hatch.metadata]

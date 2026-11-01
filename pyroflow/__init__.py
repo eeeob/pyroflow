@@ -3,7 +3,7 @@
 Importing this package patches Pyrogram's classes in place.
 """
 
-from .__meta__ import __version__
+__version__ = "0.2.1"
 
 from .listener_coordinator import *
 from .update_coordinated import *
