@@ -1,4 +1,5 @@
-from typing import Sequence, Type
+from typing import Type
+from collections.abc import Sequence
 from abc import ABC, abstractmethod
 
 from ..utils.typings import UpdateType
@@ -24,7 +25,7 @@ class UpdateHistoryStore(ABC):
         **kw:        Passed to the next class in the MRO.
     """
 
-    def __init__(self, update_type: Type[UpdateType], **kw) -> None:
+    def __init__(self, update_type: type[UpdateType], **kw) -> None:
         self.update_type = update_type
 
         super().__init__(**kw)

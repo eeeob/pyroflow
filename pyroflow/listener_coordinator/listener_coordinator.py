@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from ..update_listener import UpdateListener
 
 
-LockKeyT: TypeAlias = Union[int, Tuple[Optional[int], ...], ListenerKey]
+LockKeyT: TypeAlias = int | tuple[int | None, ...] | ListenerKey
 
 class ListenerCoordinator(ABC):
     """
@@ -91,7 +91,7 @@ class ListenerCoordinator(ABC):
         raise NotImplementedError
     
     @abstractmethod
-    async def unregister(self, key: ListenerKey, coordinator_id: Optional[ListenerCoordinatorIdT] = None) -> bool:
+    async def unregister(self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None) -> bool:
         """
         Remove a listener coordinator by key and optional listener coordinator id.
 
@@ -125,7 +125,7 @@ class ListenerCoordinator(ABC):
         raise NotImplementedError
     
     @abstractmethod
-    async def registered(self, key: ListenerKey, coordinator_id: Optional[ListenerCoordinatorIdT] = None) -> bool:
+    async def registered(self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None) -> bool:
         """
         Check whether a listener coordinator exists for the given key.
 

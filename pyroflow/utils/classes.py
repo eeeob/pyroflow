@@ -28,7 +28,7 @@ class UpdateBound(Generic[UpdateType]):
         __update_type__: The Pyrogram update class this subclass is bound to.
     """
 
-    __update_type__: ClassVar[Type[UpdateType]]
+    __update_type__: ClassVar[type[UpdateType]]
 
     def __init_subclass__(cls, **kw) -> None:
         super().__init_subclass__(**kw)

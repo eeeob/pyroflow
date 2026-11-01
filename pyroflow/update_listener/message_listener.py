@@ -22,7 +22,7 @@ _COMMAND_RE = re.compile(r"^/([a-zA-Z][a-zA-Z0-9_]{0,31})(?:@(\w+))?(?:\s|$)")
 
 class MessageListener(UpdateListener[Message]):
     __update_type__ = Message
-    _bot_commands_cache: Dict[int, FrozenSet[str]]
+    _bot_commands_cache: dict[int, frozenset[str]]
 
     if not TYPE_CHECKING:
         def __init__(self, *args, **kw):
@@ -107,7 +107,7 @@ class MessageListener(UpdateListener[Message]):
         return name in await self._get_bot_commands(client)
 
 
-    async def _get_bot_commands(self, client: "Client") -> FrozenSet[str]:
+    async def _get_bot_commands(self, client: "Client") -> frozenset[str]:
         """
         The bot's officially registered command names (lowercased), fetched
         via ``client.get_bot_commands()`` at most once per listener

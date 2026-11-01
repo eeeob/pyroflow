@@ -1,4 +1,5 @@
-from typing import Dict, Tuple, Type, Optional, Callable
+from typing import Dict, Tuple, Type, Optional
+from collections.abc import Callable
 from contextvars import ContextVar
 from concurrent.futures import Future
 
@@ -54,13 +55,13 @@ class _CoordinatedRelease:
         self._coordinated = coordinated
         self._lock = lock
         self._loop = loop
-        self._early: Optional[Future] = None
+        self._early: Future | None = None
         self._released: bool = False
 
         # Set once the update's identity is known, which happens after the
         # lock is already held. Until then there is nothing to register, so a
         # settlement in that window releases the lock and marks nothing.
-        self.update_id: Optional[UpdateCoordinatorKeyT] = None
+        self.update_id: UpdateCoordinatorKeyT | None = None
 
     def claim_early(self) -> bool:
         """
@@ -128,7 +129,7 @@ class _CoordinatedRelease:
 # `to_thread` already do — so a sync handler running in the executor, and a
 # raw handler that never sees the parsed update at all, reach the same
 # releaser as an ordinary async handler.
-_handled_marker: ContextVar[Optional[_CoordinatedRelease]] = ContextVar(
+_handled_marker: ContextVar[_CoordinatedRelease | None] = ContextVar(
     "pyroflow_handled_marker", default=None
 )
 
@@ -258,9 +259,9 @@ class Dispatcher(PyroDispatcher):
     def __init__(self, *args, **kw) -> None:
         self.old__init__(*args, **kw)
 
-        self.listeners: Dict[Type[UpdateType], UpdateListener[UpdateType]] = {}
-        self.coordinateds: Dict[Type[UpdateType], UpdateCoordinated[UpdateType]] = {}
-        self.histories: Dict[Type[UpdateType], UpdateHistory[UpdateType]] = {}
+        self.listeners: dict[type[UpdateType], UpdateListener[UpdateType]] = {}
+        self.coordinateds: dict[type[UpdateType], UpdateCoordinated[UpdateType]] = {}
+        self.histories: dict[type[UpdateType], UpdateHistory[UpdateType]] = {}
 
         self.is_started = False
     
@@ -394,7 +395,7 @@ class Dispatcher(PyroDispatcher):
 
         self.histories[update_type] = history
 
-    async def unregister_listener(self, update_type: Type[PyroUpdate]) -> None:
+    async def unregister_listener(self, update_type: type[PyroUpdate]) -> None:
         """
         Unregister and stop the listener for the given update type.
 
@@ -412,7 +413,7 @@ class Dispatcher(PyroDispatcher):
 
         await listener.stop()
     
-    async def unregister_coordinated(self, update_type: Type[PyroUpdate]) -> None:
+    async def unregister_coordinated(self, update_type: type[PyroUpdate]) -> None:
         """
         Unregister and stop the coordinated for the given update type.
 
@@ -430,7 +431,7 @@ class Dispatcher(PyroDispatcher):
 
         await coordinated.stop()
 
-    async def unregister_history(self, update_type: Type[PyroUpdate]) -> None:
+    async def unregister_history(self, update_type: type[PyroUpdate]) -> None:
         """
         Unregister and stop the history for the given update type.
 
@@ -478,10 +479,10 @@ class Dispatcher(PyroDispatcher):
 
     async def _handle_update(
         self, 
-        packet: Tuple[raw.base.Update, Dict[int, raw.base.User], Dict[int, raw.base.Chat]], 
-        parsed_update: Optional[PyroUpdate], 
-        handler_type: Type[Optional[PyroHandler]]
-        ) -> Tuple[int, int]:
+        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]], 
+        parsed_update: PyroUpdate | None, 
+        handler_type: type[PyroHandler | None]
+        ) -> tuple[int, int]:
         """
         Process a single update through the listener and handler pipeline.
 
@@ -581,9 +582,9 @@ class Dispatcher(PyroDispatcher):
     
     async def handle_update(
         self, 
-        packet: Tuple[raw.base.Update, Dict[int, raw.base.User], Dict[int, raw.base.Chat]], 
-        parsed_update: Optional[PyroUpdate], 
-        handler_type: Type[Optional[PyroHandler]]
+        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]], 
+        parsed_update: PyroUpdate | None, 
+        handler_type: type[PyroHandler | None]
         ) -> None:
 
         """

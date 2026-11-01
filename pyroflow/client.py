@@ -165,7 +165,7 @@ class Client(PyroClient):
     """
 
     dispatcher: Dispatcher
-    ask_error_handlers: Dict[Type[UpdateType], AskErrorHandlersT]
+    ask_error_handlers: dict[type[UpdateType], AskErrorHandlersT]
 
     if not TYPE_CHECKING: #for typehints
         def __init__(self, *args, **kw):
@@ -173,7 +173,7 @@ class Client(PyroClient):
             self.ask_error_handlers = {}
 
     @property
-    def listeners(self) -> Dict[Type[UpdateType], UpdateListener[UpdateType]]:
+    def listeners(self) -> dict[type[UpdateType], UpdateListener[UpdateType]]:
         """
         Mapping from each update type to its registered :class:`UpdateListener`.
 
@@ -222,9 +222,9 @@ class Client(PyroClient):
 
     def register_ask_error_handler(
         self,
-        exc_types: Union[Type[Exception], Tuple[Type[Exception], ...]],
+        exc_types: type[Exception] | tuple[type[Exception], ...],
         handler: MaybeCoroutineCallable[[Exception, Message], Any],
-        update_type: Type[UpdateType] = Message,
+        update_type: type[UpdateType] = Message,
         ) -> None:
         """
         Add or replace a client-wide entry in :attr:`ask_error_handlers`, for
@@ -250,8 +250,8 @@ class Client(PyroClient):
 
     def unregister_ask_error_handler(
         self,
-        exc_types: Union[Type[Exception], Tuple[Type[Exception], ...]],
-        update_type: Type[UpdateType] = Message,
+        exc_types: type[Exception] | tuple[type[Exception], ...],
+        update_type: type[UpdateType] = Message,
         ) -> bool:
         """
         Remove the client-wide entry registered under ``exc_types`` for
@@ -279,98 +279,88 @@ class Client(PyroClient):
     @overload
     async def ask(
         self, 
-        chat_id: Union[int, str], 
+        chat_id: int | str, 
         text: str, 
         *, 
-        parse_mode: Optional[pyro_enums.ParseMode] = None, 
-        entities: Optional[List[pyro_types.MessageEntity]] = None, 
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None, 
-        reply_parameters: Optional[pyro_types.ReplyParameters] = None, 
-        disable_notification: Optional[bool] = None, 
-        message_thread_id: Optional[int] = None, 
-        direct_messages_topic_id: Optional[int] = None, 
-        effect_id: Optional[int] = None, 
-        schedule_date: Optional[datetime] = None, 
-        repeat_period: Optional[int] = None, 
-        protect_content: Optional[bool] = None, 
-        business_connection_id: Optional[str] = None, 
-        allow_paid_broadcast: Optional[bool] = None, 
-        paid_message_star_count: Optional[int] = None, 
-        suggested_post_parameters: Optional[pyro_types.SuggestedPostParameters] = None, 
-        reply_markup: Optional[Union[
-            pyro_types.InlineKeyboardMarkup,
-            pyro_types.ReplyKeyboardMarkup,
-            pyro_types.ReplyKeyboardRemove,
-            pyro_types.ForceReply,
-        ]] = None, 
+        parse_mode: pyro_enums.ParseMode | None = None, 
+        entities: list[pyro_types.MessageEntity] | None = None, 
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None, 
+        reply_parameters: pyro_types.ReplyParameters | None = None, 
+        disable_notification: bool | None = None, 
+        message_thread_id: int | None = None, 
+        direct_messages_topic_id: int | None = None, 
+        effect_id: int | None = None, 
+        schedule_date: datetime | None = None, 
+        repeat_period: int | None = None, 
+        protect_content: bool | None = None, 
+        business_connection_id: str | None = None, 
+        allow_paid_broadcast: bool | None = None, 
+        paid_message_star_count: int | None = None, 
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None, 
+        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None, 
         # listen params
-        listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[ListenMessageIdT] = None,
-        meta: Optional[JsonValueT] = None,
-        timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = Message,
-        error_handlers: Optional[AskErrorHandlersT] = None,
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType] = Message,
+        error_handlers: AskErrorHandlersT | None = None,
         **kw
     ) -> UpdateType: ...
 
     @overload
     async def ask(
         self,
-        chat_id: Union[int, str],
+        chat_id: int | str,
         text: str,
         message_id: int,
         *,
-        parse_mode: Optional[pyro_enums.ParseMode] = None,
-        entities: Optional[List[pyro_types.MessageEntity]] = None,
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None,
-        schedule_date: Optional[datetime] = None,
-        business_connection_id: Optional[str] = None,
-        reply_markup: Optional[pyro_types.InlineKeyboardMarkup] = None,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        schedule_date: datetime | None = None,
+        business_connection_id: str | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
-        listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[ListenMessageIdT] = None,
-        meta: Optional[JsonValueT] = None,
-        timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = Message,
-        error_handlers: Optional[AskErrorHandlersT] = None,
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType] = Message,
+        error_handlers: AskErrorHandlersT | None = None,
         **kw
     ) -> UpdateType: ...
 
     async def ask(
         self, 
-        chat_id: Union[int, str], 
+        chat_id: int | str, 
         text: str, 
-        message_id: Optional[int] = None, 
+        message_id: int | None = None, 
         *,
-        parse_mode: Optional[pyro_enums.ParseMode] = None, 
-        entities: Optional[List[pyro_types.MessageEntity]] = None, 
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None, 
-        schedule_date: Optional[datetime] = None, 
-        business_connection_id: Optional[str] = None, 
-        reply_markup: Optional[Union[
-            pyro_types.InlineKeyboardMarkup,
-            pyro_types.ReplyKeyboardMarkup,
-            pyro_types.ReplyKeyboardRemove,
-            pyro_types.ForceReply,
-        ]] = None, 
+        parse_mode: pyro_enums.ParseMode | None = None, 
+        entities: list[pyro_types.MessageEntity] | None = None, 
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None, 
+        schedule_date: datetime | None = None, 
+        business_connection_id: str | None = None, 
+        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None, 
         # send_message only params
-        disable_notification: Optional[bool] = None, 
-        message_thread_id: Optional[int] = None, 
-        direct_messages_topic_id: Optional[int] = None, 
-        effect_id: Optional[int] = None, 
-        reply_parameters: Optional[pyro_types.ReplyParameters] = None, 
-        repeat_period: Optional[int] = None,
-        protect_content: Optional[bool] = None,
-        allow_paid_broadcast: Optional[bool] = None,
-        paid_message_star_count: Optional[int] = None,
-        suggested_post_parameters: Optional[pyro_types.SuggestedPostParameters] = None,
+        disable_notification: bool | None = None, 
+        message_thread_id: int | None = None, 
+        direct_messages_topic_id: int | None = None, 
+        effect_id: int | None = None, 
+        reply_parameters: pyro_types.ReplyParameters | None = None, 
+        repeat_period: int | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        paid_message_star_count: int | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
         # listen params
-        listen_user_id: Optional[int] = None,
-        listen_message_id: Optional[ListenMessageIdT] = None,
-        meta: Optional[JsonValueT] = None,
-        timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = Message,
-        error_handlers: Optional[AskErrorHandlersT] = None,
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType] = Message,
+        error_handlers: AskErrorHandlersT | None = None,
         **kw
     ) -> UpdateType:
         """
@@ -572,7 +562,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
     """
 
     @cached_property
-    def bot_command_groups(self) -> List[Tuple[BotCommandGroupKeyT, List[BotCommand]]]:
+    def bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
         return []
     @cached_property
     def bot_command_groups_lock(self) -> asyncio.Lock:
@@ -633,8 +623,8 @@ class BotCommandsMixin(_BotCommandsMixinBase):
 
     def _collect_bot_commands(
         self, 
-        language_code: Optional[str], 
-        scope: Optional[BotCommandScope], 
+        language_code: str | None, 
+        scope: BotCommandScope | None, 
         commands: MaybeList[BotCommand]
         ) -> None:
         """Add ``commands`` to the ``(language_code, scope)`` group, creating it if new."""
@@ -653,8 +643,8 @@ class BotCommandsMixin(_BotCommandsMixinBase):
 
     def _discard_bot_commands(
         self, 
-        language_code: Optional[str], 
-        scope: Optional[BotCommandScope], 
+        language_code: str | None, 
+        scope: BotCommandScope | None, 
         commands: MaybeList[BotCommand]
         ) -> None:
         """Remove ``commands`` from the ``(language_code, scope)`` group, dropping it once empty."""
@@ -685,7 +675,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         :attr:`bot_command_groups_lock`, so no bookkeeping task can be running.
         """
 
-        declared: List[Tuple[BotCommandGroupKeyT, List[BotCommand]]] = []
+        declared: list[tuple[BotCommandGroupKeyT, list[BotCommand]]] = []
 
         for handlers in list(self.dispatcher.groups.values()):
             for handler in handlers:
@@ -736,7 +726,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         try:
             self._prune_bot_commands()
             for (language_code, scope), commands in self.bot_command_groups:
-                unique: List[BotCommand] = []
+                unique: list[BotCommand] = []
                 for command in commands:
                     if command not in unique:
                         unique.append(command)

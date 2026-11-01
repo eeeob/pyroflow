@@ -1,7 +1,7 @@
 from typing import (
-    TYPE_CHECKING, Optional, Union, Literal, List, Dict,
-    Mapping, Iterable, Tuple, Type, Any, overload, cast,
+    TYPE_CHECKING, Optional, Union, Literal, List, Dict, Tuple, Type, Any, overload, cast,
 )
+from collections.abc import Mapping, Iterable
 from datetime import datetime
 
 try:
@@ -30,13 +30,13 @@ if TYPE_CHECKING:
 @patch_cls
 class Update(PyroUpdate):
     @property
-    def context(self) -> Optional[Dict[str, Any]]:
+    def context(self) -> dict[str, Any] | None:
         try:
             return self.__context
         except AttributeError:
             return
     @context.setter
-    def context(self, value: Optional[Dict[str, Any]]) -> None:
+    def context(self, value: dict[str, Any] | None) -> None:
         if value is None:
             try:
                 del self.__context
@@ -51,7 +51,7 @@ class Update(PyroUpdate):
     @overload
     def with_ctx(self, __m: Mapping[str, Any], **kwargs: Any) -> Self: ...
     @overload
-    def with_ctx(self, __m: Iterable[Tuple[str, Any]], **kwargs: Any) -> Self: ...
+    def with_ctx(self, __m: Iterable[tuple[str, Any]], **kwargs: Any) -> Self: ...
     @overload
     def with_ctx(self, **kwargs: Any) -> Self: ...
     def with_ctx(self, *args: Any, **kwargs: Any) -> Self:
@@ -72,7 +72,7 @@ class User(PyroUser):
     _client: "Client"
 
     @property
-    def lang_code(self) -> Optional[str]:
+    def lang_code(self) -> str | None:
         return lang.split("-")[0].lower() if (lang := self.language_code) else None
 
 if TYPE_CHECKING:
@@ -91,16 +91,16 @@ class Message(PyroMessage):
         text: str,
         force_send: Literal[False] = False,
         *,
-        parse_mode: Optional[pyro_enums.ParseMode] = None,
-        entities: Optional[List[pyro_types.MessageEntity]] = None,
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None,
-        reply_markup: Optional[pyro_types.InlineKeyboardMarkup] = None,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
-        listen_user_id: Optional[int] = None,
+        listen_user_id: int | None = None,
         listen_message_id: Optional["ListenMessageIdT"] = None,
-        meta: Optional[JsonValueT] = None,
-        timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType] = cast(type["Message"], PyroMessage),
         error_handlers: Optional["AskErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
@@ -111,32 +111,27 @@ class Message(PyroMessage):
         text: str,
         force_send: Literal[True],
         *,
-        parse_mode: Optional[pyro_enums.ParseMode] = None,
-        entities: Optional[List[pyro_types.MessageEntity]] = None,
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None,
-        reply_parameters: Optional[pyro_types.ReplyParameters] = None,
-        disable_notification: Optional[bool] = None,
-        message_thread_id: Optional[int] = None,
-        direct_messages_topic_id: Optional[int] = None,
-        effect_id: Optional[int] = None,
-        schedule_date: Optional[datetime] = None,
-        repeat_period: Optional[int] = None,
-        protect_content: Optional[bool] = None,
-        allow_paid_broadcast: Optional[bool] = None,
-        paid_message_star_count: Optional[int] = None,
-        suggested_post_parameters: Optional[pyro_types.SuggestedPostParameters] = None,
-        reply_markup: Optional[Union[
-            pyro_types.InlineKeyboardMarkup,
-            pyro_types.ReplyKeyboardMarkup,
-            pyro_types.ReplyKeyboardRemove,
-            pyro_types.ForceReply,
-        ]] = None,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        schedule_date: datetime | None = None,
+        repeat_period: int | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        paid_message_star_count: int | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
         # listen params
-        listen_user_id: Optional[int] = None,
+        listen_user_id: int | None = None,
         listen_message_id: Optional["ListenMessageIdT"] = None,
-        meta: Optional[JsonValueT] = None,
-        timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType] = cast(type["Message"], PyroMessage),
         error_handlers: Optional["AskErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:
@@ -147,32 +142,27 @@ class Message(PyroMessage):
         text: str,
         force_send: bool = False,
         *,
-        parse_mode: Optional[pyro_enums.ParseMode] = None,
-        entities: Optional[List[pyro_types.MessageEntity]] = None,
-        link_preview_options: Optional[pyro_types.LinkPreviewOptions] = None,
-        reply_parameters: Optional[pyro_types.ReplyParameters] = None,
-        disable_notification: Optional[bool] = None,
-        message_thread_id: Optional[int] = None,
-        direct_messages_topic_id: Optional[int] = None,
-        effect_id: Optional[int] = None,
-        schedule_date: Optional[datetime] = None,
-        repeat_period: Optional[int] = None,
-        protect_content: Optional[bool] = None,
-        allow_paid_broadcast: Optional[bool] = None,
-        paid_message_star_count: Optional[int] = None,
-        suggested_post_parameters: Optional[pyro_types.SuggestedPostParameters] = None,
-        reply_markup: Optional[Union[
-            pyro_types.InlineKeyboardMarkup,
-            pyro_types.ReplyKeyboardMarkup,
-            pyro_types.ReplyKeyboardRemove,
-            pyro_types.ForceReply,
-        ]] = None,
+        parse_mode: pyro_enums.ParseMode | None = None,
+        entities: list[pyro_types.MessageEntity] | None = None,
+        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        schedule_date: datetime | None = None,
+        repeat_period: int | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        paid_message_star_count: int | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | pyro_types.ReplyKeyboardMarkup | pyro_types.ReplyKeyboardRemove | pyro_types.ForceReply | None = None,
         # listen params
-        listen_user_id: Optional[int] = None,
+        listen_user_id: int | None = None,
         listen_message_id: Optional["ListenMessageIdT"] = None,
-        meta: Optional[JsonValueT] = None,
-        timeout: Optional[Number] = None,
-        update_type: Type[UpdateType] = cast(Type["Message"], PyroMessage),
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType] = cast(type["Message"], PyroMessage),
         error_handlers: Optional["AskErrorHandlersT"] = None,
         **kw: Any
     ) -> UpdateType:

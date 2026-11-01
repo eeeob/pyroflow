@@ -1,5 +1,6 @@
 from abc import ABC
-from typing import Optional, Callable, Type
+from typing import Optional, Type
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from ..utils.typings import UpdateType, AsyncLockProto
@@ -66,10 +67,10 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
     def __init__(
         self,
-        coordinator_factory: Optional[Callable[[Type[UpdateType]], UpdateCoordinator]] = None,
-        is_coordinatable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None,
-        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]] = None,
-        extract_update_id_func: Optional[MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]] = None,
+        coordinator_factory: Callable[[type[UpdateType]], UpdateCoordinator] | None = None,
+        is_coordinatable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
+        extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT] | None = None,
+        extract_update_id_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT] | None = None,
         **kw,
     ) -> None:
 
@@ -84,7 +85,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.extract_key_func = extract_key_func
         self.extract_update_id_func = extract_update_id_func
 
-    def _get_executor(self, update: UpdateType) -> Optional[ThreadPoolExecutor]:
+    def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
         return getattr(
             getattr(update, "_client", None),
             "executor",

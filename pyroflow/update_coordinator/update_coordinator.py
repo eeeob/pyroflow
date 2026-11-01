@@ -63,7 +63,7 @@ class UpdateCoordinator(ABC):
 
     def __init__(
         self,
-        update_type: Type[UpdateType],
+        update_type: type[UpdateType],
         lock_ttl: Number = TimeUnit.HOUR,
         handled_ttl: Number = TimeUnit.HOUR,
         blocking_timeout: Number = 5,

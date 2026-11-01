@@ -1,4 +1,5 @@
-from typing import ClassVar, Tuple, Optional, Any, Generator, Dict, TYPE_CHECKING
+from typing import ClassVar, Tuple, Optional, Any, Dict, TYPE_CHECKING
+from collections.abc import Generator
 from dataclasses import dataclass, field, fields, is_dataclass, Field
 from itertools import combinations, count
 from pyrogram.handlers import Handler as PyroHandler
@@ -12,7 +13,7 @@ import time
 import weakref
 
 
-def _get_plan(mask: int) -> Tuple[int, ...]:
+def _get_plan(mask: int) -> tuple[int, ...]:
     optional = [i for i in range(mask.bit_length()) if mask >> i & 1]
     plan = []
 
@@ -30,8 +31,8 @@ def _get_plan(mask: int) -> Tuple[int, ...]:
 
 @dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
 class ListenerKey:
-    PLANS: ClassVar[KeyDefaultDict[int, Tuple[int, ...]]] = KeyDefaultDict(_get_plan)
-    FIELDS: ClassVar[Tuple[Field[Any], ...]]
+    PLANS: ClassVar[KeyDefaultDict[int, tuple[int, ...]]] = KeyDefaultDict(_get_plan)
+    FIELDS: ClassVar[tuple[Field[Any], ...]]
 
     if not TYPE_CHECKING:
         @classproperty(cached=True)
@@ -41,11 +42,11 @@ class ListenerKey:
             return fields(cls)
 
     chat_id: int
-    user_id: Optional[int] = None
-    message_id: Optional[int] = None
+    user_id: int | None = None
+    message_id: int | None = None
 
     @property
-    def to_tuple(self) -> Tuple[int, Optional[int], Optional[int]]:
+    def to_tuple(self) -> tuple[int, int | None, int | None]:
         return tuple(
             getattr(self, f.name)
             for f in self.FIELDS
@@ -111,7 +112,7 @@ class ListenerKey:
 @dataclass(slots=True)
 class ListenerModel:
     key: ListenerKey
-    meta: Optional[JsonValueT] = None
+    meta: JsonValueT | None = None
     future: asyncio.Future = field(default_factory=asyncio.Future)
 
     # Ownership token handed out by the coordinator at registration time.
@@ -120,7 +121,7 @@ class ListenerModel:
     # asynchronously, so a key alone cannot tell a live listener apart from
     # one that was superseded while a signal was still in flight — both
     # resolve() and _cancel() compare this token to stay on the right one.
-    coordinator_id: Optional[ListenerCoordinatorIdT] = None
+    coordinator_id: ListenerCoordinatorIdT | None = None
 
 
     def resolve(self, update) -> None:
@@ -140,10 +141,10 @@ class _WeakSlots:
 @dataclass(slots=True)
 class UpdateRecord(_WeakSlots):
     _SEQ: ClassVar[int] = count()
-    _SEQ_IDS: ClassVar[Dict[int, int]] = {}
+    _SEQ_IDS: ClassVar[dict[int, int]] = {}
 
     handler: PyroHandler
-    data: Optional[Any] = None
+    data: Any | None = None
     created_at: Number = field(default_factory=time.time)
 
     def __post_init__(self):

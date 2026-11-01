@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, overload
+from typing import TYPE_CHECKING, Any, Optional, Tuple, overload
+from collections.abc import Callable
 
 from pyrogram.sync import async_to_sync
 from pyrogram.types import BotCommand
@@ -40,14 +41,14 @@ def patch_cls(
     *,
     preserve_old: bool = True,
     setter: Callable[[type, str, Any], None] = patch_setter,
-    include_dunders: Tuple[str, ...] = ("__init__",),
+    include_dunders: tuple[str, ...] = ("__init__",),
     ) -> Callable[[_CT], _CT]: ...
 def patch_cls(
-    patch_class: Optional[_CT] = None,
+    patch_class: _CT | None = None,
     *,
     preserve_old: bool = True,
     setter: Callable[[type, str, Any], None] = patch_setter,
-    include_dunders: Tuple[str, ...] = ("__init__",),
+    include_dunders: tuple[str, ...] = ("__init__",),
     ):
     """pytrove.misc_tools.patch_cls, with pyroflow's own default setter.
 

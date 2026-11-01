@@ -1,5 +1,6 @@
 from abc import ABC
-from typing import Callable, Union, Sequence, Type, Optional, Any
+from typing import Union, Type, Optional, Any
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 
 from pyrogram.handlers import Handler as PyroHandler
@@ -56,10 +57,10 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
 
     def __init__(
         self, 
-        store_factory: Optional[Callable[[Type[UpdateType]], UpdateHistoryStore]] = None, 
-        is_recordable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None, 
-        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], UpdateHistoryKeyT]] = None, 
-        extract_data_func: Optional[MaybeCoroutineCallable[[UpdateType], Any]] = None, 
+        store_factory: Callable[[type[UpdateType]], UpdateHistoryStore] | None = None, 
+        is_recordable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None, 
+        extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateHistoryKeyT] | None = None, 
+        extract_data_func: MaybeCoroutineCallable[[UpdateType], Any] | None = None, 
         **kw, 
     ) -> None:
         
@@ -75,7 +76,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.extract_data_func = extract_data_func
 
         
-    def _get_executor(self, update: UpdateType) -> Optional[ThreadPoolExecutor]:
+    def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
         return getattr(
             getattr(update, "_client", None), 
             "executor", 
@@ -219,7 +220,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
 
         await self.store.update(key, *records)
 
-    async def get(self, update: Union[UpdateType, UpdateHistoryKeyT]) -> Sequence[UpdateRecord]:
+    async def get(self, update: UpdateType | UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
         """
         Retrieve all recorded handlers for the given update or key.
 
@@ -247,7 +248,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
 
         return await self.store.get(key)
     
-    async def pop(self, update: Union[UpdateType, UpdateHistoryKeyT]) -> Sequence[UpdateRecord]:
+    async def pop(self, update: UpdateType | UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
         """
         Remove and Retrieve all recorded handlers for the given update or key.
 
@@ -275,7 +276,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
 
         return await self.store.pop(key)
 
-    async def clear(self, update: Union[UpdateType, UpdateHistoryKeyT]) -> None:
+    async def clear(self, update: UpdateType | UpdateHistoryKeyT) -> None:
         """
         Delete all records for the given update or key.
 

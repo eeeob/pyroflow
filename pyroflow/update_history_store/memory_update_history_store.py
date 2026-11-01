@@ -44,17 +44,17 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         self.ttl = ttl
         self.max_history_len = max_history_len
 
-        self.histories: TTLCache[UpdateHistoryKeyT, List[UpdateRecord]] = TTLCache(
+        self.histories: TTLCache[UpdateHistoryKeyT, list[UpdateRecord]] = TTLCache(
             maxsize=max_keys, ttl=ttl
         )
 
     def _expires_at(self, record: UpdateRecord) -> Number:
         return record.created_at + self.ttl
     
-    def _is_expired(self, record: UpdateRecord, now: Optional[Number] = None) -> bool:
+    def _is_expired(self, record: UpdateRecord, now: Number | None = None) -> bool:
         return (time.time() if now is None else now) >= self._expires_at(record)
 
-    def _clean_up(self, heap: List[UpdateRecord], now: Optional[Number] = None) -> List[UpdateRecord]:
+    def _clean_up(self, heap: list[UpdateRecord], now: Number | None = None) -> list[UpdateRecord]:
         if now is None:
             now = time.time()
 

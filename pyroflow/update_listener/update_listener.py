@@ -1,4 +1,5 @@
-from typing import Optional, Callable, Dict
+from typing import Optional, Dict
+from collections.abc import Callable
 from abc import ABC
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
@@ -90,12 +91,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     
     def __init__(
         self, 
-        coordinator_factory: Optional[Callable[["UpdateListener"], ListenerCoordinator]] = None, 
-        duplicate_policy: Optional[DuplicatePolicy] = None, 
-        is_listenable_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None,
-        extract_key_func: Optional[MaybeCoroutineCallable[[UpdateType], ListenerKey]] = None,
-        bypass_func: Optional[MaybeCoroutineCallable[[UpdateType], bool]] = None,
-        timeout: Optional[Number] = None,
+        coordinator_factory: Callable[["UpdateListener"], ListenerCoordinator] | None = None, 
+        duplicate_policy: DuplicatePolicy | None = None, 
+        is_listenable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
+        extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey] | None = None,
+        bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
+        timeout: Number | None = None,
         **kw
         ) -> None:
 
@@ -118,7 +119,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         # Local listeners currently owned by this process.
         # Cross-process coordination is handled by the coordinator.
-        self.listeners: Dict[ListenerKey, ListenerModel] = {}
+        self.listeners: dict[ListenerKey, ListenerModel] = {}
 
     async def start(self) -> None:
         await self.coordinator.start()
@@ -145,7 +146,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         key: ListenerKey,
         cancel_coordinator: bool = True,
         is_duplicate: bool = False,
-        coordinator_id: Optional[ListenerCoordinatorIdT] = None,
+        coordinator_id: ListenerCoordinatorIdT | None = None,
         ) -> bool:
         """
         Cancel a listener by key, setting a :class:`ListenerCancelled`
@@ -196,7 +197,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         key: ListenerKey,
         cancel_coordinator: bool = True,
         is_duplicate: bool = False,
-        coordinator_id: Optional[ListenerCoordinatorIdT] = None,
+        coordinator_id: ListenerCoordinatorIdT | None = None,
         ) -> bool:
         """
         Safely cancel a listener under the chat lock.
@@ -240,11 +241,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     async def listen(
         self, 
         chat_id: int, 
-        user_id: Optional[int] = None, 
-        message_id: Optional[int] = None, 
-        meta: Optional[JsonValueT] = None, 
+        user_id: int | None = None, 
+        message_id: int | None = None, 
+        meta: JsonValueT | None = None, 
         *, 
-        timeout: Optional[Number] = None, 
+        timeout: Number | None = None, 
         ) -> UpdateType:
 
         """
@@ -445,7 +446,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """
         raise UnresolvedUpdate(update)
 
-    def _get_executor(self, update: UpdateType) -> Optional[ThreadPoolExecutor]:
+    def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
         return getattr(
             getattr(update, "_client", None), 
             "executor", 

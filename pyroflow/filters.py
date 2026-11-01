@@ -13,7 +13,8 @@ same way::
 ``.caption``), :class:`~pyrogram.types.CallbackQuery` uses ``.data``.
 """
 
-from typing import Optional, Union, NoReturn, Callable, Coroutine, TYPE_CHECKING
+from typing import Optional, Union, NoReturn, TYPE_CHECKING
+from collections.abc import Callable, Coroutine
 from enum import Enum, EnumMeta as EnumType
 from functools import wraps 
 
@@ -64,7 +65,7 @@ def equal(*texts: "NestedContainer[str]") -> Filter:
 def split_text(
     *rules: Union["MaybeCoroutineCallable[[str], bool]", "NestedContainer[str]", EnumType], 
     strip: bool = False, 
-    separator: Optional[str] = None, 
+    separator: str | None = None, 
     ) -> Filter:
     """
     Split the update's text by ``separator`` and match each part against the
@@ -120,7 +121,7 @@ def split_text(
             "separator is required when split_text is given more than one rule"
         )
 
-    async def caller(_, client: "Client", update: Union[Message, Query]) -> bool:
+    async def caller(_, client: "Client", update: Message | Query) -> bool:
         text = extract_pyro_update_text(update)
 
         if not text:

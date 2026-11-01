@@ -107,12 +107,12 @@ class RedisListenerCoordinator(ListenerCoordinator):
         self.lock_timeout = lock_timeout
         self.lock_blocking_timeout = lock_blocking_timeout
 
-        self.pubsub: Optional['PubSub'] = None
-        self.listening_task: Optional[asyncio.Task] = None
+        self.pubsub: PubSub | None = None
+        self.listening_task: asyncio.Task | None = None
         # In-flight cancel applications. Held strongly so they are not garbage
         # collected mid-flight, and drained on stop() so shutdown does not
         # abandon a cancellation halfway through.
-        self._pending_cancels: Set[asyncio.Task] = set()
+        self._pending_cancels: set[asyncio.Task] = set()
 
         self._sep = "|"
         self._key_format = (
@@ -120,7 +120,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
             f"{self.update_type_name}{self._sep}{{key}}"
         )
         self._null = "_"
-        self._owned_registrations: Dict[str, str] = {}
+        self._owned_registrations: dict[str, str] = {}
 
         self.cancel_channel_name = f"cancel{self._sep}listen{self._sep}{self.update_type_name}"
         
