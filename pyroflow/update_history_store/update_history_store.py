@@ -13,16 +13,12 @@ if TYPE_CHECKING:
 
 
 class UpdateHistoryStore(ABC):
-    """Abstract base for handler history storage backends.
+    """Store, read and expire `UpdateRecord` entries under history keys.
 
-    Responsible for persisting, retrieving, and expiring
-    :class:`UpdateRecord` entries under arbitrary ``UpdateHistoryKeyT`` keys.
-
-    Capacity and TTL settings are left to each concrete backend.
+    Each backend sets its own capacity and TTL.
 
     Args:
         update_type: The Pyrogram update class this store handles.
-            Its name is used to namespace the storage keys.
         **kw: Passed to the next class in the MRO.
     """
 
@@ -34,51 +30,44 @@ class UpdateHistoryStore(ABC):
 
     @abstractmethod
     async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
-        """Save records under the given key.
+        """Save records under `key`.
 
         Args:
-            key: An arbitrary ``UpdateHistoryKeyT`` identifying the (chat, user) context.
-            *records: The :class:`UpdateRecord` to persist.
+            key: The history key.
+            *records: The records to save.
         """
         raise NotImplementedError
 
     @abstractmethod
     async def get(self, key: UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
-        """Load all records stored under the given key.
-
-        Expired records must not be returned.
+        """Return the unexpired records under `key`.
 
         Args:
-            key: The storage key to retrieve records for.
+            key: The history key.
 
         Returns:
-            A sequence of :class:`UpdateRecord` ordered from oldest
-            to newest, or an empty sequence if none exist.
+            The records, oldest first; empty if there are none.
         """
         raise NotImplementedError
 
     @abstractmethod
     async def pop(self, key: UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
-        """Remove and return the newest record stored under the given key.
-
-        Expired records must not be returned. If all records are expired,
-        they should be discarded before attempting to pop.
+        """Remove every record under `key` and return the unexpired ones.
 
         Args:
-            key: The storage key to pop a record from.
+            key: The history key.
 
         Returns:
-            A sequence of :class:`UpdateRecord` ordered from oldest
-            to newest, or an empty sequence if none exist.
+            The removed records, oldest first; empty if there were none.
         """
         raise NotImplementedError
 
     @abstractmethod
     async def delete(self, key: UpdateHistoryKeyT) -> None:
-        """Delete all records stored under the given key.
+        """Delete every record under `key`.
 
         Args:
-            key: The storage key whose records should be deleted.
+            key: The history key.
         """
         raise NotImplementedError
 

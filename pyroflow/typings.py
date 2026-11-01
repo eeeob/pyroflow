@@ -56,10 +56,10 @@ BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeLis
 # The key a collected command group is filed under by `BotCommandsMixin`.
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 
-# Error handlers for `ask()` only — nothing else consults this mapping. Maps one
-# or more exception types to a handler invoked with `(exc, message)` when that
-# error occurs while `ask()` awaits the listener, before listening finishes.
-# Used by `Client.ask(error_handlers=...)` and `Client.ask_error_handlers`.
+# Error handlers consulted only by `ask()`: maps one or more exception types to
+# a handler called with `(exc, message)` when that error occurs while `ask()`
+# awaits the listener. Used by `Client.ask(error_handlers=...)` and
+# `Client.ask_error_handlers`.
 AskErrorHandlersT: TypeAlias = dict[
     type[Exception] | tuple[type[Exception], ...],
     MaybeCoroutineCallable[[Exception, "Message"], Any],
@@ -72,13 +72,13 @@ ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
 
 
 class AsyncLockProto(Protocol):
-    """An asyncio-style lock whose ``release`` is awaitable too."""
+    """An asyncio-style lock whose `release` is awaitable too."""
 
     async def acquire(self) -> bool:
         """Try to acquire the lock.
 
         Returns:
-            ``True`` once the lock is held, or ``False`` if a bounded wait
+            `True` once the lock is held, or `False` if a bounded wait
             timed out.
         """
 
@@ -86,7 +86,7 @@ class AsyncLockProto(Protocol):
         """Release the lock."""
 
     async def __aenter__(self) -> object:
-        """Acquire the lock on entering the ``async with`` block."""
+        """Acquire the lock on entering the `async with` block."""
 
     async def __aexit__(
         self,
@@ -95,7 +95,7 @@ class AsyncLockProto(Protocol):
         tb: TracebackType | None,
         /,
     ) -> None:
-        """Release the lock on leaving the ``async with`` block."""
+        """Release the lock on leaving the `async with` block."""
 
 
 __all__ = (

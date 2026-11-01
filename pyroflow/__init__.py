@@ -1,4 +1,4 @@
-"""Conversation extensions for Pyrogram: ``ask``, listeners, update coordination and history.
+"""Conversation extensions for Pyrogram: `ask`, listeners, update coordination and history.
 
 Importing this package patches Pyrogram's classes in place.
 """
@@ -15,7 +15,7 @@ from .dispatcher import *
 from .types import *
 
 # The one submodule exposed as an object rather than star-imported: its
-# filter factories stay namespaced as ``pyroflow.filters.<name>``.
+# filter factories stay namespaced as `pyroflow.filters.<name>`.
 from . import filters
 
 __version__ = "0.2.1"

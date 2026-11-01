@@ -12,11 +12,11 @@ else:
     from enum import Enum
 
     class StrEnum(str, Enum):
-        """Backport of :class:`enum.StrEnum` for Python 3.10."""
+        """Backport of `enum.StrEnum` for Python 3.10."""
 
         @staticmethod
         def _generate_next_value_(name: str, start: int, count: int, last_values: list[Any]) -> str:
-            """Return the lower-cased member name as the ``auto()`` value."""
+            """Return the lower-cased member name as the `auto()` value."""
             return name.lower()
 
         def __str__(self) -> str:
@@ -33,7 +33,7 @@ class DuplicatePolicy(StrEnum):
     """
 
     REJECT = auto()
-    """Refuse the new listener by raising ``ListenerAlreadyExists``."""
+    """Refuse the new listener by raising `ListenerAlreadyExists`."""
     REPLACE = auto()
     """Cancel the existing listener, then register the new one."""
 

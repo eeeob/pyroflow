@@ -1,4 +1,4 @@
-"""Pyrogram update types patched with conversation helpers such as ``Message.ask``."""
+"""Pyrogram update types patched with conversation helpers such as `Message.ask`."""
 
 from __future__ import annotations as _annotations
 
@@ -38,13 +38,22 @@ if TYPE_CHECKING:
 
 @patch_cls
 class Update(PyroUpdate):
-    """Pyrogram ``Update`` extended with a per-update :attr:`context` dict."""
+    """Pyrogram `Update` extended with a per-update `context` dict."""
 
     @property
     def context(self) -> dict[str, Any] | None:
-        """Arbitrary data attached to this update, or ``None`` if none is set.
+        """Arbitrary data attached to this update, or `None` if none is set.
 
-        Setting it to ``None`` removes it.
+        Setting it to `None` removes it.
+
+        Example:
+            >>> message = Message(id=1)
+            >>> message.context = {"step": 1}
+            >>> message.context
+            {'step': 1}
+            >>> message.context = None
+            >>> message.context is None
+            True
         """
         try:
             return self.__context
@@ -53,7 +62,7 @@ class Update(PyroUpdate):
 
     @context.setter
     def context(self, value: dict[str, Any] | None) -> None:
-        """Attach ``value`` as the context, or remove it when ``value`` is ``None``."""
+        """Attach `value` as the context, or remove it when `value` is `None`."""
         if value is None:
             try:
                 del self.__context
@@ -78,9 +87,13 @@ class Update(PyroUpdate):
     @overload
     def with_ctx(self, **kwargs: Any) -> Self: ...
     def with_ctx(self, *args: Any, **kwargs: Any) -> Self:
-        """Merge into :attr:`context` (same arguments as ``dict.update``) and return ``self``.
+        """Merge into `context` (same arguments as `dict.update`) and return `self`.
 
-        Meant for chaining right after the update is built.
+        Creates the context first if none is set.
+
+        Example:
+            >>> Message(id=1).with_ctx({"step": 1}, lang="en").context
+            {'step': 1, 'lang': 'en'}
         """
         context = self.context
         if context is None:
@@ -92,25 +105,32 @@ class Update(PyroUpdate):
 
 @patch_cls
 class User(PyroUser):
-    """Pyrogram ``User`` extended with :attr:`lang_code`."""
+    """Pyrogram `User` extended with `lang_code`."""
 
     _client: Client
 
     @property
     def lang_code(self) -> str | None:
-        """Primary language subtag of ``language_code``, lowercased, or ``None`` if unknown."""
+        """Primary language subtag of `language_code`, lowercased, or `None` if unknown.
+
+        Example:
+            >>> User(id=1, language_code="pt-BR").lang_code
+            'pt'
+            >>> User(id=2).lang_code is None
+            True
+        """
         return lang.split("-")[0].lower() if (lang := self.language_code) else None
 
 
 if TYPE_CHECKING:
 
     class User(User, Update):
-        """Typing-only view of :class:`User` that also exposes the patched :class:`Update` members."""
+        """Typing-only view of `User` that also exposes the patched `Update` members."""
 
 
 @patch_cls
 class Message(PyroMessage):
-    """Pyrogram ``Message`` extended with :meth:`ask`, :attr:`editable` and :attr:`respond`."""
+    """Pyrogram `Message` extended with `ask`, `editable` and `respond`."""
 
     _client: Client
     from_user: User | None
@@ -257,78 +277,53 @@ class Message(PyroMessage):
     ) -> PyroUpdate:
         """Send a new message or edit the current one, then wait for a matching update.
 
-        This method dynamically evaluates the context of the current message to determine
-        the execution flow:
-
-        1. **Auto-Edit Mode** (Default behavior): If the current message was sent by the bot
-           itself and ``force_send`` is ``False``, the method modifies the current message
-           in place using ``edit_message_text`` to keep a clean chat interface.
-        2. **Send/Reply Mode**: If the message belongs to another user or ``force_send=True``
-           is explicitly requested, it sends a brand-new message configured as a direct
-           reply to this message.
+        If this message is `editable` and `force_send` is `False`, it is edited in
+        place; otherwise a new message is sent as a reply to it. The send-only
+        arguments (`reply_parameters` through `suggested_post_parameters`) must be
+        left as `None` when editing.
 
         Args:
-            text: The text of the message to be sent or edited.
-            force_send: If ``True``, send a new reply message even if the current message
-                is editable.
-            parse_mode: By default, the text is parsed using both HTML and Markdown styles.
-                Pass ``None`` to disable parsing.
-            entities: Special entities to appear in the message text, which can be specified
-                instead of ``parse_mode``.
-            link_preview_options: Link preview generation options for the message.
-            reply_parameters: If sending a new message, configuration options for the reply.
-                If omitted, it defaults to replying directly to this message.
-                *(Forbidden in Auto-Edit Mode)*.
-            disable_notification: Sends the message silently if a new message is dispatched.
-                Users will receive a notification with no sound.
-                *(Forbidden in Auto-Edit Mode)*.
-            message_thread_id: Unique identifier for the target message thread/topic.
-                Automatically inherited from the current message if not provided.
-                *(Forbidden in Auto-Edit Mode)*.
-            direct_messages_topic_id: Unique identifier for the business connection DM topic.
-                Automatically inherited from the current message if not provided.
-                *(Forbidden in Auto-Edit Mode)*.
-            effect_id: Unique identifier of the message effect to be applied.
-                *(Forbidden in Auto-Edit Mode)*.
-            schedule_date: Date when the message will be automatically sent.
-                *(Forbidden in Auto-Edit Mode)*.
-            repeat_period: Interval in seconds for message repetition.
-                *(Forbidden in Auto-Edit Mode)*.
-            protect_content: If ``True``, protects the contents of the sent message from
-                forwarding and saving. *(Forbidden in Auto-Edit Mode)*.
-            allow_paid_broadcast: Pass ``True`` to allow paid broadcast.
-                *(Forbidden in Auto-Edit Mode)*.
-            paid_message_star_count: Amount of Telegram Stars required to view the message.
-                *(Forbidden in Auto-Edit Mode)*.
-            suggested_post_parameters: Parameters for suggested channel posts.
-                *(Forbidden in Auto-Edit Mode)*.
-            reply_markup: Additional interface options. **Note:** Auto-Edit Mode strictly
-                only supports :obj:`~pyrogram.types.InlineKeyboardMarkup`.
-            listen_user_id: Filter the awaited update to listen only to a specific user ID.
-            listen_message_id: Filter the awaited update to listen only to a specific message
-                ID. Can also be a synchronous callable receiving the sent/edited message and
-                returning the id to filter by (or ``None`` for no filtering), e.g.
-                ``lambda m: m.id + 1``. Must be fast and non-blocking: it runs inline on the
-                event loop.
-            meta: Metadata to attach to the created listener.
-            timeout: Maximum duration in seconds to wait for a response before raising
-                ``ListenerTimeout``.
-            update_type: The expected class of the update to listen for.
-                Defaults to :obj:`~pyroflow.types.Message`.
-            error_handlers: ``{exc_type_or_tuple: handler}`` mapping. If listening raises
-                before completing, the dict is scanned in order and the handler for the first
-                key matching ``isinstance(exc, key)`` is awaited as ``handler(exc, m)``, where
-                ``m`` is the sent/edited message. The original exception is still re-raised
-                afterwards.
-            **kw: Additional keyword arguments passed directly down to the underlying client.
+            text: The text to send or edit.
+            force_send: Send a new reply even if this message is `editable`.
+            parse_mode: How `text` is parsed; `None` uses the client default.
+            entities: Entities to use instead of `parse_mode`.
+            link_preview_options: Link preview options for the message.
+            reply_parameters: Reply options; defaults to replying to this message.
+            disable_notification: Send the message silently.
+            message_thread_id: Target topic; defaults to this message's topic.
+            direct_messages_topic_id: Target direct messages topic; defaults to this
+                message's one.
+            effect_id: Message effect to apply.
+            schedule_date: Date to send the message at.
+            repeat_period: Interval in seconds to repeat the message at.
+            protect_content: Protect the message from forwarding and saving.
+            allow_paid_broadcast: Allow a paid broadcast.
+            paid_message_star_count: Telegram Stars paid to send the message.
+            suggested_post_parameters: Parameters of a suggested channel post.
+            reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
+            listen_user_id: Only accept updates from this user.
+            listen_message_id: Only accept updates for this message id, or a sync
+                callable that receives the sent/edited message and returns the id (or
+                `None` for no filter). It runs inline on the event loop, so keep it fast.
+            meta: Metadata attached to the created listener.
+            timeout: Seconds to wait before raising `ListenerTimeout`.
+            update_type: Class of the update to wait for.
+            error_handlers: `{exc_type_or_tuple: handler}` mapping. If listening
+                raises, the handler of the first key matching `isinstance(exc, key)` is
+                awaited as `handler(exc, m)` with `m` the sent/edited message. If none
+                matches, the client-wide handlers for `update_type` are tried. The
+                exception is re-raised either way.
+            **kw: Passed through to `Client.ask`.
 
         Returns:
-            The matching update object received from the listener.
+            The first matching update.
 
         Raises:
-            ValueError: If invoked on an empty or a service message, or if explicit
-                send-only parameters are passed while the call resolves into Auto-Edit Mode.
-            ListenerTimeout: If the timeout limit is reached before a valid update arrives.
+            RuntimeError: If no listener is registered for `update_type`.
+            ValueError: If this is a service or empty message, or if send-only
+                arguments are passed while the message is edited.
+            ListenerTimeout: If no matching update arrives within `timeout`.
+            ListenerCancelled: If the listener is cancelled while waiting.
         """
         if self.service or self.empty:
             msg = "Cannot call 'ask' on a service or empty message."
@@ -405,26 +400,26 @@ class Message(PyroMessage):
 
     @property
     def editable(self) -> bool:
-        """``True`` if this message was sent by the client itself, so it can be edited."""
+        """`True` if this message was sent by the client itself, so it can be edited."""
         return getattr(self.from_user, "is_self", False) or getattr(
             self.sender_chat, "id", None
         ) == getattr(self._client.me, "id", 0)
 
     @property
     def respond(self) -> Callable[..., Awaitable[PyroMessage | None]]:
-        """``edit`` if this message is :attr:`editable`, otherwise ``reply``."""
+        """`edit` if this message is `editable`, otherwise `reply`."""
         return self.edit if self.editable else self.reply
 
 
 if TYPE_CHECKING:
 
     class Message(Message, Update):
-        """Typing-only view of :class:`Message` that also exposes the patched :class:`Update` members."""
+        """Typing-only view of `Message` that also exposes the patched `Update` members."""
 
 
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
-    """Pyrogram ``CallbackQuery`` with its ``message`` and ``from_user`` typed as the patched classes."""
+    """Pyrogram `CallbackQuery` with `message` and `from_user` typed as the patched classes."""
 
     _client: Client
     message: Message | None
@@ -434,7 +429,7 @@ class CallbackQuery(PyroCallbackQuery):
 if TYPE_CHECKING:
 
     class CallbackQuery(CallbackQuery, Update):
-        """Typing-only view of :class:`CallbackQuery` that also exposes the patched :class:`Update` members."""
+        """Typing-only view of `CallbackQuery` that also exposes the patched `Update` members."""
 
 
 __all__ = (

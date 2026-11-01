@@ -25,37 +25,39 @@ if TYPE_CHECKING:
 
 
 class UpdateHistory(ABC, UpdateBound[UpdateType]):
-    """Abstract base for per-update-type handler history.
+    """Record which handlers processed each update of one Pyrogram type.
 
-    Each subclass is bound to a single Pyrogram update type via
-    ``__update_type__`` and defines how to extract a :data:`UpdateHistoryKeyT`
-    from an incoming update. The store factory is responsible for all
-    storage details (TTL, capacity, backend).
-
-    The dispatcher records a :class:`UpdateRecord` after every
-    successful handler invocation, allowing later handlers (e.g. a
-    ``back`` handler) to replay or inspect previous processing.
-
-    Each of the three core behaviours — recordability check, key extraction,
-    and data extraction — can be provided either by overriding the
-    corresponding method in a subclass, or by passing a callable at
-    construction time via ``is_recordable_func``, ``extract_key_func``,
-    or ``extract_data_func``.
+    A subclass binds the update type with `__update_type__`. Each of
+    `is_recordable`, `extract_key` and `extract_data` comes either from the
+    matching `*_func` argument or from an override; the store owns TTL and
+    capacity. Sync callables run in a thread, on the executor of the update's
+    client when it has one.
 
     Args:
-        store_factory: Optional callable that receives the update type and
-            returns a configured :class:`UpdateHistoryStore` instance. If
-            ``None``, a :class:`MemoryUpdateHistoryStore` will be used.
-        is_recordable_func: Optional callable ``(update) -> bool`` used by
-            :meth:`is_recordable`. If ``None``, the method must be overridden
-            in a subclass.
-        extract_key_func: Optional callable ``(update) -> UpdateHistoryKeyT``
-            used by :meth:`extract_key`. If ``None``, the method must be
-            overridden in a subclass.
-        extract_data_func: Optional callable ``(update) -> Any`` used by
-            :meth:`extract_data`. If ``None``, the method must be overridden
-            in a subclass.
+        store_factory: Called with the update type to build the store;
+            `MemoryUpdateHistoryStore` when `None`.
+        is_recordable_func: `(update) -> bool`, sync or async, used by `is_recordable`.
+        extract_key_func: `(update) -> UpdateHistoryKeyT`, sync or async, used by
+            `extract_key`.
+        extract_data_func: `(update) -> Any`, sync or async, used by `extract_data`.
         **kw: Passed to the next class in the MRO.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Chat, Message
+        >>> class TextHistory(UpdateHistory[Message]):
+        ...     __update_type__ = Message
+        >>> history = TextHistory(
+        ...     is_recordable_func=lambda m: m.text is not None,
+        ...     extract_key_func=lambda m: (m.chat.id,),
+        ...     extract_data_func=lambda m: m.text,
+        ... )
+        >>> async def main():
+        ...     await history.record(Message(id=1, chat=Chat(id=5), text="hi"), "start")
+        ...     await history.record(Message(id=2, chat=Chat(id=5)), "photo")
+        ...     return [(r.handler, r.data) for r in await history.get((5,))]
+        >>> asyncio.run(main())
+        [('start', 'hi')]
     """
 
     def __init__(
@@ -79,25 +81,22 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.extract_data_func = extract_data_func
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        """Return the executor of the update's client, or ``None`` if it has none."""
+        """Return the executor of the update's client, or `None` if it has none."""
         return getattr(getattr(update, "_client", None), "executor", None)
 
     async def is_recordable(self, update: UpdateType) -> bool:
-        """Determine whether this update should be recorded.
-
-        Called before any key extraction or storage operation.
-        Return ``False`` to skip recording entirely for this update.
+        """Return whether the update should be recorded; checked before any key or store access.
 
         Args:
-            update: The incoming Pyrogram update.
+            update: The incoming update.
 
         Returns:
-            ``True`` if the update should be recorded, ``False`` otherwise.
+            `True` to record the update, `False` to skip it.
 
         Raises:
-            NotImplementedError: If no ``is_recordable_func`` was passed and the
+            NotImplementedError: If no `is_recordable_func` was passed and the
                 method is not overridden.
-            TypeError: If ``update`` is not of the bound update type.
+            TypeError: If `update` is not of the bound update type.
         """
         if self.is_recordable_func is None:
             msg = (
@@ -113,21 +112,18 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateHistoryKeyT:
-        """Extract a storage key from the update.
-
-        Only called when :meth:`is_recordable` returns ``True``.
+        """Return the store key of a recordable update.
 
         Args:
-            update: The incoming Pyrogram update.
+            update: The incoming update.
 
         Returns:
-            A :data:`UpdateHistoryKeyT` that uniquely identifies the
-            (chat, user) context.
+            The key its records are stored under.
 
         Raises:
-            NotImplementedError: If no ``extract_key_func`` was passed and the
+            NotImplementedError: If no `extract_key_func` was passed and the
                 method is not overridden.
-            TypeError: If ``update`` is not of the bound update type.
+            TypeError: If `update` is not of the bound update type.
         """
         if self.extract_key_func is None:
             msg = (
@@ -143,20 +139,18 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_data(self, update: UpdateType) -> Any:
-        """Extract relevant data from the update to attach to each record.
-
-        Only called when :meth:`is_recordable` returns ``True``.
+        """Return the data stored with each record of a recordable update.
 
         Args:
-            update: The incoming Pyrogram update.
+            update: The incoming update.
 
         Returns:
-            Any data worth storing alongside the handler record.
+            The data attached to the records.
 
         Raises:
-            NotImplementedError: If no ``extract_data_func`` was passed and the
+            NotImplementedError: If no `extract_data_func` was passed and the
                 method is not overridden.
-            TypeError: If ``update`` is not of the bound update type.
+            TypeError: If `update` is not of the bound update type.
         """
         if self.extract_data_func is None:
             msg = (
@@ -172,16 +166,13 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         )
 
     async def record(self, update: UpdateType, handler: PyroHandler, check: bool = True) -> None:
-        """Record a single successful handler invocation for the given update.
-
-        Silently skips if :meth:`is_recordable` returns ``False``.
+        """Record that `handler` processed `update`; does nothing if the update is not recordable.
 
         Args:
-            update: The update that was processed.
+            update: The processed update.
             handler: The handler that processed it.
-            check: If ``True``, calls :meth:`is_recordable` before recording.
-                Pass ``False`` to skip the check when the caller has already
-                verified recordability.
+            check: Whether to call `is_recordable` first; pass `False` when the
+                caller already checked it.
         """
         if check:
             if not await self.is_recordable(update):
@@ -195,16 +186,15 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
     async def record_many(
         self, update: UpdateType, handlers: Sequence[PyroHandler], check: bool = True
     ) -> None:
-        """Record multiple handler invocations for the given update at once.
+        """Record several handlers for `update` in one store write, sharing one timestamp.
 
-        Silently skips if :meth:`is_recordable` returns ``False``.
+        Does nothing if the update is not recordable.
 
         Args:
-            update: The update that was processed.
+            update: The processed update.
             handlers: The handlers to record, in invocation order.
-            check: If ``True``, calls :meth:`is_recordable` before recording.
-                Pass ``False`` to skip the check when the caller has already
-                verified recordability.
+            check: Whether to call `is_recordable` first; pass `False` when the
+                caller already checked it.
         """
         if check:
             if not await self.is_recordable(update):
@@ -220,20 +210,16 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         await self.store.update(key, *records)
 
     async def get(self, update: UpdateType | UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
-        """Retrieve all recorded handlers for the given update or key.
+        """Return the records stored for an update or a key.
 
-        If a :class:`PyroUpdate` is passed, :meth:`is_recordable` is called
-        first and an empty sequence is returned if it yields ``False``.
-        If a :data:`UpdateHistoryKeyT` is passed directly, the check
-        is skipped.
+        An update that is not recordable yields an empty sequence; a key skips
+        that check.
 
         Args:
-            update: The incoming Pyrogram update or a raw
-                :data:`UpdateHistoryKeyT` to look up directly.
+            update: An update, or a key to look up directly.
 
         Returns:
-            A sequence of :class:`UpdateRecord` ordered from oldest
-            to newest, or an empty sequence if none exist.
+            The records, oldest first; empty if there are none.
         """
         if isinstance(update, PyroUpdate):
             # `ty` keeps a theoretical `tuple & Update` member; a real update lands here.
@@ -249,20 +235,16 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         return await self.store.get(key)
 
     async def pop(self, update: UpdateType | UpdateHistoryKeyT) -> Sequence[UpdateRecord]:
-        """Remove and Retrieve all recorded handlers for the given update or key.
+        """Remove and return the records stored for an update or a key.
 
-        If a :class:`PyroUpdate` is passed, :meth:`is_recordable` is called
-        first and an empty sequence is returned if it yields ``False``.
-        If a :data:`UpdateHistoryKeyT` is passed directly, the check
-        is skipped.
+        An update that is not recordable yields an empty sequence and removes
+        nothing; a key skips that check.
 
         Args:
-            update: The incoming Pyrogram update or a raw
-                :data:`UpdateHistoryKeyT` to look up directly.
+            update: An update, or a key to look up directly.
 
         Returns:
-            A sequence of :class:`UpdateRecord` ordered from oldest
-            to newest, or an empty sequence if none exist.
+            The removed records, oldest first; empty if there were none.
         """
         if isinstance(update, PyroUpdate):
             # `ty` keeps a theoretical `tuple & Update` member; a real update lands here.
@@ -278,16 +260,12 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         return await self.store.pop(key)
 
     async def clear(self, update: UpdateType | UpdateHistoryKeyT) -> None:
-        """Delete all records for the given update or key.
+        """Delete the records stored for an update or a key.
 
-        If a :class:`PyroUpdate` is passed, :meth:`is_recordable` is called
-        first and the operation is skipped if it yields ``False``.
-        If a :data:`UpdateHistoryKeyT` is passed directly, the check
-        is skipped.
+        An update that is not recordable deletes nothing; a key skips that check.
 
         Args:
-            update: The incoming Pyrogram update or a raw
-                :data:`UpdateHistoryKeyT` to delete directly.
+            update: An update, or a key to delete directly.
         """
         if isinstance(update, PyroUpdate):
             # `ty` keeps a theoretical `tuple & Update` member; a real update lands here.

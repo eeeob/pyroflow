@@ -1,4 +1,4 @@
-"""pyroflow's patched :class:`pyrogram.Client` and the opt-in :class:`BotCommandsMixin`."""
+"""pyroflow's patched `pyrogram.Client` and the opt-in `BotCommandsMixin`."""
 
 from __future__ import annotations as _annotations
 
@@ -45,44 +45,13 @@ if TYPE_CHECKING:
 
 @patch_cls
 class Client(PyroClient):
-    """The main entry point of the library and the only class you interact with directly.
+    """Pyrogram's `Client`, patched in place with listeners, coordination, history and `ask`.
 
-    Extends :class:`pyrogram.Client` with a conversation-oriented API that
-    lets you ``await`` a specific reply from a specific user rather than
-    wiring up global handlers for every possible update.
-
-    Pyrogram's built-in model is handler-based: a registered function fires for
-    *every* incoming update of its type, so a back-and-forth conversation needs
-    a hand-written state machine just to know whose answer you are waiting for.
-    This client integrates three systems from :class:`Dispatcher` instead:
-
-    - **Listeners** — typed queues that let any coroutine ``await`` the next
-      update from a particular user/chat. An update claimed by a listener never
-      reaches the normal handler pipeline.
-
-    - **Coordinators** — distributed locks attached per update type that ensure
-      an update is processed by exactly one session when the bot runs on multiple
-      servers simultaneously.
-
-    - **Histories** — per-update-type records of which handlers ran successfully,
-      enabling features like ``back`` buttons that replay previous steps.
-
-    Attach them before the client starts with :meth:`register_listener`,
-    :meth:`register_coordinated` and :meth:`register_history`. The two most
-    common listeners are exposed as the read-only :attr:`message_listen` and
-    :attr:`callback_listen` properties.
-
-    :meth:`ask` sends (or edits) a message and then suspends until a matching
-    reply arrives, all in one ``await``. It calls :meth:`send_message` (or
-    :meth:`edit_message_text` when ``message_id`` is supplied), registers a
-    one-shot wait on the appropriate :class:`UpdateListener`, and returns the
-    matching update. A :exc:`ListenerTimeout` is raised if no reply arrives
-    within ``timeout`` seconds.
-
-    The class is decorated with ``@patch_cls``, which passes every ``async`` method
-    through ``async_to_sync``. This means all methods can also be called
-    synchronously from outside an event loop, matching the behaviour of the
-    standard :class:`pyrogram.Client`.
+    Attach the per-update-type systems before the client starts with
+    `register_listener`, `register_coordinated` and `register_history`. An
+    update claimed by a listener never reaches the normal handlers. Like
+    `pyrogram.Client`, every `async` method can also be called synchronously
+    from outside an event loop.
     """
 
     # `patch_cls` يجعل `Dispatcher` الخاص بـ `pyroflow` هو نفسه الخاص بـ `pyrogram` وقت التشغيل
@@ -92,27 +61,31 @@ class Client(PyroClient):
     if not TYPE_CHECKING:  # for typehints
 
         def __init__(self, *args: Any, **kw: Any) -> None:
-            """Run Pyrogram's own ``__init__``, then start with no ask error handlers."""
+            """Run Pyrogram's own `__init__`, then start with no ask error handlers."""
             self.old__init__(*args, **kw)
             self.ask_error_handlers = {}
 
     @property
     def listeners(self) -> dict[type[pyro_types.Update], UpdateListener[Any]]:
-        """Mapping from each update type to its registered :class:`UpdateListener`.
-
-        The key is the update type (e.g. ``Message`` or ``CallbackQuery``),
-        and the value is the listener responsible for awaiting that type.
-        """
+        """The registered `UpdateListener` of each update type, such as `Message`."""
         return self.dispatcher.listeners
 
     @property
     def message_listen(self) -> UpdateListener[Message]:
-        """Shortcut to the :class:`UpdateListener` registered for :class:`Message` updates."""
+        """The `UpdateListener` registered for `Message` updates.
+
+        Raises:
+            KeyError: If no `Message` listener is registered.
+        """
         return self.listeners[Message]
 
     @property
     def callback_listen(self) -> UpdateListener[CallbackQuery]:
-        """Shortcut to the :class:`UpdateListener` registered for :class:`CallbackQuery` updates."""
+        """The `UpdateListener` registered for `CallbackQuery` updates.
+
+        Raises:
+            KeyError: If no `CallbackQuery` listener is registered.
+        """
         return self.listeners[CallbackQuery]
 
     if TYPE_CHECKING:
@@ -127,27 +100,27 @@ class Client(PyroClient):
     else:
 
         def register_listener(self, *args: Any, **kw: Any) -> None:
-            """Forward to :meth:`Dispatcher.register_listener`."""
+            """Forward to `Dispatcher.register_listener`."""
             return self.dispatcher.register_listener(*args, **kw)
 
         def register_coordinated(self, *args: Any, **kw: Any) -> None:
-            """Forward to :meth:`Dispatcher.register_coordinated`."""
+            """Forward to `Dispatcher.register_coordinated`."""
             return self.dispatcher.register_coordinated(*args, **kw)
 
         def register_history(self, *args: Any, **kw: Any) -> None:
-            """Forward to :meth:`Dispatcher.register_history`."""
+            """Forward to `Dispatcher.register_history`."""
             return self.dispatcher.register_history(*args, **kw)
 
         async def unregister_listener(self, *args: Any, **kw: Any) -> None:
-            """Forward to :meth:`Dispatcher.unregister_listener`."""
+            """Forward to `Dispatcher.unregister_listener`."""
             return await self.dispatcher.unregister_listener(*args, **kw)
 
         async def unregister_coordinated(self, *args: Any, **kw: Any) -> None:
-            """Forward to :meth:`Dispatcher.unregister_coordinated`."""
+            """Forward to `Dispatcher.unregister_coordinated`."""
             return await self.dispatcher.unregister_coordinated(*args, **kw)
 
         async def unregister_history(self, *args: Any, **kw: Any) -> None:
-            """Forward to :meth:`Dispatcher.unregister_history`."""
+            """Forward to `Dispatcher.unregister_history`."""
             return await self.dispatcher.unregister_history(*args, **kw)
 
     def register_ask_error_handler(
@@ -156,22 +129,19 @@ class Client(PyroClient):
         handler: MaybeCoroutineCallable[[Exception, Message], Any],
         update_type: type[pyro_types.Update] = Message,
     ) -> None:
-        """Add or replace a client-wide entry in :attr:`ask_error_handlers` for one ``update_type``.
+        """Add or replace the client-wide `ask` error handler for `exc_types`.
 
-        Unlike :meth:`register_listener`/:meth:`register_coordinated`/
-        :meth:`register_history`, this has no dispatcher lifecycle to respect:
-        it is a plain dict write, so it can be called at any time, before or
-        after the client starts, and re-registering an ``exc_types`` already
-        present under the same ``update_type`` replaces its handler rather
-        than raising.
+        Can be called at any time, before or after the client starts.
+        Registering `exc_types` again under the same `update_type` replaces its
+        handler.
 
         Args:
-            exc_types: One exception type, or a tuple of them, matched via
-                ``isinstance(exc, exc_types)``.
-            handler: Awaited as ``handler(exc, m)`` — see :attr:`ask_error_handlers`.
-            update_type: Which :meth:`ask` update type this entry applies to.
-                Matches the ``update_type`` argument of :meth:`ask`, defaulting
-                the same way.
+            exc_types: One exception type, or a tuple of them, matched with
+                `isinstance(exc, exc_types)`.
+            handler: Awaited as `handler(exc, m)`, where `m` is the message
+                `ask` sent or edited.
+            update_type: The `update_type` of the `ask` calls this entry
+                applies to.
         """
         self.ask_error_handlers.setdefault(update_type, {})[exc_types] = handler
 
@@ -180,17 +150,18 @@ class Client(PyroClient):
         exc_types: type[Exception] | tuple[type[Exception], ...],
         update_type: type[pyro_types.Update] = Message,
     ) -> bool:
-        """Remove the client-wide entry registered under ``exc_types`` for ``update_type``, if any.
+        """Remove the client-wide `ask` error handler registered for `exc_types`.
 
-        ``exc_types`` must match the exact key a handler was registered
-        under — a tuple is not decomposed, so unregistering ``ValueError``
-        does not remove an entry registered as ``(ValueError, TypeError)``.
-        Likewise ``update_type`` must match: unregistering under ``Message``
-        never touches an entry registered under ``CallbackQuery``.
+        Both arguments must match the registration exactly: a tuple is not
+        split, so `ValueError` does not remove `(ValueError, TypeError)`.
+
+        Args:
+            exc_types: The exception type, or tuple, the handler was registered
+                under.
+            update_type: The `update_type` the handler was registered under.
 
         Returns:
-            ``True`` if an entry was removed, ``False`` if none was registered
-            under that exact ``(update_type, exc_types)`` pair.
+            `True` if a handler was removed, `False` if none was registered.
         """
         handlers = self.ask_error_handlers.get(update_type)
 
@@ -353,66 +324,59 @@ class Client(PyroClient):
         error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> pyro_types.Update:
-        """Send or edit a message, then wait for a matching update.
+        """Send or edit a message, then wait for the next matching update.
 
-        If ``message_id`` is provided, the existing message is edited via
-        :meth:`edit_message_text`. Otherwise a new message is sent via
-        :meth:`send_message`.
-
-        After sending or editing, the method waits for the next update of
-        ``update_type`` matching the given ``chat_id``, ``listen_user_id``, and
-        ``listen_message_id``.
+        With `message_id` the message is edited with `edit_message_text`,
+        otherwise a new one is sent with `send_message`. The arguments from
+        `disable_notification` to `suggested_post_parameters` apply to sending
+        only and are ignored when editing. The update is then awaited in the
+        chat of that message, filtered by `listen_user_id` and `listen_message_id`.
 
         Args:
-            chat_id: Target chat.
-            text: Message text.
+            chat_id: Chat to send to, or that holds the message to edit.
+            text: The text to send or edit.
             message_id: If provided, edit this message instead of sending a new one.
-            parse_mode: Text parse mode.
-            entities: Message entities.
-            link_preview_options: Link preview settings.
-            schedule_date: Schedule the message.
-            business_connection_id: Business connection id.
-            reply_markup: Keyboard markup.
-            disable_notification: Send silently (send only).
-            message_thread_id: Thread id (send only).
-            direct_messages_topic_id: DM topic id (send only).
-            effect_id: Message effect (send only).
-            reply_parameters: Reply parameters (send only).
-            repeat_period: Repeat period (send only).
-            protect_content: Protect content (send only).
-            allow_paid_broadcast: Allow paid broadcast (send only).
-            paid_message_star_count: Paid message star count (send only).
-            suggested_post_parameters: Suggested post parameters (send only).
+            parse_mode: How `text` is parsed; `None` uses the client default.
+            entities: Entities to use instead of `parse_mode`.
+            link_preview_options: Link preview options for the message.
+            schedule_date: Date to send the message at.
+            business_connection_id: Business connection to send or edit through.
+            reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
+            disable_notification: Send the message silently.
+            message_thread_id: Target topic.
+            direct_messages_topic_id: Target direct messages topic.
+            effect_id: Message effect to apply.
+            reply_parameters: Reply options.
+            repeat_period: Interval in seconds to repeat the message at.
+            protect_content: Protect the message from forwarding and saving.
+            allow_paid_broadcast: Allow a paid broadcast.
+            paid_message_star_count: Telegram Stars paid to send the message.
+            suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: Filter the awaited update by user.
-            listen_message_id: Filter the awaited update by message. Either an
-                explicit id, or a synchronous callable receiving the sent/edited
-                message (``m``) and returning the id to filter by (or ``None``
-                for no filtering). The callable must be fast and non-blocking —
-                it runs inline on the event loop, not in a thread.
-            meta: Metadata attached to the listener.
-            timeout: Seconds to wait before raising :class:`ListenerTimeout`.
-            update_type: The update type to wait for. Determines the return type.
-            error_handlers: Optional ``{exc_type_or_tuple: handler}`` mapping. If
-                listening raises before completing, the dict is scanned in order
-                and the handler for the first key matching ``isinstance(exc, key)``
-                is awaited as ``handler(exc, m)``, where ``m`` is the sent/edited
-                message. If nothing here matches, the entry in
-                :attr:`Client.ask_error_handlers` for this call's ``update_type``
-                is tried the same way — a handler registered for ``Message`` is
-                never consulted for a ``CallbackQuery``-flavoured call, or vice
-                versa. The original exception is still re-raised afterwards
-                either way.
-            **kw: Additional keyword arguments passed directly to
-                :meth:`send_message` or :meth:`edit_message_text` depending on
-                which operation is performed.
+            listen_message_id: Filter the awaited update by message: an id, or
+                a callable that receives the sent or edited message and returns
+                the id (or `None` for no filter). The callable runs synchronously
+                on the event loop, so it must not block.
+            meta: Metadata attached to the listener. A `dict` (or `None`) is
+                copied and gets the sent message id under `"message_id"` unless
+                it already has that key.
+            timeout: Seconds to wait before raising `ListenerTimeout`.
+            update_type: The update type to wait for and return.
+            error_handlers: `{exc_type_or_tuple: handler}` tried in order when
+                waiting raises; the first key matching `isinstance(exc, key)` is
+                awaited as `handler(exc, m)`, where `m` is the sent or edited
+                message. If none matches, the client-wide handlers registered
+                for `update_type` are tried the same way. The exception is
+                re-raised either way.
+            **kw: Passed to `send_message` or `edit_message_text`.
 
         Returns:
-            The matching update of type ``update_type``.
+            The matching update of type `update_type`.
 
         Raises:
-            RuntimeError: If no listener is registered for ``update_type``.
-            ValueError: If ``message_id`` is given with a ``reply_markup`` other
-                than :class:`~pyrogram.types.InlineKeyboardMarkup`.
+            RuntimeError: If no listener is registered for `update_type`.
+            ValueError: If `message_id` is given with a `reply_markup` other
+                than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
@@ -513,74 +477,65 @@ class Client(PyroClient):
 
 
 if TYPE_CHECKING:
-    # Type checking only: the mixin is written as if it were a `Client`, so calls
-    # like `self.set_bot_commands()` resolve. At runtime the base is plain `object`
-    # — see the class docstring.
+    # Type checking only: the mixin is typed as a `Client` so calls like
+    # `self.set_bot_commands()` resolve; at runtime its base is plain `object`.
     _BotCommandsMixinBase = Client
 else:
     _BotCommandsMixinBase = object
 
 
 class BotCommandsMixin(_BotCommandsMixinBase):
-    """Opt-in :class:`Client` mixin that publishes the bot commands of registered handlers.
+    """Opt-in `Client` mixin that publishes the bot commands of registered handlers.
 
-    The commands are the ones declared with :func:`mark_bot_commands` on the
-    handlers you register.
-
-    It is deliberately *not* a :class:`Client` subclass and *not* applied via
-    ``@patch_cls``: nothing changes unless you ask for it. Combine it with
-    :class:`Client` yourself, mixin first so its overrides win
-    (``class MyClient(BotCommandsMixin, Client)``). It overrides:
-
-    - :meth:`add_handler` / :meth:`remove_handler` — defer to the normal
-      Pyrogram behaviour, then collect (or drop) the commands marked on the
-      handler, in a task of their own so the bookkeeping follows the real
-      registration rather than assuming it. Nothing is sent to Telegram yet.
-    - :meth:`start` — connect first, then :meth:`push_bot_commands`, so that
-      handlers loaded from ``plugins=`` during startup are included too.
-    - :meth:`stop` — :meth:`remove_bot_commands` first, then disconnect.
-
-    Commands are grouped by ``(language_code, scope)``, one Telegram call per
-    group, so different scopes never overwrite each other.
+    The commands are the ones declared with `mark_bot_commands`. Put the mixin
+    first, as in `class MyClient(BotCommandsMixin, Client)`. Commands are
+    collected as handlers are added or removed, published by `start` after
+    connecting (so `plugins` handlers are included) and deleted by `stop`
+    before disconnecting. Each `(language_code, scope)` group is one Telegram
+    call, so different scopes never overwrite each other.
     """
 
     @cached_property
     def bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
-        """Collected commands, as ``((language_code, scope), commands)`` pairs."""
+        """Collected commands, as `((language_code, scope), commands)` pairs."""
         return []
 
     @cached_property
     def bot_command_groups_lock(self) -> asyncio.Lock:
-        """Lock held while :attr:`bot_command_groups` is updated, published or deleted."""
+        """Lock held while `bot_command_groups` is updated, published or deleted."""
         return asyncio.Lock()
 
     def add_handler(self, handler: Handler, group: int = 0) -> tuple[Handler, int]:
-        """Register ``handler`` as usual, then collect the bot commands marked on it."""
+        """Register `handler` as usual, then collect the bot commands marked on it.
+
+        The commands are collected in a later task, once the registration has
+        landed; nothing is sent to Telegram yet.
+        """
         result = super().add_handler(handler, group)
         self._track_bot_commands(handler, True)
         return result
 
     def remove_handler(self, handler: Handler, group: int = 0) -> None:
-        """Remove ``handler`` as usual, then drop the bot commands marked on it."""
+        """Remove `handler` as usual, then drop the bot commands marked on it.
+
+        The commands are dropped in a later task, only if the handler was
+        really removed; nothing is sent to Telegram yet.
+        """
         result = super().remove_handler(handler, group)
         self._track_bot_commands(handler, False)
         return result
 
     def _track_bot_commands(self, handler: Handler, added: bool) -> None:
-        """Queue this registration's bookkeeping behind Pyrogram's own.
+        """Schedule a task that collects or drops the commands of `handler`.
 
-        Pyrogram never mutates ``dispatcher.groups`` inline: ``add_handler`` and
-        ``remove_handler`` schedule a task that first acquires
-        ``dispatcher.locks_list``, and that task may end up doing nothing at all
-        — ``remove_handler`` raises ``ValueError`` inside it when the handler was
-        not in that group. Collecting the commands inline would therefore record
-        changes that never happened, so we schedule our own task right after
-        Pyrogram's (the loop runs them in creation order, and both contend for
-        the same locks) and let it read the real state.
+        The task runs after Pyrogram's own registration task and changes
+        nothing unless `dispatcher.groups` really reflects the change.
         """
+        # Pyrogram ينفّذ `add_handler`/`remove_handler` في task تأخذ `dispatcher.locks_list`،
+        # وقد لا تفعل شيئاً (`ValueError` داخلها)؛ لذا نقرأ الحالة الفعلية في task تُجدول بعدها.
 
         async def apply() -> None:
-            """Collect or discard the commands of ``handler`` if its registration really changed."""
+            """Collect or discard the commands of `handler` if its registration really changed."""
             if not getattr(handler, BOT_COMMANDS_ATTR, ()):
                 return
 
@@ -603,9 +558,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
                 for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
                     track(*split_bot_command_entry(entry))
             finally:
-                # Only what we took: `asyncio.Lock` has no notion of an owner, so
-                # releasing one we are merely *waiting* on — which is where a
-                # cancellation lands us — would hand it away from its holder.
+                # Release only what was acquired: `asyncio.Lock` has no owner, so
+                # releasing a lock we were still waiting on when cancelled would
+                # release it out from under its real holder.
                 for lock in reversed(acquired):
                     lock.release()
 
@@ -617,7 +572,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         scope: BotCommandScope | None,
         commands: MaybeList[BotCommand],
     ) -> None:
-        """Add ``commands`` to the ``(language_code, scope)`` group, creating it if new."""
+        """Add `commands` to the `(language_code, scope)` group, creating it if new."""
         key = (language_code, scope)
         bot_command_groups = self.bot_command_groups
         group = next((_commands for _key, _commands in bot_command_groups if _key == key), None)
@@ -633,7 +588,7 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         scope: BotCommandScope | None,
         commands: MaybeList[BotCommand],
     ) -> None:
-        """Remove ``commands`` from the ``(language_code, scope)`` group, dropping it once empty."""
+        """Remove `commands` from the `(language_code, scope)` group, dropping it once empty."""
         key = (language_code, scope)
 
         for i, (_key, _commands) in enumerate(self.bot_command_groups):
@@ -651,14 +606,10 @@ class BotCommandsMixin(_BotCommandsMixinBase):
     def _prune_bot_commands(self) -> None:
         """Drop every collected command that no registered handler declares any more.
 
-        This way a bookkeeping task that never landed cannot leave a command
-        published for a handler that is gone.
-
-        Only removes; adding back is :meth:`_track_bot_commands`'s job. Reads
-        ``dispatcher.groups`` without its locks on purpose — the caller has
-        already yielded once (queued registrations have landed) and holds
-        :attr:`bot_command_groups_lock`, so no bookkeeping task can be running.
+        Never adds commands. Call it while holding `bot_command_groups_lock`,
+        after yielding once so queued registrations have landed.
         """
+        # قراءة `dispatcher.groups` بلا أقفاله مقصودة: لا task تتبّع يمكن أن تعمل في هذه الحالة.
         declared: list[tuple[BotCommandGroupKeyT, list[BotCommand]]] = []
 
         for handlers in list(self.dispatcher.groups.values()):
@@ -688,15 +639,10 @@ class BotCommandsMixin(_BotCommandsMixinBase):
                 groups.pop(i)
 
     async def push_bot_commands(self) -> None:
-        """Send every collected command group to Telegram.
+        """Send every collected command group to Telegram with `set_bot_commands`.
 
-        One :meth:`~pyrogram.Client.set_bot_commands` call is made per
-        ``(language_code, scope)`` pair.
-
-        Commands whose handler is no longer registered are pruned first, then
-        duplicates within a group are dropped (the same command may legitimately
-        be declared on more than one handler) and empty groups are skipped.
-        Called automatically by :meth:`start`.
+        Commands whose handler is gone are pruned first, duplicates within a
+        group are sent once, and empty groups are skipped. Called by `start`.
         """
         await safe_await(yield_control(), self.bot_command_groups_lock.acquire(), return_exc=False)
 
@@ -725,12 +671,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
             self.bot_command_groups_lock.release()
 
     async def remove_bot_commands(self) -> None:
-        """Delete every collected command group from Telegram.
+        """Delete every collected command group from Telegram with `delete_bot_commands`.
 
-        One :meth:`~pyrogram.Client.delete_bot_commands` call is made per
-        ``(language_code, scope)`` pair.
-
-        Called automatically by :meth:`stop` unless told not to.
+        Called by `stop` unless `remove_commands` is `False`.
         """
         await safe_await(yield_control(), self.bot_command_groups_lock.acquire(), return_exc=False)
 
@@ -752,10 +695,9 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         """Delete the published commands, then stop the client as usual.
 
         Args:
-            *args: Passed to :meth:`pyrogram.Client.stop`.
-            remove_commands: Set to ``False`` to leave the commands registered
-                on Telegram's side after stopping.
-            **kw: Passed to :meth:`pyrogram.Client.stop`.
+            *args: Passed to `pyrogram.Client.stop`.
+            remove_commands: `False` keeps the commands on Telegram after stopping.
+            **kw: Passed to `pyrogram.Client.stop`.
         """
         if remove_commands:
             await self.remove_bot_commands()

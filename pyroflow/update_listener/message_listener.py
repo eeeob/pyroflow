@@ -27,7 +27,23 @@ log = logging.getLogger(__name__)
 
 
 class MessageListener(UpdateListener[Message]):
-    """Listener keyed by the chat, sender and id of incoming messages."""
+    """Listener keyed by the chat, sender and id of incoming messages.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Chat, User
+        >>> async def main():
+        ...     listener = MessageListener()
+        ...     await listener.start()
+        ...     waiter = asyncio.create_task(listener.listen(1, 2))
+        ...     await asyncio.sleep(0)
+        ...     await listener.resolve(Message(id=5, chat=Chat(id=1), from_user=User(id=2)))
+        ...     answer = await waiter
+        ...     await listener.stop()
+        ...     return answer.id
+        >>> asyncio.run(main())
+        5
+    """
 
     __update_type__ = Message
     _bot_commands_cache: dict[int, frozenset[str]]
@@ -38,8 +54,8 @@ class MessageListener(UpdateListener[Message]):
             """Initialize the listener, defaulting to the built-in key functions.
 
             Args:
-                *args: Passed to :class:`UpdateListener`.
-                **kw: Passed to :class:`UpdateListener`.
+                *args: Passed to `UpdateListener`.
+                **kw: Passed to `UpdateListener`.
             """
             super().__init__(*args, **kw)
 
@@ -59,14 +75,14 @@ class MessageListener(UpdateListener[Message]):
             self._bot_commands_cache.clear()
 
     async def _is_listenable(self, update: Message) -> bool:
-        """Default ``is_listenable_func``: accept incoming messages from other users.
+        """Default `is_listenable_func`: accept incoming messages from other users.
 
         Args:
             update: The incoming message.
 
         Returns:
-            ``False`` for outgoing, service, empty or edited messages, messages
-            sent by this account, and messages without a chat; ``True`` otherwise.
+            `False` for outgoing, service, empty or edited messages, messages
+            sent by this account, and messages without a chat; `True` otherwise.
         """
         return not (
             update.outgoing
@@ -79,13 +95,13 @@ class MessageListener(UpdateListener[Message]):
         )
 
     async def _extract_key(self, update: Message) -> ListenerKey:
-        """Default ``extract_key_func``: key the message by chat, sender and id.
+        """Default `extract_key_func`: key the message by chat, sender and id.
 
         Args:
             update: The incoming message.
 
         Returns:
-            The key ``(chat id, sender id or None, message id)``.
+            The key `(chat id, sender id or None, message id)`.
         """
         # `_is_listenable` يضمن أن `chat` ليس `None`؛ `from_user` قد يكون `None` (مشرف مجهول، منشور قناة)
         return ListenerKey(
@@ -95,36 +111,33 @@ class MessageListener(UpdateListener[Message]):
         )
 
     async def _is_bypass(self, update: Message) -> bool:
-        """Ready-made ``bypass_func`` that bypasses registered bot commands.
+        """Ready-made `bypass_func` that bypasses registered bot commands.
 
-        The update is treated as a bot command only if it matches Telegram's
-        own command syntax — ``/name`` (1-32 letters, digits or underscores,
-        starting with a letter), optionally targeted at ``@botusername``,
-        followed by whitespace or end of text. A message that merely starts
-        with ``/`` but does not match this shape (e.g. ``/`` alone, or a path
-        like ``/usr/bin``) is not treated as a bypass. A command targeted at
-        a username other than this account's is not a bypass either.
+        The text or caption must follow Telegram's command syntax: `/name`
+        (1-32 letters, digits or underscores, starting with a letter),
+        optionally followed by `@username`, then whitespace or the end of the
+        text. A command aimed at another username, or not among the bot's
+        registered commands (see `_get_bot_commands`), does not bypass, so
+        nothing bypasses on a user account or when the fetch failed.
 
-        The parsed command name must also be one of the bot's officially
-        registered commands (see :meth:`_get_bot_commands`) — a command
-        aimed at a different bot in the same group, a typo, or any
-        syntactically valid command that was simply never registered, does
-        not bypass the listener. If no commands are registered, or they
-        cannot be determined at all (user account, or the fetch failed),
-        nothing bypasses.
-
-        Not wired in by default. It is a bound method, so opt in by
-        assigning it to ``bypass_func`` on the constructed listener::
-
-            listener = MessageListener()
-            listener.bypass_func = listener._is_bypass
+        Not wired in by default: assign it to `bypass_func` on the
+        constructed listener to opt in.
 
         Args:
             update: The incoming message, already matched to a listener.
 
         Returns:
-            ``True`` if the text or caption is a registered command of this
-            bot, ``False`` otherwise.
+            `True` if the text or caption is a registered command of this
+            bot, `False` otherwise.
+
+        Example:
+            >>> import asyncio
+            >>> from pyrogram.types import Chat
+            >>> listener = MessageListener()
+            >>> listener.bypass_func = listener._is_bypass
+            >>> update = Message(id=1, chat=Chat(id=1), text="/usr/bin")
+            >>> asyncio.run(listener.is_bypass(update))
+            False
         """
         match = _COMMAND_RE.match(update.text or update.caption or "")
 
@@ -148,14 +161,10 @@ class MessageListener(UpdateListener[Message]):
     async def _get_bot_commands(self, client: Client) -> frozenset[str]:
         """Return the bot's officially registered command names, lowercased.
 
-        Fetched via ``client.get_bot_commands()`` at most once per client
-        for the listener's lifetime — cleared in :meth:`stop`, and dropped
-        when the client is garbage-collected.
-
-        A failed fetch (e.g. this session is a user account, not a bot —
-        ``get_bot_commands`` is bot-only) is cached too, as an empty set, so
-        it is only ever attempted once rather than on every message — an
-        empty set means no command will ever be recognized as one.
+        Fetched with `client.get_bot_commands()` at most once per client; the
+        cache is cleared in `stop` and dropped when the client is
+        garbage-collected. A failed fetch (such as on a user account) is
+        cached as an empty set, so it is not retried.
 
         Args:
             client: The client whose bot commands are wanted.

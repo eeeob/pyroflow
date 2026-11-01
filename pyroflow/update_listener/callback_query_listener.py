@@ -10,7 +10,24 @@ from .update_listener import UpdateListener
 
 
 class CallbackQueryListener(UpdateListener[CallbackQuery]):
-    """Listener keyed by the chat, user and message a callback query belongs to."""
+    """Listener keyed by the chat, user and message a callback query belongs to.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Chat, Message, User
+        >>> async def main():
+        ...     listener = CallbackQueryListener()
+        ...     waiter = asyncio.create_task(listener.listen(1, 2, 3))
+        ...     await asyncio.sleep(0)
+        ...     message = Message(id=3, chat=Chat(id=1))
+        ...     query = CallbackQuery(
+        ...         id="q", from_user=User(id=2), chat_instance="c", message=message
+        ...     )
+        ...     await listener.resolve(query)
+        ...     return (await waiter).id
+        >>> asyncio.run(main())
+        'q'
+    """
 
     __update_type__ = CallbackQuery
 
@@ -20,8 +37,8 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             """Initialize the listener, defaulting to the built-in key functions.
 
             Args:
-                *args: Passed to :class:`UpdateListener`.
-                **kw: Passed to :class:`UpdateListener`.
+                *args: Passed to `UpdateListener`.
+                **kw: Passed to `UpdateListener`.
             """
             super().__init__(*args, **kw)
 
@@ -32,26 +49,26 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
                 self.extract_key_func = self._extract_key
 
     async def _is_listenable(self, update: CallbackQuery) -> bool:
-        """Default ``is_listenable_func``: accept callbacks attached to a message in a chat.
+        """Default `is_listenable_func`: accept callbacks attached to a message in a chat.
 
         Args:
             update: The incoming callback query.
 
         Returns:
-            ``True`` if the callback has a message and that message has a chat.
+            `True` if the callback has a message and that message has a chat.
         """
         m = update.message
 
         return m is not None and m.chat is not None
 
     async def _extract_key(self, update: CallbackQuery) -> ListenerKey:
-        """Default ``extract_key_func``: key the callback by chat, user and message.
+        """Default `extract_key_func`: key the callback by chat, user and message.
 
         Args:
             update: The incoming callback query.
 
         Returns:
-            The key ``(message chat id, sender id, message id)``.
+            The key `(message chat id, sender id, message id)`.
         """
         m = update.message
 
@@ -61,11 +78,10 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
     async def on_unresolved(self, key: ListenerKey, update: CallbackQuery) -> None:
         """Cancel the message listener waiting on this callback's message, then raise.
 
-        The client's message listeners are searched for the first one
-        matching one of ``key``'s sub-keys; it is cancelled only if its
-        ``meta["message_id"]`` equals the callback's message id. Nothing is
-        cancelled when the callback carries no message id or the client
-        has no message listener.
+        Only the first message listener matching one of `key`'s sub-keys is
+        considered, and it is cancelled only if its `meta["message_id"]` equals
+        the callback's message id. Nothing is cancelled when the callback
+        carries no message id or the client has no message listener.
 
         Args:
             key: The extracted key that had no matching callback listener.

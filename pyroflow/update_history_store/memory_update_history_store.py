@@ -19,20 +19,16 @@ if TYPE_CHECKING:
 
 
 class MemoryUpdateHistoryStore(UpdateHistoryStore):
-    """In-memory history store bounded by both age and key count.
+    """In-memory history store bounded by record age, records per key and key count.
 
-    Per-record ``ttl`` is enforced lazily, on access to that key. That alone
-    cannot reclaim a key that is written once and never read again, so the
-    key space itself is additionally capped by ``max_keys`` (LRU) and the
-    same ``ttl`` — otherwise a long-running bot accumulates one entry per
-    conversation, forever.
+    Expired records are dropped lazily, when their key is accessed.
 
     Args:
         update_type: The Pyrogram update class this store handles.
-        ttl: Seconds a record (and an idle key) stays valid.
-        max_history_len: Max records kept per key.
-        max_keys: Max distinct keys retained; least-recently-used keys are
-            evicted past this bound.
+        ttl: Seconds a record stays valid; a key, with all its records, is also
+            evicted `ttl` seconds after it was created.
+        max_history_len: Most records kept per key; the oldest are dropped first.
+        max_keys: Most keys kept; past it, the least recently used keys are evicted.
         **kw: Passed to the next class in the MRO.
 
     Example:
@@ -66,15 +62,15 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         )
 
     def _expires_at(self, record: UpdateRecord) -> Number:
-        """Return the time at which ``record`` expires."""
+        """Return the time at which `record` expires."""
         return record.created_at + self.ttl
 
     def _is_expired(self, record: UpdateRecord, now: Number | None = None) -> bool:
-        """Return whether ``record`` has expired at ``now``, or at the current time if ``None``."""
+        """Return whether `record` has expired at `now`, or at the current time if `None`."""
         return (time.time() if now is None else now) >= self._expires_at(record)
 
     def _clean_up(self, heap: list[UpdateRecord], now: Number | None = None) -> list[UpdateRecord]:
-        """Pop expired records off the front of ``heap`` in place and return it."""
+        """Pop expired records off the front of `heap` in place and return it."""
         if now is None:
             now = time.time()
 
@@ -84,7 +80,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         return heap
 
     def _update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
-        """Push ``records`` under ``key``, then drop expired and oldest-past-the-limit ones."""
+        """Push `records` under `key`, then drop expired and oldest-past-the-limit ones."""
         heap = self.histories.setdefault(key, [])
 
         for record in records:
@@ -99,7 +95,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
             self._delete(key)
 
     def _get(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
-        """Return the unexpired records under ``key``, oldest first, dropping the key if none."""
+        """Return the unexpired records under `key`, oldest first, dropping the key if none."""
         records = sorted(self._clean_up(self.histories.get(key, [])))
 
         if not records:
@@ -108,27 +104,27 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         return records
 
     def _pop(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
-        """Remove ``key`` and return its unexpired records, oldest first."""
+        """Remove `key` and return its unexpired records, oldest first."""
         return sorted(self._clean_up(self.histories.pop(key, [])))
 
     def _delete(self, key: UpdateHistoryKeyT) -> None:
-        """Remove ``key`` if present."""
+        """Remove `key` if present."""
         self.histories.pop(key, None)
 
     async def update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
-        """Add records under ``key``, dropping expired ones and the oldest past the limit."""
+        """Add records under `key`, dropping expired ones and the oldest past the limit."""
         return self._update(key, *records)
 
     async def get(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
-        """Return the unexpired records under ``key``, oldest first."""
+        """Return the unexpired records under `key`, oldest first."""
         return self._get(key)
 
     async def pop(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:
-        """Remove ``key`` and return its unexpired records, oldest first."""
+        """Remove `key` and return its unexpired records, oldest first."""
         return self._pop(key)
 
     async def delete(self, key: UpdateHistoryKeyT) -> None:
-        """Delete all records under ``key``."""
+        """Delete all records under `key`."""
         return self._delete(key)
 
 

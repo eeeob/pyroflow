@@ -29,28 +29,19 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Set for the duration of one coordinated update, to that update's
-# `_CoordinatedRelease`. A `ContextVar` rather than an attribute on the update
-# because copying the context is exactly what both `asyncio` tasks and
-# `to_thread` already do — so a sync handler running in the executor, and a
-# raw handler that never sees the parsed update at all, reach the same
-# releaser as an ordinary async handler.
+# The `_CoordinatedRelease` of the update being processed. A `ContextVar` so sync
+# handlers in the executor and raw handlers reach it too.
 _HANDLED_MARKER: Final[ContextVar[_CoordinatedRelease | None]] = ContextVar(
     "pyroflow_handled_marker", default=None
 )
 
 
 class _CoordinatedRelease:
-    """Settles one update's coordination, exactly once.
+    """Settle one update's coordination exactly once.
 
-    Settling is two steps that always travel together: register the update as
-    handled (or don't), then release the lock it was processed under.
-
-    Two callers compete for that single settlement: the handler, through
-    :func:`mark_handled`, and :meth:`Dispatcher.handle_update` cleaning up once
-    the handler returns. Whichever arrives first wins and the other becomes a
-    no-op — which is what makes an early settlement *stick* instead of being
-    overwritten by the automatic one a moment later.
+    Settling registers the update as handled (when asked) and then releases its
+    lock. `mark_handled` and `Dispatcher.handle_update` race for it; the first
+    one wins and the other becomes a no-op.
     """
 
     __slots__ = ("_coordinated", "_lock", "_loop", "_early", "_released", "update_id")
@@ -74,30 +65,26 @@ class _CoordinatedRelease:
         self._early: Future[None] | asyncio.Future[None] | None = None
         self._released: bool = False
 
-        # Set once the update's identity is known, which happens after the
-        # lock is already held. Until then there is nothing to register, so a
-        # settlement in that window releases the lock and marks nothing.
+        # Known only after the lock is held; a settlement before that releases
+        # the lock and registers nothing.
         self.update_id: UpdateCoordinatorKeyT | None = None
 
     def claim_early(self) -> bool:
-        """Claim the settlement now and schedule it. Backs :func:`mark_handled`.
+        """Claim the settlement and schedule it on the loop. Backs `mark_handled`.
 
-        Synchronous out of necessity: the caller may be a sync handler running
-        in the client's executor, off the event loop, where awaiting is not an
-        option. Assigning ``_early`` *here* rather than inside the scheduled
-        coroutine is what makes the claim race-free — by the time :meth:`settle`
-        runs it already sees the settlement as spoken for, whether or not the
-        loop has got round to performing it yet.
+        Safe to call from a thread outside the event loop, such as a sync
+        handler in the client's executor.
 
         Returns:
-            ``True`` if this call took the settlement, ``False`` if it was
-            already claimed.
+            `True` if this call took the settlement, `False` if it was already
+            claimed or settled.
         """
         if self._early is not None or self._released:
             return False
 
         coro, loop = self._settle(True), self._loop
 
+        # Assigned here, not inside `coro`, so `settle` sees the claim at once.
         self._early = (
             asyncio.create_task(coro)
             if asyncio._get_running_loop() is loop
@@ -132,11 +119,8 @@ class _CoordinatedRelease:
 
         self._released = True
 
-        # Logged, never raised. The early settlement runs detached from the
-        # handler, so an escaping exception would surface as a stray task error
-        # rather than anywhere the caller could act on it — and a failing
-        # backend should not produce two different outcomes depending on which
-        # of the two paths happened to win.
+        # `safe_await` logs backend errors instead of raising: the early
+        # settlement runs detached, so nobody could catch them.
 
         try:
             if handled and self.update_id is not None:
@@ -147,54 +131,15 @@ class _CoordinatedRelease:
 
 @patch_cls(setter=setattr)
 class Dispatcher(PyroDispatcher):
-    """Extended Pyrogram dispatcher with listeners, coordinators, and histories.
+    """Pyrogram dispatcher extended with listeners, coordinators and histories.
 
-    It layers these three systems on top of the standard handler pipeline.
-
-    Applied via ``@patch_cls``, which monkey-patches
-    :class:`pyrogram.dispatcher.Dispatcher` in-place so that every
-    :class:`pyrogram.Client` instance uses this implementation without
-    requiring any subclassing on the user's side.
-
-    For every incoming update the pipeline runs in this order:
-
-    1. **Listener** (:meth:`handle_listen`) — if a :class:`UpdateListener`
-       is registered for the update type, it is given first priority.
-       A successful resolve calls ``stop_propagation()`` and skips steps
-       2–3 entirely.
-
-    2. **Coordinator** (:meth:`handle_update`) — if a
-       :class:`UpdateCoordinated` is registered, the update's lock scope
-       is taken, and under it the update's identity is checked against
-       the handled registry. An update already registered by a peer is
-       dropped; otherwise it is processed here and registered, so it is
-       handled by exactly one session across multiple servers.
-
-       The lock's scope and the update's identity are chosen separately
-       (``extract_key`` and ``extract_update_id``), which is what lets a
-       whole chat be serialised while each of its updates stays
-       individually deduplicated.
-
-       The update is registered as handled if at least one handler *ran*
-       — whether it returned normally or raised. A raising handler still
-       counts: the update reached its owner, so replaying it on another
-       session would duplicate work rather than recover. It is left
-       unregistered only when no handler ran at all, so another session
-       can retry. A handler may settle early by calling
-       :func:`mark_handled`, which registers the update and releases the
-       lock immediately, letting the handler keep running.
-
-    3. **Handler groups** (:meth:`_handle_update`) — iterates Pyrogram's
-       normal handler groups. The first matching handler per group is
-       invoked. Successful invocations are optionally recorded by a
-       :class:`UpdateHistory` (see below).
-
-    4. **History** — if a :class:`UpdateHistory` is registered and
-       :meth:`UpdateHistory.is_recordable` returns ``True``, every
-       handler that ran successfully in step 3 is appended to the
-       history record via :meth:`UpdateHistory.record_many`. This allows
-       later handlers (e.g. a ``back`` button) to inspect or replay
-       previous processing steps.
+    Patched onto `pyrogram.dispatcher.Dispatcher` in place, so every client uses
+    it. Each update goes through `handle_update`: the coordinator (when one is
+    registered for its type) runs everything under the update's lock and drops
+    updates a peer already handled; then a registered listener gets the update
+    first and, if it resolves it, propagation stops; then the first matching
+    handler of each group runs, and the handlers that succeeded are recorded in
+    the type's history when it is recordable.
     """
 
     old__init__: Callable[..., None]
@@ -259,16 +204,14 @@ class Dispatcher(PyroDispatcher):
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.
 
-        Must be called before the dispatcher is started. Only one
-        listener per update type is allowed.
+        Only one listener per update type, and only before the dispatcher starts.
 
         Args:
-            listener: The :class:`UpdateListener` instance to register.
+            listener: The listener to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError: If a listener for the same update type is already
-                registered.
+            ValueError: If a listener is already registered for that update type.
         """
         if self.is_started:
             msg = "Cannot register listener while dispatcher is already running"
@@ -283,18 +226,16 @@ class Dispatcher(PyroDispatcher):
         self.listeners[update_type] = listener
 
     def register_coordinated(self, coordinated: UpdateCoordinated[UpdateType]) -> None:
-        """Register a coordinated handler for its declared update type.
+        """Register an `UpdateCoordinated` for its declared update type.
 
-        Must be called before the dispatcher is started. Only one
-        coordinated per update type is allowed.
+        Only one coordinated per update type, and only before the dispatcher starts.
 
         Args:
-            coordinated: The :class:`UpdateCoordinated` instance to register.
+            coordinated: The coordinated to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError: If a coordinated for the same update type is already
-                registered.
+            ValueError: If a coordinated is already registered for that update type.
         """
         if self.is_started:
             msg = "Cannot register coordinated while dispatcher is already running"
@@ -309,18 +250,16 @@ class Dispatcher(PyroDispatcher):
         self.coordinateds[update_type] = coordinated
 
     def register_history(self, history: UpdateHistory[UpdateType]) -> None:
-        """Register a history handler for its declared update type.
+        """Register an `UpdateHistory` for its declared update type.
 
-        Must be called before the dispatcher is started. Only one
-        history per update type is allowed.
+        Only one history per update type, and only before the dispatcher starts.
 
         Args:
-            history: The :class:`UpdateHistory` instance to register.
+            history: The history to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError: If a history for the same update type is already
-                registered.
+            ValueError: If a history is already registered for that update type.
         """
         if self.is_started:
             msg = "Cannot register history while dispatcher is already running"
@@ -340,8 +279,7 @@ class Dispatcher(PyroDispatcher):
         Does nothing if no listener is registered for that type.
 
         Args:
-            update_type: The Pyrogram update class whose listener should be
-                removed.
+            update_type: The Pyrogram update class whose listener to remove.
         """
         listener = self.listeners.pop(update_type, None)
 
@@ -356,8 +294,7 @@ class Dispatcher(PyroDispatcher):
         Does nothing if no coordinated is registered for that type.
 
         Args:
-            update_type: The Pyrogram update class whose coordinated should be
-                removed.
+            update_type: The Pyrogram update class whose coordinated to remove.
         """
         coordinated = self.coordinateds.pop(update_type, None)
 
@@ -372,8 +309,7 @@ class Dispatcher(PyroDispatcher):
         Does nothing if no history is registered for that type.
 
         Args:
-            update_type: The Pyrogram update class whose history should be
-                removed.
+            update_type: The Pyrogram update class whose history to remove.
         """
         history = self.histories.pop(update_type, None)
 
@@ -383,14 +319,16 @@ class Dispatcher(PyroDispatcher):
         await history.stop()
 
     async def handle_listen(self, parsed_update: PyroUpdate) -> None:
-        """Attempt to resolve the update against a registered listener.
+        """Offer the update to the listener registered for its type.
 
-        If a listener is found and resolves the update successfully,
-        ``stop_propagation()`` is called on the update to prevent the
-        normal handler pipeline from processing it further.
+        Listener errors are logged, not raised.
 
         Args:
             parsed_update: The parsed Pyrogram update to resolve.
+
+        Raises:
+            StopPropagation: If the listener resolved the update, so no handler
+                runs.
         """
         listener = self.listeners.get(type(parsed_update))
 
@@ -412,21 +350,25 @@ class Dispatcher(PyroDispatcher):
         parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None],
     ) -> tuple[int, int]:
-        """Process a single update through the listener and handler pipeline.
+        """Run the update through its listener, then the first matching handler of each group.
 
-        First attempts to resolve the update via :meth:`handle_listen`,
-        then iterates over handler groups, invoking the first matching
-        handler per group.
+        Handlers that succeed are recorded in the update type's history when it
+        is recordable. A handler error is passed to
+        `handle_update_handler_exception` and does not stop the other groups.
 
         Args:
-            packet: The raw ``(update, users, chats)`` tuple from Pyrogram.
-            parsed_update: The parsed Pyrogram update, or ``None`` if parsing
-                failed or was skipped.
+            packet: The raw `(update, users, chats)` tuple from Pyrogram.
+            parsed_update: The parsed Pyrogram update, or `None`.
             handler_type: The handler class expected to handle this update.
 
         Returns:
-            ``(handled_count, exc_count)`` — number of handlers that ran
-            successfully and number that raised exceptions.
+            `(handled_count, exc_count)`: the handlers that succeeded and the
+            handlers that raised.
+
+        Raises:
+            StopPropagation: If the listener resolved the update or a handler
+                stopped propagation.
+            UnhandledUpdate: If a handler raised it.
         """
         handled_count = exc_count = 0
         update, users, chats = packet
@@ -508,38 +450,27 @@ class Dispatcher(PyroDispatcher):
         parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None],
     ) -> None:
-        """Process a single update under coordination, if a coordinator is registered for its type.
+        """Process the update, under its coordinator when one applies.
 
-        If none is registered — or the update is not coordinatable — falls
-        through to :meth:`_handle_update` immediately.
+        Without a coordinator for its type, or when the update is not
+        coordinatable, the update is processed directly. Otherwise its lock is
+        taken; an update a peer already handled is dropped, and any other is
+        processed and then registered as handled if at least one handler ran,
+        even one that raised. The lock is released once the update is settled,
+        or earlier through `mark_handled`.
 
-        Otherwise the update's lock scope is taken first, and everything
-        below happens while holding it. That is what makes the checks that
-        follow meaningful: a peer cannot be halfway through the same update
-        while this one decides whether to process it.
-
-        Under the lock, the update's identity is checked against the handled
-        registry. A hit means a peer already processed it, and it is dropped.
-        A miss means it is processed here, then registered as handled if at
-        least one handler *ran* — counting handlers that raised, since the
-        update did reach its owner and replaying it elsewhere would duplicate
-        work rather than recover. A fully untouched update (0 handled, 0
-        raised) is left unregistered, so a peer may still pick it up.
-
-        The lock is released as soon as the update is settled, either way. A
-        handler may settle early by calling :func:`mark_handled`, which
-        registers the update and releases the lock without waiting for the
-        handler to return; the automatic settlement then becomes a no-op.
-
-        If the lock cannot be taken within its blocking timeout, the update
-        is skipped. If setting coordination up raises, the update falls
-        through to :meth:`_handle_update` uncoordinated rather than being
-        lost.
+        If the lock times out the update is skipped and logged. If setting up
+        coordination raises, the update is processed uncoordinated.
 
         Args:
-            packet: The raw ``(update, users, chats)`` tuple from Pyrogram.
-            parsed_update: The parsed Pyrogram update, or ``None``.
+            packet: The raw `(update, users, chats)` tuple from Pyrogram.
+            parsed_update: The parsed Pyrogram update, or `None`.
             handler_type: The handler class expected to handle this update.
+
+        Raises:
+            StopPropagation: If the listener or a handler stopped propagation;
+                a coordinated update is still registered as handled.
+            UnhandledUpdate: If a handler raised it.
         """
         coordinated = self.coordinateds.get(type(parsed_update))
 
@@ -574,8 +505,7 @@ class Dispatcher(PyroDispatcher):
             release.update_id = update_id = await coordinated.extract_update_id(parsed_update)
 
             if await coordinated.coordinator.is_handled(update_id):
-                # A peer got there first. Nothing to do, and nothing to
-                # register — it is already registered.
+                # A peer already handled and registered it.
                 return
 
             result = await self._handle_update(packet, parsed_update, handler_type)
@@ -587,9 +517,7 @@ class Dispatcher(PyroDispatcher):
             _HANDLED_MARKER.reset(token)
 
             # `sum()` counts `exc_count` on purpose: a handler that raised still
-            # *ran*, so the update reached its owner. Retrying it elsewhere
-            # would duplicate work instead of recovering. Only a fully
-            # untouched update (0 handled, 0 raised) is left unregistered.
+            # ran, so replaying the update on a peer would duplicate work.
             if not handled:
                 handled = sum(result) >= 1
 
@@ -598,15 +526,13 @@ class Dispatcher(PyroDispatcher):
             await release.settle(handled)
 
     async def handler_worker(self, lock: asyncio.Lock) -> None:
-        """Worker coroutine that consumes updates from the queue and dispatches them.
+        """Parse and dispatch updates from the queue until a `None` sentinel arrives.
 
-        Runs in a loop until a ``None`` sentinel is received. Each
-        update is parsed and dispatched under an async lock to
-        serialise concurrent workers.
+        Errors are logged, never raised, so the worker keeps running.
 
         Args:
-            lock: An async lock shared across all worker tasks to serialise
-                update processing.
+            lock: The lock shared by all workers; each update is dispatched
+                while holding it.
         """
         while True:
             packet = await self.updates_queue.get()
@@ -632,40 +558,17 @@ class Dispatcher(PyroDispatcher):
 
 
 def mark_handled() -> bool:
-    """Declare the current update handled *now*, without waiting for the handler to return.
+    """Register the current update as handled and release its lock now.
 
-    By default an update is settled only once its handler finishes: it is
-    registered as handled and its lock released together, at the end. That is
-    the safe default, but it ties lock hold time to handler duration — a
-    handler that runs a long job (a download, a conversation, an external API)
-    holds the lock for all of it, and everything else in that lock's scope
-    waits meanwhile.
-
-    Calling this from inside a handler settles it early instead. The update is
-    registered as handled and **the lock is released immediately**, so waiters
-    proceed and no peer will reprocess it, while this handler carries on for as
-    long as it likes.
-
-    .. warning::
-        Releasing the lock early gives up the ordering it was providing. If the
-        lock's scope is wider than one update — a whole chat, say — the next
-        update in that scope starts as soon as this call returns, running
-        alongside the rest of this handler. Call it once the part that needed
-        serialising is genuinely done, not merely once the update is
-        acknowledged.
-
-    Callable from a sync handler too (those run in the client's executor): the
-    settlement is scheduled onto the event loop thread-safely rather than
-    awaited here, which is also why this is a plain function and not a
-    coroutine.
-
-    Idempotent — later calls, and the automatic settlement when the handler
-    returns, are no-ops.
+    Call it from a handler, sync or async, that keeps running after the work
+    needing the lock is done. The settlement is scheduled on the event loop,
+    not awaited. Later calls and the automatic settlement become no-ops. The
+    lock's ordering ends here: the next update in its scope may start while
+    this handler is still running.
 
     Returns:
-        ``True`` if this call performed the early settlement. ``False`` if the
-        update is not under a coordinator, it was already settled, or this was
-        called outside of update processing entirely.
+        `True` if this call settled the update, `False` if the update is not
+        coordinated, is already settled, or no update is being processed.
 
     Example:
         >>> mark_handled()  # outside update processing there is nothing to settle

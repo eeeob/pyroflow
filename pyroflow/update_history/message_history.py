@@ -1,4 +1,4 @@
-"""Handler history for :class:`Message` updates."""
+"""Handler history for `Message` updates."""
 
 from __future__ import annotations as _annotations
 
@@ -12,9 +12,20 @@ if TYPE_CHECKING:
 
 
 class MessageHistory(UpdateHistory[Message]):
-    """Handler history for messages, keyed by ``(chat_id, user_id, message_id)``.
+    """Handler history for messages, keyed by `(chat_id, user_id, message_id)`.
 
     Messages without a chat are not recorded; the stored data is the message text.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Chat, Message
+        >>> history = MessageHistory()
+        >>> message = Message(id=7, chat=Chat(id=5), text="hi")
+        >>> async def main():
+        ...     await history.record(message, "start")
+        ...     return [(r.handler, r.data) for r in await history.get((5, None, 7))]
+        >>> asyncio.run(main())
+        [('start', 'hi')]
     """
 
     __update_type__ = Message
@@ -39,7 +50,7 @@ class MessageHistory(UpdateHistory[Message]):
         return update.chat is not None
 
     async def _extract_key(self, update: Message) -> tuple[int | None, int | None, int]:
-        """Return the ``(chat_id, user_id, message_id)`` key; ``user_id`` is ``None`` without a sender."""
+        """Return the `(chat_id, user_id, message_id)` key; `user_id` is `None` without a sender."""
         # `is_recordable()` guarantees the chat exists.
         return (
             cast("Chat", update.chat).id,

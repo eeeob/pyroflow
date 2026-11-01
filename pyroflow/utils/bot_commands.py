@@ -1,4 +1,4 @@
-"""Internal bot command helpers: the :func:`mark_bot_commands` decorator and command entry expansion."""
+"""Internal bot command helpers: the `mark_bot_commands` decorator and command entry expansion."""
 
 from __future__ import annotations as _annotations
 
@@ -29,35 +29,20 @@ _MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = tuple(
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
     """Mark a handler function with the bot commands it answers to.
 
-    :class:`~pyroflow.BotCommandsMixin` publishes them to Telegram later, when
-    the client starts.
+    Nothing is sent here: `entries` are stored under `BOT_COMMANDS_ATTR` on each
+    `MessageHandler` and `BusinessMessageHandler` in `func.handlers`, other
+    handlers are left untouched, and `BotCommandsMixin.push_bot_commands`
+    publishes them when the client starts.
 
-    Nothing is sent to Telegram here — the declaration is only stored on the
-    handler object, under :data:`BOT_COMMANDS_ATTR`. The actual
-    ``set_bot_commands`` call happens in
-    :meth:`~pyroflow.BotCommandsMixin.push_bot_commands`, which the mixin runs
-    from its ``start()``. That deferral is the whole point: the published
-    command list is assembled from the handlers you actually registered,
-    instead of being written out a second time by hand.
-
-    Stacks on top of Pyrogram's own ``@Client.on_message(...)``-style
-    decorators, which are what create ``func.handlers`` — so apply this one
-    *above* them (decorators apply bottom-up) to make sure ``handlers`` already
-    exists by the time this runs. Only :class:`~pyrogram.handlers.MessageHandler`
-    and :class:`~pyrogram.handlers.BusinessMessageHandler` entries are marked;
-    anything else in ``func.handlers`` is left untouched.
-
-    Note that ``func.handlers`` is only populated by the *unbound* decorator
-    form (``@Client.on_message()``, the plugin-file style). The bound form
-    (``@app.on_message()``) registers the handler immediately and sets nothing,
-    so there is nothing for this decorator to mark.
+    Apply it above an unbound `@Client.on_message(...)`, which creates
+    `func.handlers`. The bound form `@app.on_message(...)` sets nothing, so
+    there is nothing to mark.
 
     Args:
-        *entries: The command declarations, each in one of the shapes
-            described by :data:`~pyroflow.typings.BotCommandEntryT`.
+        *entries: The command declarations, each a `BotCommandEntryT`.
 
     Returns:
-        A decorator that stores ``entries`` on the function's message handlers
+        A decorator that stores `entries` on the function's message handlers
         and returns the function unchanged.
 
     Example:
@@ -72,7 +57,7 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
     """
 
     def decorator(func: _FT) -> _FT:
-        """Store ``entries`` on each message handler in ``func.handlers``."""
+        """Store `entries` on each message handler in `func.handlers`."""
         for handler, _ in getattr(func, "handlers", []):
             if not isinstance(handler, _MESSAGES_HANDLER):
                 continue
@@ -83,16 +68,16 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
 
 
 def split_bot_command_entry(entry: BotCommandEntryT) -> BotCommandPartsT:
-    """Expand any :data:`BotCommandEntryT` shape into its ``(language_code, scope, commands)`` parts.
+    """Expand any `BotCommandEntryT` shape into its `(language_code, scope, commands)` parts.
 
-    The parts the entry left out are filled with ``None``.
+    The parts the entry left out are filled with `None`.
 
     Args:
-        entry: Commands alone, a ``(scope, commands)`` pair, or a
-            ``(language_code, scope, commands)`` triple.
+        entry: Commands alone, a `(scope, commands)` pair, or a
+            `(language_code, scope, commands)` triple.
 
     Returns:
-        The ``(language_code, scope, commands)`` triple.
+        The `(language_code, scope, commands)` triple.
 
     Example:
         >>> from pyrogram.types import BotCommandScopeDefault

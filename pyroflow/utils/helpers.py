@@ -1,4 +1,4 @@
-"""Internal helpers: an awaitable-release lock, the :class:`UpdateBound` base and ``ask`` error dispatch."""
+"""Internal helpers: an awaitable-release lock, the `UpdateBound` base and `ask` error dispatch."""
 
 from __future__ import annotations as _annotations
 
@@ -19,7 +19,17 @@ if TYPE_CHECKING:
 
 
 class AsyncioLock(asyncio.Lock):
-    """An :class:`asyncio.Lock` whose ``release`` is awaitable, matching :class:`AsyncLockProto`."""
+    """An `asyncio.Lock` whose `release` is awaitable, matching `AsyncLockProto`.
+
+    Example:
+        >>> async def main():
+        ...     lock = AsyncioLock()
+        ...     async with lock:
+        ...         held = lock.locked()
+        ...     return held, lock.locked()
+        >>> asyncio.run(main())
+        (True, False)
+    """
 
     async def release(self) -> None:  # ty: ignore[invalid-method-override]  # deliberately async to match `AsyncLockProto`
         """Release the lock."""
@@ -31,7 +41,7 @@ class AsyncioLock(asyncio.Lock):
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        """Release the lock on leaving the ``async with`` block.
+        """Release the lock on leaving the `async with` block.
 
         Args:
             exc_type: The type of the exception that left the block, if any.
@@ -44,11 +54,18 @@ class AsyncioLock(asyncio.Lock):
 class UpdateBound(Generic[UpdateType]):
     """Bind a class to a specific Pyrogram update type.
 
-    Enforces that any concrete subclass declares a valid Pyrogram update
-    type via ``__update_type__``, and provides a validation helper to ensure
-    incoming updates match the declared type.
+    Every subclass must set `__update_type__` to a Pyrogram `Update` subclass,
+    except one that lists `ABC` directly among its bases. Inherit from it only;
+    instantiating a class without `__update_type__` raises `TypeError`.
 
-    This class is not meant to be used directly — inherit from it only.
+    Example:
+        >>> from pyrogram.types import Message as PyroMessage
+        >>> class MessageBound(UpdateBound[PyroMessage]):
+        ...     __update_type__ = PyroMessage
+        >>> MessageBound.validate_update("text")
+        Traceback (most recent call last):
+        ...
+        TypeError: Expected Message, got str
     """
 
     __update_type__: type[UpdateType]
@@ -58,10 +75,10 @@ class UpdateBound(Generic[UpdateType]):
         """Check that a concrete subclass declares a Pyrogram update type.
 
         Args:
-            **kw: Passed on to the next base's ``__init_subclass__``.
+            **kw: Passed on to the next base's `__init_subclass__`.
 
         Raises:
-            TypeError: If ``__update_type__`` is missing or is not a Pyrogram update class.
+            TypeError: If `__update_type__` is missing or is not a Pyrogram update class.
         """
         super().__init_subclass__(**kw)
 
@@ -79,13 +96,13 @@ class UpdateBound(Generic[UpdateType]):
             raise TypeError(msg)
 
     def __init__(self, **kw: Any) -> None:
-        """Check the declared update type again, then pass ``kw`` on to the next base.
+        """Check the declared update type again, then pass `kw` on to the next base.
 
         Args:
-            **kw: Passed on to the next base's ``__init__``.
+            **kw: Passed on to the next base's `__init__`.
 
         Raises:
-            TypeError: If ``__update_type__`` is missing or is not a Pyrogram update class.
+            TypeError: If `__update_type__` is missing or is not a Pyrogram update class.
         """
         update_type = getattr(self.__class__, "__update_type__", None)
 
@@ -104,13 +121,13 @@ class UpdateBound(Generic[UpdateType]):
 
     @classmethod
     def validate_update(cls, update: UpdateType) -> None:
-        """Validate that the given update matches the declared ``__update_type__``.
+        """Validate that the given update matches the declared `__update_type__`.
 
         Args:
             update: The incoming Pyrogram update object.
 
         Raises:
-            TypeError: If the update is not an instance of ``__update_type__``.
+            TypeError: If the update is not an instance of `__update_type__`.
         """
         if not isinstance(update, cls.__update_type__):
             msg = f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}"
@@ -122,17 +139,12 @@ async def handle_ask_error(
     m: Message,
     *handlers: AskErrorHandlersT | None,
 ) -> bool:
-    """Dispatch ``exc`` to the first matching entry across ``handlers``, awaited as ``handler(exc, m)``.
+    """Run the first handler across `handlers` whose key matches `exc`, as `handler(exc, m)`.
 
-    Each mapping is scanned in order, and within a mapping its keys are tried in
-    insertion order, so earlier ``handlers`` arguments take precedence — that is
-    what makes ``ask(error_handlers=...)`` win over the client-wide
-    :attr:`~pyroflow.Client.ask_error_handlers`. ``None`` and empty mappings are
-    skipped, and the search stops at the first match.
-
-    Handler failures are swallowed (``return_exc=True``): this runs from an
-    ``except`` block whose original exception is about to be re-raised, and a
-    failing handler must not replace it.
+    Mappings are scanned in order and their keys in insertion order, so earlier
+    mappings take precedence; `None` and empty mappings are skipped. A sync
+    handler runs in a worker thread. An exception raised by the handler is
+    logged and swallowed, so it never replaces `exc`.
 
     Args:
         exc: The exception to dispatch.
@@ -140,7 +152,15 @@ async def handle_ask_error(
         *handlers: Mappings of exception types to handlers, highest precedence first.
 
     Returns:
-        ``True`` if a handler matched and ran, ``False`` otherwise.
+        `True` if a handler matched and ran, `False` otherwise.
+
+    Example:
+        >>> seen = []
+        >>> handlers = {ValueError: lambda exc, m: seen.append(m)}
+        >>> asyncio.run(handle_ask_error(ValueError(), "message", None, handlers))
+        True
+        >>> seen
+        ['message']
     """
     for hdlrs in handlers:
         if not hdlrs:

@@ -1,4 +1,4 @@
-"""Handler history for :class:`CallbackQuery` updates."""
+"""Handler history for `CallbackQuery` updates."""
 
 from __future__ import annotations as _annotations
 
@@ -12,10 +12,27 @@ if TYPE_CHECKING:
 
 
 class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
-    """Handler history for callback queries, keyed by ``(chat_id, user_id, message_id)``.
+    """Handler history for callback queries, keyed by `(chat_id, user_id, message_id)`.
 
     The key comes from the query's message; queries without a message in a chat are
     not recorded. The stored data is the callback data.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import CallbackQuery, Chat, Message, User
+        >>> history = CallbackQueryHistory()
+        >>> query = CallbackQuery(
+        ...     id="1",
+        ...     from_user=User(id=3),
+        ...     chat_instance="0",
+        ...     message=Message(id=7, chat=Chat(id=5)),
+        ...     data="yes",
+        ... )
+        >>> async def main():
+        ...     await history.record(query, "menu")
+        ...     return [(r.handler, r.data) for r in await history.get((5, 3, 7))]
+        >>> asyncio.run(main())
+        [('menu', 'yes')]
     """
 
     __update_type__ = CallbackQuery
@@ -42,7 +59,7 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
         return m is not None and m.chat is not None
 
     async def _extract_key(self, update: CallbackQuery) -> tuple[int | None, int | None, int]:
-        """Return the ``(chat_id, user_id, message_id)`` key of the query's message."""
+        """Return the `(chat_id, user_id, message_id)` key of the query's message."""
         # `is_recordable()` guarantees the message and its chat exist.
         m = cast("Message", update.message)
         chat = cast("Chat", m.chat)

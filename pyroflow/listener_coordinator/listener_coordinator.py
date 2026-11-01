@@ -13,40 +13,20 @@ if TYPE_CHECKING:
 
 
 class ListenerCoordinator(ABC):
-    """Abstract base for listener registries.
+    """Abstract base for the registry that tracks listener registrations.
 
-    A listener coordinator stores and manages registrations for update listeners.
-    Concrete implementations must provide locking, listener coordinator,
-    unregistration and lookup semantics appropriate for their storage
-    backend (in-memory, Redis, etc.).
-
-    Locking contract: operations on the same chat are serialised under the
-    lock returned by :meth:`lock`, which prevents races between registration,
-    cancellation and update resolution. **The caller acquires that lock, not
-    you.**
-
-    :class:`UpdateListener` already holds ``lock(key.chat_id)`` when it calls
-    :meth:`register`, :meth:`unregister`, :meth:`registered` and
-    :meth:`cancel`. Since the lock is a plain :class:`asyncio.Lock` and
-    therefore not reentrant, an implementation that takes it again inside
-    those methods deadlocks the worker permanently, with no timeout to
-    recover from::
-
-        async def registered(self, key, coordinator_id=None):
-            async with self.lock(key.chat_id):   # DEADLOCK — caller holds it
-                ...
-
-    Implement them as plain critical-section bodies and rely on the caller's
-    lock for mutual exclusion. Only guard state that the lock does not
-    already cover — e.g. a connection pool shared across chats — and use a
-    *separate* lock for it.
+    The caller serialises operations on a chat under `lock(key.chat_id)`:
+    `UpdateListener` already holds it when it calls `register`, `unregister`,
+    `cancel` and `registered`. The lock is not reentrant, so taking it again
+    inside those methods deadlocks the worker. Guard state the lock does not
+    cover, such as a pool shared across chats, with a separate lock.
     """
 
     def __init__(self, listener: UpdateListener, **kw: Any) -> None:
         """Bind the coordinator to the listener that owns it.
 
         Args:
-            listener: The :class:`UpdateListener` that owns this listener coordinator.
+            listener: The `UpdateListener` that owns this coordinator.
             **kw: Passed to the next class in the MRO.
         """
         super().__init__(**kw)
@@ -55,30 +35,29 @@ class ListenerCoordinator(ABC):
 
     @abstractmethod
     def lock(self, key: LockKeyT) -> AsyncLockProto:
-        """Return an async lock that serialises coordinator operations for ``key``.
+        """Return the async lock that serialises coordinator operations for `key`.
 
         Args:
-            key: A chat id, a tuple of ids, or a :class:`ListenerKey`
-                identifying the scope to lock.
+            key: A chat id, a tuple of ids or a `ListenerKey` naming the scope.
 
         Returns:
-            An async lock compatible with ``async with``.
+            An async lock usable with `async with`.
         """
         raise NotImplementedError
 
     @abstractmethod
     async def register(self, key: ListenerKey) -> ListenerCoordinatorIdT:
-        """Register a listener for ``key`` and return a unique coordinator id.
-
-        The listener coordinator id can later be passed to :meth:`unregister`
-        to safely remove this specific listener coordinator without affecting
-        a newer one that may have replaced it.
+        """Register a listener for `key`.
 
         Args:
-            key: The :class:`ListenerKey` to register.
+            key: The key to register.
 
         Returns:
-            A unique identifier for this listener coordinator.
+            A unique id; passing it to `unregister` removes this registration
+            without removing a newer one for the same key.
+
+        Raises:
+            KeyError: If `key` is already registered.
         """
         raise NotImplementedError
 
@@ -86,33 +65,32 @@ class ListenerCoordinator(ABC):
     async def unregister(
         self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
     ) -> bool:
-        """Remove a listener coordinator by key and optional listener coordinator id.
-
-        If ``coordinator_id`` is provided, only the listener coordinator
-        matching that id is removed, preventing accidental removal
-        of a newer listener coordinator for the same key.
+        """Remove the registration for `key`.
 
         Args:
-            key: The :class:`ListenerKey` to unregister.
-            coordinator_id: If provided, only remove the listener coordinator
-                with this id.
+            key: The key to unregister.
+            coordinator_id: When given, remove the registration only if it
+                holds this id, so a newer one for the same key survives.
 
         Returns:
-            ``True`` if a listener coordinator was removed, ``False`` otherwise.
+            `False` only when `coordinator_id` is given and `key` holds a
+            different id; `True` otherwise, including when `key` was not
+            registered. Redis without `coordinator_id` returns whether a key
+            was deleted.
         """
         raise NotImplementedError
 
     @abstractmethod
     async def cancel(self, key: ListenerKey) -> bool:
-        """Cancel all registrations for the given key.
+        """Cancel every registration for `key`, whatever its id.
 
         Args:
-            key: The :class:`ListenerKey` whose registrations should
-                be cancelled.
+            key: The key to cancel.
 
         Returns:
-            ``True`` if any registrations were cancelled, ``False``
-            otherwise.
+            Backend-specific: Redis returns whether a registration existed,
+            Memory always returns `True`. Either way `key` is no longer
+            registered afterwards.
         """
         raise NotImplementedError
 
@@ -120,15 +98,15 @@ class ListenerCoordinator(ABC):
     async def registered(
         self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
     ) -> bool:
-        """Check whether a listener coordinator exists for the given key.
+        """Return whether `key` is registered.
 
         Args:
-            key: The :class:`ListenerKey` to check.
-            coordinator_id: If provided, also verify that the listener coordinator
-                matches this specific id.
+            key: The key to check.
+            coordinator_id: When given, also require the registration to hold
+                this id.
 
         Returns:
-            ``True`` if a matching listener coordinator exists, ``False`` otherwise.
+            `True` if a matching registration exists, `False` otherwise.
         """
         raise NotImplementedError
 

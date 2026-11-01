@@ -15,21 +15,20 @@ if TYPE_CHECKING:
 
 
 class RedisUpdateCoordinator(UpdateCoordinator):
-    """Cross-session coordinator backed by Redis.
+    """Coordinator shared across sessions, backed by Redis.
 
-    Both primitives map onto Redis directly, with no scripting needed: the
-    lock is redis-py's own distributed lock, and the handled registry is a
-    plain expiring key whose mere existence is the state.
+    The lock is redis-py's distributed lock, and a handled update is an
+    expiring key whose existence is the state.
     """
 
     def __init__(self, redis: Redis, *args: Any, sleep: Number = 0.1, **kw: Any) -> None:
-        """Initialise the coordinator; other arguments go to :class:`UpdateCoordinator`.
+        """Initialise the coordinator; other arguments go to `UpdateCoordinator`.
 
         Args:
             redis: The async Redis client holding the locks and the registry.
-            *args: Positional arguments for :class:`UpdateCoordinator`.
+            *args: Positional arguments for `UpdateCoordinator`.
             sleep: Seconds between lock acquisition attempts while waiting.
-            **kw: Keyword arguments for :class:`UpdateCoordinator`.
+            **kw: Keyword arguments for `UpdateCoordinator`.
         """
         super().__init__(*args, **kw)
 
@@ -37,14 +36,8 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         self.sleep = sleep
 
     def lock(self, key: UpdateCoordinatorKeyT) -> Lock:
-        """Build the distributed lock for ``key``.
-
-        ``timeout`` and ``blocking_timeout`` are always passed: leaving
-        either at redis-py's ``None`` default turns a crashed or contended
-        session into a permanent, unrecoverable stall — a lock with no TTL
-        outlives the session that took it, and a waiter with no timeout
-        blocks on it forever.
-        """
+        """Build the distributed lock for `key`, expiring after `lock_ttl`."""
+        # redis-py's `None` defaults let a dead session hold the lock and a waiter block forever.
         return self.redis.lock(
             self.build_key(key, "lock"),
             timeout=self.lock_ttl,
@@ -54,13 +47,12 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         )
 
     async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
-        """Whether the handled key for ``key`` exists in Redis."""
+        """Return whether the handled key for `key` exists in Redis."""
         return bool(await self.redis.exists(self.build_key(key, "handled")))
 
     async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
-        """Set the handled key for ``key`` in Redis, expiring after ``handled_ttl``."""
-        # `px` rather than `ex` so a sub-second `handled_ttl` survives the trip
-        # instead of being truncated to zero.
+        """Set the handled key for `key` in Redis, expiring after `handled_ttl`."""
+        # `px` rather than `ex`, so a sub-second `handled_ttl` is not truncated to zero.
         await self.redis.set(
             self.build_key(key, "handled"),
             1,

@@ -58,11 +58,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
     end
     return deleted_count
     """
-    # Read and delete in one atomic step so the caller learns exactly which
-    # registration it invalidated. A separate `GET` then `DEL` could report an id
-    # that a concurrent `register()` had already replaced, and the cancel signal
-    # would then name the wrong generation. `GETDEL` would do, but needs Redis
-    # 6.2+; this works everywhere and matches the scripts above.
+    # Atomic `GET` + `DEL` so the cancel signal names the id actually removed,
+    # not one a concurrent `register` put in between; `GETDEL` needs Redis 6.2+.
     LUA_GETDEL_SCRIPT: ClassVar[str] = """
     local value = redis.call('GET', KEYS[1])
 
@@ -84,26 +81,16 @@ class RedisListenerCoordinator(ListenerCoordinator):
         lock_timeout: Number = 30,
         lock_blocking_timeout: Number = 10,
     ) -> None:
-        """Bind the coordinator to ``redis`` and register its Lua scripts.
-
-        Both lock values are always applied when the lock is built. redis-py
-        defaults them to ``None``, which is unusable here: a lock with no TTL
-        survives the session that took it, so a process that dies mid-critical
-        section leaves that chat locked in Redis permanently, and every other
-        session then blocks on it forever with no way to recover.
+        """Bind the coordinator to `redis` and register its Lua scripts.
 
         Args:
             redis: The async Redis client backing this coordinator.
-            listener: The :class:`UpdateListener` that owns it.
-            lock_timeout: TTL (seconds) of the per-chat lock. Size it above the
-                longest critical section (all of them are short Redis
-                round-trips) but low enough that a crashed holder is reclaimed
-                quickly.
-            lock_blocking_timeout: How long (seconds) to wait for the lock
-                before giving up with ``LockError``. Without it a waiter blocks
-                forever; failing loudly is recoverable, hanging silently is not.
-                Keep it at or below ``lock_timeout`` so a waiter never outlasts
-                the TTL it is waiting on.
+            listener: The `UpdateListener` that owns it.
+            lock_timeout: TTL in seconds of the per-chat lock, so a crashed
+                holder does not keep the chat locked forever. Keep it above the
+                longest critical section.
+            lock_blocking_timeout: Seconds to wait for the lock before giving
+                up with `LockError`. Keep it at or below `lock_timeout`.
         """
         super().__init__(listener)
 
@@ -115,9 +102,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
         self.pubsub: PubSub | None = None
         self.listening_task: asyncio.Task | None = None
-        # In-flight cancel applications. Held strongly so they are not garbage
-        # collected mid-flight, and drained on `stop()` so shutdown does not
-        # abandon a cancellation halfway through.
+        # Strong references keep in-flight cancels from being garbage collected;
+        # `stop` drains them.
         self._pending_cancels: set[asyncio.Task] = set()
 
         self._sep = "|"
@@ -132,7 +118,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
         self._register_scripts()
 
     def _register_scripts(self) -> None:
-        """Register each Lua script with ``self.redis`` unless it is already set."""
+        """Register each Lua script with `self.redis` unless it is already set."""
         if self.lua_unregister is None:
             self.lua_unregister = self.redis.register_script(self.LUA_UNREGISTER_SCRIPT)
         if self.lua_bulk_unregister is None:
@@ -141,16 +127,16 @@ class RedisListenerCoordinator(ListenerCoordinator):
             self.lua_getdel = self.redis.register_script(self.LUA_GETDEL_SCRIPT)
 
     def _unpack_key(self, packed_key: str) -> ListenerKey:
-        """Rebuild the :class:`ListenerKey` that :meth:`_pack_key` encoded."""
+        """Rebuild the `ListenerKey` that `_pack_key` encoded."""
         chat_id, *rest = packed_key.split(self._sep)[3:]
 
         return ListenerKey(int(chat_id), *(None if key == self._null else int(key) for key in rest))
 
     def _pack_key(self, key: ListenerKey, section: Literal["registry", "lock"] = "registry") -> str:
-        """Encode ``key`` as the Redis key of ``section`` for this update type.
+        """Encode `key` as the Redis key of `section` for this update type.
 
-        The result is ``listen|<section>|<update type>|<chat_id>|<user_id>|<message_id>``,
-        with ``_`` standing in for a missing component.
+        The result is `listen|<section>|<update type>|<chat_id>|<user_id>|<message_id>`,
+        with `_` standing in for a missing component.
         """
         return self._key_format.format_map(
             {
@@ -162,21 +148,22 @@ class RedisListenerCoordinator(ListenerCoordinator):
         )
 
     def lock(self, key: LockKeyT) -> AsyncLockProto:
-        """Build the Redis lock for ``key``.
-
-        ``timeout`` and ``blocking_timeout`` are always passed: leaving either
-        at redis-py's ``None`` default turns a crashed or contended session
-        into a permanent, unrecoverable stall (see :meth:`__init__`).
+        """Build the Redis lock for `key` with `lock_timeout` and `lock_blocking_timeout`.
 
         Args:
-            key: A chat id, a tuple of ids, or a :class:`ListenerKey`; ids are
-                wrapped in a :class:`ListenerKey` first.
+            key: A chat id, a tuple of ids or a `ListenerKey`; ids are wrapped
+                in a `ListenerKey` first.
+
+        Returns:
+            A Redis lock that is not thread-local.
         """
         if isinstance(key, int):
             key = ListenerKey(key)
         elif isinstance(key, tuple):
             key = ListenerKey(*key)
 
+        # redis-py يجعل `timeout` و`blocking_timeout` افتراضياً `None`، أي قفل بلا TTL
+        # يبقى بعد موت الـ session وانتظار بلا نهاية؛ لذلك نمرّرهما دائماً.
         return self.redis.lock(
             self._pack_key(key, "lock"),
             timeout=self.lock_timeout,
@@ -185,7 +172,11 @@ class RedisListenerCoordinator(ListenerCoordinator):
         )
 
     async def register(self, key: ListenerKey) -> str:
-        """Claim ``key`` in Redis and return a fresh id; raise ``KeyError`` if taken."""
+        """Claim `key` in Redis and return a fresh hex uuid as its id.
+
+        Raises:
+            KeyError: If `key` is already registered by any session.
+        """
         packed_key = self._pack_key(key)
         coordinator_id = uuid.uuid4().hex
 
@@ -202,7 +193,12 @@ class RedisListenerCoordinator(ListenerCoordinator):
     async def unregister(
         self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
     ) -> bool:
-        """Delete ``key`` from Redis, only if it still holds ``coordinator_id`` when given."""
+        """Delete `key` from Redis, only if it still holds `coordinator_id` when given.
+
+        Returns:
+            `True` if `key` was deleted; with `coordinator_id`, also `True` when
+            `key` was already gone.
+        """
         packed_key = self._pack_key(key)
 
         if coordinator_id is None:
@@ -225,7 +221,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
     async def registered(
         self, key: ListenerKey, coordinator_id: ListenerCoordinatorIdT | None = None
     ) -> bool:
-        """Return whether ``key`` exists in Redis, optionally under ``coordinator_id``."""
+        """Return whether `key` exists in Redis, under `coordinator_id` when given."""
         value = await self.redis.get(self._pack_key(key))
 
         if value is None:
@@ -237,22 +233,15 @@ class RedisListenerCoordinator(ListenerCoordinator):
         return coordinator_id is None or value == coordinator_id
 
     async def cancel(self, key: ListenerKey) -> bool:
-        """Cancel the registration for ``key`` across every session.
+        """Cancel the registration for `key` across every session.
 
-        Deletion happens first and is what actually makes the cancellation
-        take effect: once the key is gone, no peer can prove ownership of it,
-        so no peer will resolve an update with the listener it held. The
-        published signal is only an optimisation — it lets peers fail their
-        waiters promptly instead of sitting until timeout. Correctness
-        therefore does not depend on pub/sub delivery, which is best-effort
-        and can be delayed or dropped entirely.
-
-        The signal carries the id that was actually invalidated, so a peer
-        can tell whether the listener it currently holds is the one being
-        cancelled or a newer one that reused the same key.
+        Deleting the key is what takes effect: no peer resolves an update with
+        a listener it can no longer prove it owns. The removed id is then
+        published so peers fail their waiters promptly; delivery is best-effort,
+        so a peer may only notice at its own timeout.
 
         Returns:
-            ``True`` if a registration existed and was removed.
+            `True` if a registration existed and was removed, `False` otherwise.
         """
         if self.lua_getdel is None:
             msg = "Lua getdel script is not registered"
@@ -265,7 +254,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
         cancelled_id = await self.lua_getdel(keys=[packed_key], client=self.redis)
 
         if cancelled_id is None:
-            # Nothing was registered — no peer is waiting, so no signal.
+            # Nothing was registered, so no peer is waiting and no signal is sent.
             return False
 
         if isinstance(cancelled_id, bytes):
@@ -292,7 +281,11 @@ class RedisListenerCoordinator(ListenerCoordinator):
         )
 
     async def stop(self) -> None:
-        """Stop listening, close pub/sub and release this session's registrations."""
+        """Stop listening, close pub/sub and release this session's registrations.
+
+        Waits for in-flight cancel signals first. A failure to delete the
+        registrations is logged, not raised.
+        """
         task = self.listening_task
         pubsub = self.pubsub
 
@@ -305,8 +298,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
             log.debug("Listening task stopped")
 
         if self._pending_cancels:
-            # Let already-dispatched cancels finish; abandoning them would
-            # leave local waiters hanging until their own timeout.
+            # Abandoning dispatched cancels would leave local waiters hanging
+            # until their own timeout.
             await gather_helper(*self._pending_cancels, return_exc=True)
             self._pending_cancels.clear()
 
@@ -339,7 +332,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
                 self._owned_registrations.clear()
 
     async def _apply_cancel_signal(self, key: ListenerKey, coordinator_id: str) -> None:
-        """Apply one cancel signal, guarding the generation it targets."""
+        """Cancel the local listener for `key` only if it holds `coordinator_id`; log failures."""
         try:
             await self.listener.cancel(
                 key,
@@ -353,7 +346,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
         """Read cancel signals from pub/sub and apply each one in its own task.
 
         Raises:
-            RuntimeError: :meth:`start` has not created the pub/sub yet.
+            RuntimeError: If `start` has not created the pub/sub yet.
         """
         if self.pubsub is None:
             msg = "PubSub has not been initialized. Call start() first."
@@ -387,11 +380,8 @@ class RedisListenerCoordinator(ListenerCoordinator):
                 coordinator_id,
             )
 
-            # Applying a cancel takes the chat lock, which may be held
-            # elsewhere. Awaiting it inline would stall every later signal
-            # behind this one — head-of-line blocking that grows the very
-            # cancellation delay this channel exists to avoid. Dispatch it
-            # and keep reading.
+            # Applying a cancel waits for the chat lock; awaiting it inline would
+            # stall every later signal behind this one.
             task = asyncio.create_task(self._apply_cancel_signal(key, coordinator_id))
             self._pending_cancels.add(task)
             task.add_done_callback(self._pending_cancels.discard)

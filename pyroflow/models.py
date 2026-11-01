@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 # Defined before `ListenerKey`, whose class body passes it to `KeyDefaultDict`.
 def _get_plan(mask: int) -> tuple[int, ...]:
-    """Return every subset of the bits set in ``mask``, largest subsets first.
+    """Return every subset of the bits set in `mask`, largest subsets first.
 
     Args:
         mask: Bit mask of the optional key components present.
@@ -53,7 +53,12 @@ def _get_plan(mask: int) -> tuple[int, ...]:
 
 @dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
 class ListenerKey:
-    """Identifies a listener slot: a chat, optionally narrowed to a user and/or a message."""
+    """Identifies a listener slot: a chat, optionally narrowed to a user and/or a message.
+
+    Example:
+        >>> ListenerKey(1, 2) == ListenerKey(chat_id=1, user_id=2, message_id=None)
+        True
+    """
 
     PLANS: ClassVar[KeyDefaultDict[int, tuple[int, ...]]] = KeyDefaultDict(_get_plan)
     FIELDS: ClassVar[tuple[Field[Any], ...]]
@@ -70,9 +75,9 @@ class ListenerKey:
     chat_id: int
     """The chat the listener waits in."""
     user_id: int | None = None
-    """The user the listener waits for, or ``None`` for any user."""
+    """The user the listener waits for, or `None` for any user."""
     message_id: int | None = None
-    """The message id the update must carry, or ``None`` for any message.
+    """The message id the update must carry, or `None` for any message.
 
     For a message this is the incoming message's own id; for a callback
     query it is the id of the message holding the pressed button.
@@ -80,41 +85,29 @@ class ListenerKey:
 
     @property
     def to_tuple(self) -> tuple[int, int | None, int | None]:
-        """The key's components, in field order."""
+        """The key's components, in field order.
+
+        Example:
+            >>> ListenerKey(1, 2).to_tuple
+            (1, 2, None)
+        """
         return tuple(getattr(self, f.name) for f in self.FIELDS)
 
     def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
         """Yield every key a listener for this update could be registered under, most specific first.
 
-        ``chat_id`` is always present; the remaining components are each
-        independently optional, so the candidates are the *combinations* of the
-        components this key actually carries — not merely its prefixes::
-
-            (chat, user, message)
-            (chat, user)
-            (chat, message)      # any user, but this specific message
-            (chat)
-
-        The third rung is the one prefix truncation could never reach: a
-        listener registered as ``(chat, None, message)`` — "whoever answers
-        *this* message" — used to be registrable but permanently unmatchable.
-
-        Components this key does not carry are never invented, so the same key
-        is never yielded twice — which prefix truncation did whenever a
-        trailing component was ``None``.
-
-        Priority between selections of equal size follows the order the
-        components are declared in, so ``user_id`` outranks ``message_id``.
-        That keeps resolution order unchanged for every key that does not use
-        the new rung.
+        `chat_id` is always kept; the other components this key carries are
+        combined in every way, so `(chat, None, message)` is reached too. A
+        component this key lacks is never added, and no key is yielded twice.
+        Between keys of equal size, `user_id` outranks `message_id`.
 
         Args:
-            min_dep: Fewest components to yield down to, counting ``chat_id``.
-                The default of ``1`` includes the chat-only key; ``2`` stops
+            min_dep: Fewest components to yield down to, counting `chat_id`.
+                The default of `1` includes the chat-only key; `2` stops
                 before it.
 
         Raises:
-            AssertionError: If ``chat_id`` is ``None``.
+            AssertionError: If `chat_id` is `None`.
 
         Example:
             >>> for key in ListenerKey(1, 2, 3).sub_keys():
@@ -147,7 +140,18 @@ class ListenerKey:
 
 @dataclass(slots=True)
 class ListenerModel:
-    """A registered listener: its key, optional metadata, and the future its update resolves."""
+    """A registered listener: its key, optional metadata, and the future its update resolves.
+
+    Create it inside a running event loop: the default `future` is bound to it.
+
+    Example:
+        >>> async def main():
+        ...     listener = ListenerModel(ListenerKey(1))
+        ...     listener.resolve("update")
+        ...     return listener.done(), await listener.future
+        >>> asyncio.run(main())
+        (True, 'update')
+    """
 
     key: ListenerKey
     """The slot the listener is registered under."""
@@ -158,20 +162,17 @@ class ListenerModel:
     coordinator_id: ListenerCoordinatorIdT | None = None
     """Ownership token handed out by the coordinator at registration time.
 
-    A ``ListenerKey`` names *which* conversation slot this is; the id names
-    *which generation* of it. Cancellation travels between sessions
-    asynchronously, so a key alone cannot tell a live listener apart from one
-    that was superseded while a signal was still in flight — both
-    :meth:`UpdateListener.resolve` and :meth:`UpdateListener._cancel` compare
-    this token to stay on the right one.
+    It tells apart listeners registered under the same key over time:
+    `UpdateListener.resolve` and `UpdateListener._cancel` compare it so a
+    signal still in flight never hits the listener that replaced this one.
     """
 
     def resolve(self, update: object) -> None:
-        """Complete the listener's future with ``update``."""
+        """Complete the listener's future with `update`."""
         self.future.set_result(update)
 
     def set_exc(self, exc: Exception) -> None:
-        """Fail the listener's future with ``exc``."""
+        """Fail the listener's future with `exc`."""
         self.future.set_exception(exc)
 
     def done(self) -> bool:
@@ -180,14 +181,25 @@ class ListenerModel:
 
 
 class _WeakSlots:
-    """Base that gives a slotted dataclass a ``__weakref__`` slot."""
+    """Base that gives a slotted dataclass a `__weakref__` slot."""
 
     __slots__ = ("__weakref__",)
 
 
 @dataclass(slots=True)
 class UpdateRecord(_WeakSlots):
-    """A history entry: the handler that handled an update, with optional data; ordered by creation."""
+    """A history entry: the handler that handled an update, with optional data; ordered by creation.
+
+    Records with the same `created_at` are ordered by the sequence they were
+    created in.
+
+    Example:
+        >>> handler = PyroHandler(lambda client, update: None)
+        >>> first = UpdateRecord(handler, created_at=1.0)
+        >>> second = UpdateRecord(handler, created_at=1.0)
+        >>> first < second, second > first
+        (True, True)
+    """
 
     _SEQ: ClassVar[count[int]] = count()
     _SEQ_IDS: ClassVar[dict[int, int]] = {}
@@ -206,14 +218,14 @@ class UpdateRecord(_WeakSlots):
         weakref.finalize(self, cls._SEQ_IDS.pop, id(self), None)
 
     def __lt__(self, other: UpdateRecord) -> bool:
-        """Return whether this record was created before ``other``."""
+        """Return whether this record was created before `other`."""
         return (self.created_at, type(self)._SEQ_IDS[id(self)]) < (
             other.created_at,
             type(other)._SEQ_IDS[id(other)],
         )
 
     def __gt__(self, other: UpdateRecord) -> bool:
-        """Return whether this record was created after ``other``."""
+        """Return whether this record was created after `other`."""
         return (self.created_at, type(self)._SEQ_IDS[id(self)]) > (
             other.created_at,
             type(other)._SEQ_IDS[id(other)],

@@ -1,4 +1,4 @@
-"""Per-update-type listeners that resolve ``listen``/``ask`` waits."""
+"""Per-update-type listeners that resolve `listen` and `ask` waits."""
 
 from .update_listener import *
 from .message_listener import *

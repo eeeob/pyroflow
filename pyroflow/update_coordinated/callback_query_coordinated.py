@@ -1,4 +1,4 @@
-"""Coordination policy for :class:`CallbackQuery` updates."""
+"""Coordination policy for `CallbackQuery` updates."""
 
 from __future__ import annotations as _annotations
 
@@ -12,7 +12,15 @@ if TYPE_CHECKING:
 
 
 class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
-    """Coordinates callback queries, locked and deduplicated per query by default."""
+    """Coordinates callback queries, locked and deduplicated per query by default.
+
+    Example:
+        >>> import asyncio
+        >>> from pyroflow.types import User
+        >>> query = CallbackQuery(id="q1", from_user=User(id=7))
+        >>> asyncio.run(CallbackQueryCoordinated().extract_key(query))
+        ('q1',)
+    """
 
     __update_type__ = CallbackQuery
 
@@ -34,9 +42,8 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
     async def _extract_key(self, update: CallbackQuery) -> UpdateCoordinatorKeyT:
         """Lock per query, so queries never wait on each other.
 
-        Pass ``extract_key_func`` to serialise a wider scope instead — e.g.
-        the originating chat — without affecting deduplication, which keys
-        on :meth:`_extract_update_id` independently.
+        Pass `extract_key_func` to serialise a wider scope instead, such as
+        the originating chat; deduplication still keys on `_extract_update_id`.
         """
         return (update.id,)
 

@@ -1,16 +1,9 @@
-"""Custom text-matching filters, in the same style as ``pyrogram.filters``.
+"""Custom text-matching filters, in the same style as `pyrogram.filters`.
 
-Each of :func:`endswith`, :func:`startswith`, :func:`equal` and
-:func:`split_text` returns a :class:`~pyrogram.filters.Filter`, so they
-compose with pyrogram's own filters via ``&``/``|``/``~`` and register the
-same way::
-
-    @app.on_message(filters.equal("hi", "hello"))
-    async def handler(client, message): ...
-
-"Text" here means whichever field carries the update's user-typed content:
-:class:`~pyrogram.types.Message` uses ``.text`` (falling back to
-``.caption``), :class:`~pyrogram.types.CallbackQuery` uses ``.data``.
+Each factory returns a `pyrogram.filters.Filter`, so it composes with `&`, `|`
+and `~` and registers like any Pyrogram filter. The text of a `Message` is its
+`text`, falling back to its `caption`; the text of a `CallbackQuery` is its
+`data`.
 """
 
 from __future__ import annotations as _annotations
@@ -35,16 +28,25 @@ if TYPE_CHECKING:
 
 
 def _raise(exc: Exception) -> NoReturn:
-    """``raise`` as an expression, for use inside a comprehension."""
+    """`raise` as an expression, for use inside a comprehension."""
     raise exc
 
 
 def endswith(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text ends with any of ``texts``.
+    """Match when the update's text ends with any of `texts`.
 
     Args:
         *texts: Strings, or nested containers of them; empty strings and
             non-strings are ignored.
+
+    Returns:
+        The filter.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Message
+        >>> asyncio.run(endswith("world", ["!"])(None, Message(id=1, text="hello world")))
+        True
     """
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
     caller = to_coroutine(
@@ -55,11 +57,20 @@ def endswith(*texts: NestedContainer[str]) -> Filter:
 
 
 def startswith(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text starts with any of ``texts``.
+    """Match when the update's text starts with any of `texts`.
 
     Args:
         *texts: Strings, or nested containers of them; empty strings and
             non-strings are ignored.
+
+    Returns:
+        The filter.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Message
+        >>> asyncio.run(startswith("/start")(None, Message(id=1, text="/start 42")))
+        True
     """
     flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
     caller = to_coroutine(
@@ -70,11 +81,20 @@ def startswith(*texts: NestedContainer[str]) -> Filter:
 
 
 def equal(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text is exactly one of ``texts``.
+    """Match when the update's text is exactly one of `texts`.
 
     Args:
         *texts: Strings, or nested containers of them; empty strings and
             non-strings are ignored.
+
+    Returns:
+        The filter.
+
+    Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Message
+        >>> asyncio.run(equal("hi", "hello")(None, Message(id=1, text="hello world")))
+        False
     """
     flat_texts = frozenset(t for t in iter_flat_cont(texts) if isinstance(t, str) and t)
     caller = to_coroutine(lambda _, __, update: extract_pyro_update_text(update) in flat_texts)
@@ -87,28 +107,37 @@ def split_text(
     strip: bool = False,
     separator: str | None = None,
 ) -> Filter:
-    """Split the update's text by ``separator`` and match each part against its ``rules`` entry.
+    """Split the update's text by `separator` and match each part against its `rules` entry.
 
     The update matches only when the text splits into exactly one part per
-    rule and every part satisfies its rule.
+    rule and every part satisfies its rule. A synchronous callable rule runs
+    in a thread on the client's executor. Callback data left as `bytes` never
+    matches when a `separator` is given.
 
     Args:
-        *rules: One per part, each either a container of strings, a bare
-            string, or an :class:`~enum.Enum` class (whose *values* are used)
-            — the part must equal one of them; or a callable — called as
-            ``rule(part)`` and must return truthy.
+        *rules: One per part: a string, a container of strings or an `Enum`
+            class (its values), which the part must equal one of; or a
+            callable, called as `rule(part)`, which must return truthy.
         strip: Whether to strip whitespace from each part before matching.
-        separator: What to split the text on, at most ``len(rules) - 1``
-            times. ``None`` (the default) is only valid with exactly one rule:
-            the whole text is treated as a single, unsplit part.
+        separator: What to split the text on, at most `len(rules) - 1`
+            times. `None` (the default) is only valid with exactly one rule:
+            the whole text is then a single part.
+
+    Returns:
+        The filter.
 
     Raises:
         ValueError: If no rules are given, a rule resolves to an empty set of
-            strings, or more than one rule is given without a ``separator``.
-        TypeError: If a rule is neither a container, a string, an Enum class,
-            nor a callable.
+            strings, or more than one rule is given without a `separator`.
+        TypeError: If a rule is neither a container, a string, an `Enum`
+            class, nor a callable.
 
     Example:
+        >>> import asyncio
+        >>> from pyrogram.types import Message
+        >>> f = split_text("/ban", ["user", "chat"], separator=" ")
+        >>> asyncio.run(f(None, Message(id=1, text="/ban chat")))
+        True
         >>> split_text("/ban", str.isdigit)
         Traceback (most recent call last):
         ...

@@ -1,4 +1,4 @@
-"""Coordination policy for :class:`Message` updates."""
+"""Coordination policy for `Message` updates."""
 
 from __future__ import annotations as _annotations
 
@@ -14,7 +14,16 @@ if TYPE_CHECKING:
 
 
 class MessageCoordinated(UpdateCoordinated[Message]):
-    """Coordinates messages, locked and deduplicated per message by default."""
+    """Coordinates messages, locked and deduplicated per message by default.
+
+    Example:
+        >>> import asyncio
+        >>> from types import SimpleNamespace
+        >>> from pyrogram.raw.types import PeerChannel
+        >>> message = Message(id=42, raw=SimpleNamespace(peer_id=PeerChannel(channel_id=123)))
+        >>> asyncio.run(MessageCoordinated().extract_key(message))
+        (-1000000000123, 42)
+    """
 
     __update_type__ = Message
 
@@ -36,9 +45,9 @@ class MessageCoordinated(UpdateCoordinated[Message]):
     async def _extract_key(self, update: Message) -> UpdateCoordinatorKeyT:
         """Lock per message, so messages never wait on each other.
 
-        Pass ``extract_key_func=lambda m: (get_peer_id(m.raw.peer_id),)`` to
-        serialise a whole chat instead — deduplication is unaffected, since
-        it keys on :meth:`_extract_update_id` independently.
+        Pass `extract_key_func=lambda m: (get_peer_id(m.raw.peer_id),)` to
+        serialise a whole chat instead; deduplication still keys on
+        `_extract_update_id`.
         """
         return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
 

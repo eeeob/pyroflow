@@ -24,48 +24,38 @@ log = logging.getLogger(__name__)
 
 
 class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
-    """Abstract base for update types that are processed under coordination.
+    """Abstract policy that coordinates one update type.
 
-    Each subclass is bound to a single update type via ``__update_type__``
-    and defines three things: whether an update should be coordinated at
-    all, what scope to serialise it under, and what identifies the update
-    itself. The coordinator factory owns all backend details (locking,
-    TTLs, timeouts).
+    A subclass binds its update type through `__update_type__` and decides
+    whether an update is coordinated, its lock scope (`extract_key`) and its
+    identity (`extract_update_id`). Updates sharing a scope are processed one
+    at a time, in arrival order; each identity is processed once. By default
+    both are the update itself. Widen the scope to serialise a whole chat, but
+    keep the identity unique: a shared identity drops every later update as a
+    duplicate.
 
-    :meth:`extract_key` decides **what is locked** — the scope processed one
-    update at a time. :meth:`extract_update_id` decides **what counts as
-    the same update** — the identity registered as handled so it is never
-    processed twice.
-
-    By default both return the same thing, so an update is locked and
-    deduplicated at exactly its own granularity: updates never block each
-    other, and each is handled once. That is the narrow, safe default.
-
-    Widening only :meth:`extract_key` is what buys ordering. Key the lock on
-    the chat and every update in that chat is processed strictly one at a
-    time, in arrival order, while :meth:`extract_update_id` keeps each one
-    individually deduplicated. This is why the identity may never be folded
-    into the lock's scope: a chat-wide *lock* serialises, but a chat-wide
-    *identity* would register the whole chat as handled after its first
-    update and silently drop every update that followed.
-
-    Nothing constrains the two to be related — the scope may be as wide or
-    narrow as the subclass wants, independently of the identity.
+    Each callable may be sync or async; a sync one runs in a thread, on the
+    client's executor when it has one.
 
     Args:
-        coordinator_factory: Optional callable that receives the update type and
-            returns a configured :class:`UpdateCoordinator` instance. If ``None``,
-            it defaults to creating a local :class:`MemoryUpdateCoordinator`.
-        is_coordinatable_func: Optional callable ``(update) -> bool`` used by
-            :meth:`is_coordinatable`. If ``None``, the method must be overridden
-            in a subclass.
-        extract_key_func: Optional callable ``(update) -> UpdateCoordinatorKeyT``
-            used by :meth:`extract_key`. If ``None``, the method must be
-            overridden in a subclass.
-        extract_update_id_func: Optional callable ``(update) -> UpdateCoordinatorKeyT``
-            used by :meth:`extract_update_id`. If ``None``, the method must be
-            overridden in a subclass.
+        coordinator_factory: Builds the `UpdateCoordinator` from the update
+            type. Defaults to `MemoryUpdateCoordinator`.
+        is_coordinatable_func: `(update) -> bool` backing `is_coordinatable`.
+            If `None`, a subclass must override that method.
+        extract_key_func: `(update) -> key` backing `extract_key`. If `None`,
+            a subclass must override that method.
+        extract_update_id_func: `(update) -> key` backing `extract_update_id`.
+            If `None`, a subclass must override that method.
         **kw: Passed to the next class in the MRO.
+
+    Example:
+        >>> import asyncio
+        >>> from pyroflow.types import CallbackQuery, User
+        >>> from pyroflow.update_coordinated import CallbackQueryCoordinated
+        >>> query = CallbackQuery(id="q1", from_user=User(id=7))
+        >>> per_user = CallbackQueryCoordinated(extract_key_func=lambda q: (q.from_user.id,))
+        >>> asyncio.run(per_user.extract_key(query)), asyncio.run(per_user.extract_update_id(query))
+        ((7,), ('q1',))
     """
 
     def __init__(
@@ -90,24 +80,25 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.extract_update_id_func = extract_update_id_func
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        """Return the executor of the client bound to ``update``, or ``None`` if it has none."""
+        """Return the executor of the client bound to `update`, or `None` if it has none."""
         return getattr(getattr(update, "_client", None), "executor", None)
 
     async def is_coordinatable(self, update: UpdateType) -> bool:
-        """Determine whether this update should be coordinated.
+        """Return whether `update` is coordinated.
 
-        Called before any key extraction or locking. Return ``False`` to
-        process the update normally, with no lock and no registration.
+        An uncoordinated update is processed normally, with no lock and no
+        registration.
 
         Args:
-            update: The incoming update object.
+            update: The incoming update.
 
         Returns:
-            ``True`` if the update should be coordinated, ``False`` otherwise.
+            `True` if the update is coordinated, `False` otherwise.
 
         Raises:
-            NotImplementedError: If neither this method is overridden nor
-                ``is_coordinatable_func`` was provided.
+            NotImplementedError: If the method is not overridden and no
+                `is_coordinatable_func` was passed.
+            TypeError: If `update` is not an instance of `__update_type__`.
         """
         if self.is_coordinatable_func is None:
             msg = (
@@ -125,23 +116,21 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT:
-        """Extract the **lock scope** for this update.
+        """Return the lock scope of `update`.
 
-        Every update that yields the same key is processed one at a time, in
-        arrival order. Widen this to serialise a whole conversation; leave it
-        at the update's own granularity to let updates run concurrently.
-
-        This is not the update's identity — see :meth:`extract_update_id`.
+        Updates with the same scope are processed one at a time, in arrival
+        order. This is not the update's identity; see `extract_update_id`.
 
         Args:
-            update: The incoming update object.
+            update: The incoming update.
 
         Returns:
-            A :data:`UpdateCoordinatorKeyT` naming the scope to serialise.
+            The key naming the scope to serialise.
 
         Raises:
-            NotImplementedError: If neither this method is overridden nor
-                ``extract_key_func`` was provided.
+            NotImplementedError: If the method is not overridden and no
+                `extract_key_func` was passed.
+            TypeError: If `update` is not an instance of `__update_type__`.
         """
         if self.extract_key_func is None:
             msg = (
@@ -159,26 +148,23 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
-        """Extract the **identity** of this update, for deduplication.
+        """Return the identity of `update`, used for deduplication.
 
-        Registered once the update has been processed, and checked before
-        processing it, so the same update is never handled twice — including
-        across sessions, when the coordinator backend is shared.
-
-        Must stay unique per update. Unlike :meth:`extract_key`, widening
-        this does not serialise anything; it makes distinct updates look
-        like the same one, and every update after the first is dropped as an
-        already-handled duplicate.
+        It is checked before processing and registered once handled, so an
+        update is processed once, across sessions when the backend is shared.
+        It must stay unique per update: a shared identity drops every later
+        update as an already handled duplicate.
 
         Args:
-            update: The incoming update object.
+            update: The incoming update.
 
         Returns:
-            A :data:`UpdateCoordinatorKeyT` uniquely identifying this update.
+            The key identifying this update.
 
         Raises:
-            NotImplementedError: If neither this method is overridden nor
-                ``extract_update_id_func`` was provided.
+            NotImplementedError: If the method is not overridden and no
+                `extract_update_id_func` was passed.
+            TypeError: If `update` is not an instance of `__update_type__`.
         """
         if self.extract_update_id_func is None:
             msg = (
@@ -196,16 +182,16 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def lock(self, update: UpdateType) -> AsyncLockProto:
-        """Build the lock serialising this update's scope.
+        """Build the lock for the scope of `update`, unacquired.
 
-        Returned unacquired — the caller decides when to take it and, more
-        importantly, when to let it go (see :func:`~pyroflow.mark_handled`).
+        The caller decides when to acquire and release it; see
+        `pyroflow.mark_handled`.
 
         Args:
-            update: The incoming update object.
+            update: The incoming update.
 
         Returns:
-            An async lock compatible with ``async with``.
+            An async lock usable with `async with`.
         """
         return self.coordinator.lock(await self.extract_key(update))
 
