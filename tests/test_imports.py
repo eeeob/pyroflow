@@ -8,6 +8,11 @@ If any module pulled in an unguarded newer-Python feature (e.g. a bare
 from __future__ import annotations as _annotations
 
 import importlib
+import pkgutil
+import re
+import subprocess
+import sys
+from pathlib import Path
 
 import pyrogram.dispatcher
 import pyrogram.types
@@ -15,12 +20,20 @@ import pytest
 
 import pyroflow
 
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 MODULES = [
     "pyroflow",
     "pyroflow.client",
     "pyroflow.dispatcher",
     "pyroflow.enums",
     "pyroflow.errors",
+    "pyroflow.filters",
     "pyroflow.models",
     "pyroflow.types",
     "pyroflow.typings",
@@ -49,6 +62,7 @@ MODULES = [
     "pyroflow.update_listener.callback_query_listener",
     "pyroflow.utils",
     "pyroflow.utils.classes",
+    "pyroflow.utils.constants",
     "pyroflow.utils.misc_tools",
     "pyroflow.utils.typings",
 ]
@@ -93,3 +107,75 @@ def test_public_exports_present() -> None:
         "CallbackQueryHistory",
     ):
         assert hasattr(pyroflow, name), f"pyroflow.{name} is not exported"
+
+
+PACKAGES_WITH_ALL = [
+    "pyroflow",
+    *(
+        info.name
+        for info in pkgutil.walk_packages(pyroflow.__path__, "pyroflow.")
+        if info.ispkg and hasattr(importlib.import_module(info.name), "__all__")
+    ),
+]
+
+# hatchling's default `[tool.hatch.version]` regex for a `path` source.
+HATCH_VERSION_PATTERN = r"^(__version__|VERSION) *= *(['\"])v?(?P<version>.+?)\2"
+
+
+@pytest.mark.parametrize("package", PACKAGES_WITH_ALL)
+def test_package_all_is_well_formed(package: str) -> None:
+    module = importlib.import_module(package)
+    exported = module.__all__
+
+    assert isinstance(exported, tuple), f"{package}.__all__ is not a tuple"
+    assert len(exported) == len(set(exported)), f"{package}.__all__ has duplicates"
+    assert not [name for name in exported if name.startswith("_")]
+    missing = [name for name in exported if not hasattr(module, name)]
+    assert not missing, f"{package}.__all__ names missing attributes: {missing}"
+
+
+@pytest.mark.parametrize("package", PACKAGES_WITH_ALL)
+def test_star_import_matches_all(package: str) -> None:
+    namespace: dict[str, object] = {}
+    exec(f"from {package} import *", namespace)
+    imported = {name for name in namespace if not name.startswith("__")}
+
+    assert imported == set(importlib.import_module(package).__all__)
+
+
+def test_version_line_matches_hatch_pattern() -> None:
+    source = (PROJECT_ROOT / "pyroflow" / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(HATCH_VERSION_PATTERN, source, re.MULTILINE)
+
+    assert match is not None, "hatchling cannot find the version in pyroflow/__init__.py"
+    assert match.group("version") == pyroflow.__version__
+
+
+def test_all_modules_import_without_redis() -> None:
+    """Every module imports when the optional ``redis`` extra is absent."""
+    script = (
+        "import importlib, pkgutil, sys\n"
+        "sys.modules['redis'] = None\n"
+        "import pyroflow\n"
+        "for info in pkgutil.walk_packages(pyroflow.__path__, 'pyroflow.'):\n"
+        "    importlib.import_module(info.name)\n"
+        "print('ok')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=PROJECT_ROOT,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout, result.stderr
+
+
+def test_only_redis_extra_is_declared() -> None:
+    with open(PROJECT_ROOT / "pyproject.toml", "rb") as fh:
+        extras = tomllib.load(fh)["project"].get("optional-dependencies", {})
+
+    assert set(extras) == {"redis"}
