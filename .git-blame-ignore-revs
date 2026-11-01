@@ -1,7 +1,0 @@
-# Commits listed here are formatting-only; `git blame` skips them.
-# Enable locally with:
-#   git config blame.ignoreRevsFile .git-blame-ignore-revs
-# GitHub's blame view reads this file automatically.
-
-# quality-tools: format the tree with ruff format
-7a4dd992fc6b2d4ef255b72b59ec2bdc73ecfbd9
