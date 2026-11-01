@@ -1,0 +1,40 @@
+"""Static type tests for ``pyroflow.types``."""
+
+from __future__ import annotations as _annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing_extensions import assert_type
+
+    from pyroflow import CallbackQuery, Message, Update
+
+    async def _check_ask_edit(message: Message) -> None:
+        assert_type(await message.ask("hi"), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask` returns the patch class, not the public `Message` (pyroflow/types.py:141-247)
+        assert_type(await message.ask("hi", force_send=False), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask` returns the patch class, not the public `Message` (pyroflow/types.py:141-247)
+        assert_type(await message.ask("hi", update_type=CallbackQuery), CallbackQuery)
+
+    async def _check_ask_send(message: Message) -> None:
+        assert_type(await message.ask("hi", force_send=True), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask` returns the patch class, not the public `Message` (pyroflow/types.py:141-247)
+        assert_type(
+            await message.ask("hi", force_send=True, update_type=CallbackQuery), CallbackQuery
+        )
+
+    async def _check_ask_bool_flag(message: Message, flag: bool) -> None:
+        # A plain `bool` expands over the `Literal[False]` and `Literal[True]` overloads.
+        await message.ask("hi", force_send=flag)
+
+    async def _check_ask_rejects(message: Message) -> None:
+        await message.ask("hi", update_type=int)  # ty: ignore[no-matching-overload]
+        await message.ask(1)  # ty: ignore[invalid-argument-type]
+
+    def _check_with_ctx(message: Message, update: Update) -> None:
+        assert_type(message.with_ctx(a=1), Message)
+        assert_type(message.with_ctx({"a": 1}), Message)
+        assert_type(message.with_ctx([("a", 1)], b=2), Message)
+        assert_type(update.with_ctx(), Update)
+        message.with_ctx(1)  # ty: ignore[no-matching-overload]
+
+
+def test_type_checks_are_not_defined_at_runtime() -> None:
+    assert "_check_ask_edit" not in globals()

@@ -1,8 +1,8 @@
 """Static compatibility analysis against the declared minimum Python (3.10).
 
-These tests parse every source file with ``ast`` and assert that no
-typing feature newer than the declared floor leaks into runtime code
-unguarded.
+These tests parse every source file with the 3.10 grammar
+(``ast.parse(..., feature_version=(3, 10))``) and assert that no typing
+feature newer than the declared floor leaks into runtime code unguarded.
 
 They run on any interpreter (they never execute the scanned code), so
 they guard the 3.10 floor even while the suite itself runs on 3.14.
@@ -16,6 +16,7 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
+from packaging.requirements import Requirement
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -32,13 +33,27 @@ FILE_IDS = [str(p.relative_to(PROJECT_ROOT)) for p in PY_FILES]
 
 
 def _parse(path: pathlib.Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    # feature_version rejects 3.11+ syntax (except*, PEP 695) on newer interpreters
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path), feature_version=(3, 10))
 
 
 @pytest.mark.parametrize("path", PY_FILES, ids=FILE_IDS)
-def test_every_source_file_compiles(path: pathlib.Path) -> None:
-    """Belt-and-braces: the file parses as valid Python."""
+def test_every_source_file_parses_with_310_grammar(path: pathlib.Path) -> None:
     compile(_parse(path), filename=str(path), mode="exec")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "try:\n    pass\nexcept* ValueError:\n    pass\n",
+        "type Alias = int\n",
+        "class C[T]:\n    pass\n",
+    ],
+    ids=["except-star", "type-statement", "type-params"],
+)
+def test_310_grammar_rejects_newer_syntax(source: str) -> None:
+    with pytest.raises(SyntaxError):
+        ast.parse(source, feature_version=(3, 10))
 
 
 def test_strenum_import_is_version_guarded() -> None:
@@ -72,8 +87,11 @@ def test_declared_dependencies_are_pinned_where_needed() -> None:
     """cachetools is used for ``TLRUCache`` (added in 4.1.0); an unbounded
     ``cachetools`` spec can resolve an incompatible version."""
     deps = _load_pyproject()["project"]["dependencies"]
-    cachetools = next((d for d in deps if d.lower().startswith("cachetools")), None)
+    reqs = [Requirement(d) for d in deps]
+    cachetools = next((r for r in reqs if r.name.lower() == "cachetools"), None)
     assert cachetools is not None, "cachetools missing from dependencies"
+    assert "4.0.0" not in cachetools.specifier
+    assert "4.1.0" in cachetools.specifier
 
 
 def test_requires_python_floor_is_310() -> None:

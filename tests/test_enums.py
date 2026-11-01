@@ -2,7 +2,10 @@
 
 from __future__ import annotations as _annotations
 
-from pytrove.enums import TimeUnit
+import sys
+from enum import auto
+
+import pytest
 
 import pyroflow.enums
 from pyroflow.enums import DuplicatePolicy
@@ -31,8 +34,37 @@ def test_duplicate_policy_membership() -> None:
     assert DuplicatePolicy("replace") is DuplicatePolicy.REPLACE
 
 
-def test_time_unit_seconds() -> None:
-    assert TimeUnit.MINUTE == 60
-    assert TimeUnit.HOUR == 60 * 60
-    assert TimeUnit.DAY == 60 * 60 * 24
-    assert TimeUnit.WEEK == TimeUnit.DAY * 7
+def test_duplicate_policy_str_is_the_value() -> None:
+    assert str(DuplicatePolicy.REJECT) == "reject"
+    assert str(DuplicatePolicy.REPLACE) == "replace"
+    assert f"{DuplicatePolicy.REJECT}" == "reject"
+
+
+def test_duplicate_policy_members_and_values() -> None:
+    assert [m.value for m in DuplicatePolicy] == ["reject", "replace"]
+    assert issubclass(DuplicatePolicy, pyroflow.enums.StrEnum)
+
+
+def test_duplicate_policy_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError):
+        DuplicatePolicy("REJECT")
+
+
+def test_enums_all() -> None:
+    assert pyroflow.enums.__all__ == ("DuplicatePolicy",)
+
+
+@pytest.mark.skipif(sys.version_info >= (3, 11), reason="StrEnum backport exists on 3.10 only")
+def test_str_enum_backport_generates_lowercase_values() -> None:
+    backport = pyroflow.enums.StrEnum
+    assert backport._generate_next_value_("Some_Name", 1, 0, []) == "some_name"
+
+
+@pytest.mark.skipif(sys.version_info >= (3, 11), reason="StrEnum backport exists on 3.10 only")
+def test_str_enum_backport_str_returns_value() -> None:
+    class Color(pyroflow.enums.StrEnum):
+        RED = auto()
+
+    assert Color.RED == "red"
+    assert str(Color.RED) == "red"
+    assert isinstance(Color.RED, str)

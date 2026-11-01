@@ -3,10 +3,15 @@
 from __future__ import annotations as _annotations
 
 import asyncio
+import gc
+import time
+import weakref
+from dataclasses import Field, FrozenInstanceError
 
 import pytest
 
-from pyroflow.models import ListenerKey, ListenerModel, UpdateRecord
+import pyroflow.models
+from pyroflow.models import ListenerKey, ListenerModel, UpdateRecord, _get_plan, _WeakSlots
 
 
 def test_listener_key_to_tuple() -> None:
@@ -116,3 +121,153 @@ async def test_models_are_slotted() -> None:
         model.unknown_attr = 1
     with pytest.raises(AttributeError):
         rec.unknown_attr = 1
+
+
+def test_get_plan_empty_mask_yields_only_the_empty_subset() -> None:
+    assert _get_plan(0) == (0,)
+
+
+def test_get_plan_orders_by_size_then_bit_position() -> None:
+    assert _get_plan(0b110) == (0b110, 0b010, 0b100, 0)
+    assert _get_plan(0b10) == (0b10, 0)
+    assert _get_plan(0b1011) == (
+        0b1011,
+        0b0011,
+        0b1001,
+        0b1010,
+        0b0001,
+        0b0010,
+        0b1000,
+        0,
+    )
+
+
+def test_listener_key_plans_caches_get_plan_per_mask() -> None:
+    list(ListenerKey(1, 2, 3).sub_keys())
+    assert 0b110 in ListenerKey.PLANS
+    assert ListenerKey.PLANS[0b110] == _get_plan(0b110)
+    assert ListenerKey.PLANS[0b110] is ListenerKey.PLANS[0b110]
+
+
+def test_listener_key_fields_are_the_dataclass_fields_in_order() -> None:
+    assert tuple(f.name for f in ListenerKey.FIELDS) == ("chat_id", "user_id", "message_id")
+    assert all(isinstance(f, Field) for f in ListenerKey.FIELDS)
+    assert ListenerKey.FIELDS is ListenerKey.FIELDS
+
+
+def test_listener_key_fields_falls_back_to_class_dict_before_dataclass() -> None:
+    class Plain:
+        FIELDS = "sentinel"
+
+    assert ListenerKey.__dict__["FIELDS"].call(Plain) == "sentinel"
+
+
+def test_listener_key_defaults_and_frozen() -> None:
+    key = ListenerKey(1)
+    assert (key.chat_id, key.user_id, key.message_id) == (1, None, None)
+    with pytest.raises(FrozenInstanceError):
+        key.chat_id = 2  # type: ignore[misc]
+
+
+def test_listener_key_sub_keys_rejects_a_missing_chat_id() -> None:
+    with pytest.raises(AssertionError, match="chat_id must not be None"):
+        list(ListenerKey(None).sub_keys())  # type: ignore[arg-type]
+
+
+def test_listener_key_sub_keys_chat_only_key_yields_itself() -> None:
+    assert list(ListenerKey(1).sub_keys()) == [ListenerKey(1)]
+    assert list(ListenerKey(1).sub_keys(min_dep=2)) == []
+
+
+def test_listener_key_sub_keys_min_dep_bounds() -> None:
+    key = ListenerKey(10, 20, 30)
+    assert list(key.sub_keys(min_dep=0)) == list(key.sub_keys(min_dep=1))
+    assert list(key.sub_keys(min_dep=4)) == []
+
+
+async def test_listener_model_defaults_bind_to_the_running_loop() -> None:
+    model = ListenerModel(ListenerKey(1))
+    assert model.meta is None
+    assert model.coordinator_id is None
+    assert isinstance(model.future, asyncio.Future)
+    assert model.future.get_loop() is asyncio.get_running_loop()
+    assert ListenerModel(ListenerKey(1)).future is not model.future
+
+
+async def test_listener_model_keeps_meta_and_coordinator_id() -> None:
+    model = ListenerModel(ListenerKey(1), {"a": [1]}, coordinator_id="tok")
+    assert model.meta == {"a": [1]}
+    assert model.coordinator_id == "tok"
+
+
+async def test_listener_model_resolve_twice_raises() -> None:
+    model = ListenerModel(ListenerKey(1))
+    model.resolve("first")
+    with pytest.raises(asyncio.InvalidStateError):
+        model.resolve("second")
+    with pytest.raises(asyncio.InvalidStateError):
+        model.set_exc(ValueError("late"))
+    assert model.future.result() == "first"
+
+
+async def test_listener_model_done_after_cancel() -> None:
+    model = ListenerModel(ListenerKey(1))
+    model.future.cancel()
+    assert model.done()
+
+
+def test_weak_slots_adds_only_a_weakref_slot() -> None:
+    assert _WeakSlots.__slots__ == ("__weakref__",)
+    assert issubclass(UpdateRecord, _WeakSlots)
+    rec = UpdateRecord(handler="H")
+    ref = weakref.ref(rec)
+    assert ref() is rec
+
+
+def test_update_record_keeps_explicit_values() -> None:
+    rec = UpdateRecord("H", {"x": 1}, created_at=5)
+    assert (rec.handler, rec.data, rec.created_at) == ("H", {"x": 1}, 5)
+
+
+def test_update_record_created_at_defaults_to_now() -> None:
+    before = time.time()
+    rec = UpdateRecord(handler="H")
+    assert before <= rec.created_at <= time.time()
+
+
+def test_update_record_post_init_assigns_increasing_sequence() -> None:
+    first = UpdateRecord(handler="H")
+    second = UpdateRecord(handler="H")
+    assert UpdateRecord._SEQ_IDS[id(first)] < UpdateRecord._SEQ_IDS[id(second)]
+
+
+def test_update_record_sequence_dropped_when_collected() -> None:
+    rec = UpdateRecord(handler="H")
+    rec_id = id(rec)
+    assert rec_id in UpdateRecord._SEQ_IDS
+    del rec
+    gc.collect()
+    assert rec_id not in UpdateRecord._SEQ_IDS
+
+
+def test_update_record_orders_ties_by_creation() -> None:
+    first = UpdateRecord("H", created_at=1.0)
+    second = UpdateRecord("H", created_at=1.0)
+    assert first < second
+    assert second > first
+    assert not second < first
+    assert not first > second
+    assert not first < first
+    assert not first > first
+
+
+def test_update_record_time_outranks_creation_order() -> None:
+    later = UpdateRecord("H", created_at=2.0)
+    earlier = UpdateRecord("H", created_at=1.0)
+    assert earlier < later
+    assert later > earlier
+    assert sorted([later, earlier]) == [earlier, later]
+
+
+def test_models_all() -> None:
+    assert pyroflow.models.__all__ == ("ListenerKey", "ListenerModel", "UpdateRecord")

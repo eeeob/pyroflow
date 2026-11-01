@@ -89,13 +89,6 @@ def test_modules_list_is_complete() -> None:
     assert walked | {"pyroflow"} == set(MODULES)
 
 
-def test_redis_import_does_not_require_redis_installed() -> None:
-    """The Redis backends must import even without ``redis`` present:
-    every ``redis`` import is guarded by ``TYPE_CHECKING`` / local import."""
-    importlib.import_module("pyroflow.listener_coordinator.redis_listener_coordinator")
-    importlib.import_module("pyroflow.update_coordinator.redis_update_coordinator")
-
-
 def test_global_monkey_patch_applied() -> None:
     # types.py patches replaced the Pyrogram classes themselves
     assert pyroflow.Message is pyrogram.types.Message

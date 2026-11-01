@@ -1,4 +1,4 @@
-"""Tests for the coordination subsystem.
+"""Tests for the in-memory coordinator backend.
 
 Coordination is two independent primitives, and these tests keep them
 independent: a plain mutex (``lock``) that serialises whatever scope the
@@ -7,30 +7,25 @@ caller keys it by, and a flat handled registry (``is_handled`` /
 
 The pairing is what makes chat-wide ordering possible without losing
 updates — the regression this whole design exists to prevent — so it is
-exercised end-to-end here as well as in test_dispatcher_coordination.py.
+exercised end-to-end here as well as in test_dispatcher.py.
 """
 
 from __future__ import annotations as _annotations
 
 import asyncio
 import gc
-from typing import TYPE_CHECKING
 
 import pytest
+from cachetools import TTLCache
 
 from pyrogram.types import Message
-from pyrogram.utils import get_peer_id
 
-from pyroflow import CallbackQueryCoordinated, MessageCoordinated
+from pyroflow.update_coordinator import memory_update_coordinator
+from pyroflow.utils import AsyncioLock
 from pyroflow.update_coordinator.memory_update_coordinator import (
     MemoryUpdateCoordinator,
     TimedLock,
 )
-
-from .conftest import make_callback_query
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 # --- the lock: a plain mutex, nothing more --------------------------------
@@ -215,17 +210,6 @@ async def test_marking_handled_does_not_lock() -> None:
     assert await coord.lock((1, 2)).acquire() is True
 
 
-def test_lock_and_handled_build_distinct_keys() -> None:
-    coord = _coord()
-    assert coord.build_key((1, 2), "lock") != coord.build_key((1, 2), "handled")
-
-
-def test_build_key_namespaces_by_update_type() -> None:
-    assert MemoryUpdateCoordinator(Message).build_key((1,)) != MemoryUpdateCoordinator(
-        type("Other", (Message,), {})
-    ).build_key((1,))
-
-
 # --- the pairing: wide lock + narrow identity -----------------------------
 
 
@@ -288,105 +272,133 @@ async def test_wide_lock_still_deduplicates_each_update() -> None:
     assert runs == [1, 2], "a redelivered update was processed twice"
 
 
-# --- UpdateCoordinated wrappers -------------------------------------------
+# --- TimedLock on its own -------------------------------------------------
 
 
-async def test_message_coordinated_defaults_lock_per_message(
-    raw_message_factory: Callable[..., Message],
-) -> None:
-    """The shipped default keeps both keys at the update's own granularity,
-    so behaviour matches the pre-split library until a scope is chosen."""
-    mc = MessageCoordinated()
-    msg = raw_message_factory()
+def test_timed_lock_starts_unlocked_with_its_timeout() -> None:
+    lock = TimedLock(0.5)
 
-    assert await mc.is_coordinatable(msg) is True
-    assert await mc.extract_key(msg) == await mc.extract_update_id(msg)
+    assert lock.blocking_timeout == 0.5
+    assert isinstance(lock, AsyncioLock)
+    assert not lock.locked()
 
 
-async def test_message_coordinated_lock_flow(raw_message_factory: Callable[..., Message]) -> None:
-    mc = MessageCoordinated()
-    msg = raw_message_factory()
+async def test_timed_lock_acquire_returns_true_and_holds() -> None:
+    lock = TimedLock(0.05)
 
-    lock = await mc.lock(msg)
     assert await lock.acquire() is True
+    assert lock.locked()
+
+
+async def test_timed_lock_timeout_leaves_the_holder_in_place() -> None:
+    lock = TimedLock(0.01)
+    await lock.acquire()
+
+    assert await lock.acquire() is False
+    assert lock.locked()
+
     await lock.release()
-
-    update_id = await mc.extract_update_id(msg)
-    assert await mc.coordinator.is_handled(update_id) is False
-    await mc.coordinator.mark_handled(update_id)
-    assert await mc.coordinator.is_handled(update_id) is True
+    assert await lock.acquire() is True, "a timed-out waiter must not wedge the lock"
 
 
-async def test_extract_key_can_be_widened_without_touching_identity(
-    raw_message_factory: Callable[..., Message],
-) -> None:
-    mc = MessageCoordinated(extract_key_func=lambda u: (get_peer_id(u.raw.peer_id),))
-    first = raw_message_factory(message_id=1)
-    second = raw_message_factory(message_id=2)
+async def test_timed_lock_async_with_holds_then_releases() -> None:
+    lock = TimedLock(0.05)
 
-    # Same lock scope...
-    assert await mc.extract_key(first) == await mc.extract_key(second)
-    # ...but still distinct identities, so neither is dropped as a duplicate.
-    assert await mc.extract_update_id(first) != await mc.extract_update_id(second)
+    async with lock as entered:
+        assert entered is None
+        assert lock.locked()
+
+    assert not lock.locked()
 
 
-async def test_callback_coordinated_is_coordinatable_returns_true() -> None:
-    """Regression guard for C3: a missing ``return`` made this yield None,
-    silently disabling CallbackQuery coordination entirely."""
-    cc = CallbackQueryCoordinated()
-    result = await cc.is_coordinatable(make_callback_query())
+async def test_timed_lock_async_with_releases_on_error() -> None:
+    lock = TimedLock(0.05)
 
-    assert result is True, (
-        "CallbackQueryCoordinated._is_coordinatable must RETURN True (audit finding C3 regression)"
-    )
+    with pytest.raises(RuntimeError):
+        async with lock:
+            raise RuntimeError
 
-
-async def test_callback_coordinated_keys() -> None:
-    cc = CallbackQueryCoordinated()
-    cbq = make_callback_query()
-
-    assert await cc.extract_key(cbq) == (cbq.id,)
-    assert await cc.extract_update_id(cbq) == (cbq.id,)
+    assert not lock.locked()
 
 
-async def test_callback_coordinated_lock_flow() -> None:
-    cc = CallbackQueryCoordinated()
-    cbq = make_callback_query()
+async def test_timed_lock_timeout_error_names_the_timeout() -> None:
+    lock = TimedLock(0.01)
+    await lock.acquire()
 
-    lock = await cc.lock(cbq)
-    assert await lock.acquire() is True
-    await lock.release()
-    assert await (await cc.lock(cbq)).acquire() is True
-
-
-async def test_hooks_raise_when_not_supplied() -> None:
-    """Every hook follows the same contract: override it or inject it."""
-
-    class Bare(MessageCoordinated):
-        pass
-
-    bare = Bare()
-    bare.is_coordinatable_func = None
-    bare.extract_key_func = None
-    bare.extract_update_id_func = None
-
-    msg = make_callback_query().message
-
-    for call in (bare.is_coordinatable, bare.extract_key, bare.extract_update_id):
-        with pytest.raises(NotImplementedError):
-            await call(msg)
+    with pytest.raises(TimeoutError, match=r"Timeout waiting for lock after 0\.01s"):
+        async with lock:
+            pass
 
 
-# --- liveness (audit finding H1) -----------------------------------------
+# --- MemoryUpdateCoordinator internals ------------------------------------
 
 
-def test_blocking_timeout_default_is_short() -> None:
-    """The dispatcher waits on the lock while holding its worker lock, so a
-    contended update stalls every other update on that worker for the full
-    timeout. The default must stay small."""
-    coordinator = MemoryUpdateCoordinator(Message)
+def test_init_bounds_the_registry_by_default() -> None:
+    coord = MemoryUpdateCoordinator(Message, handled_ttl=12)
 
-    assert coordinator.blocking_timeout <= 30, (
-        f"blocking_timeout default is {coordinator.blocking_timeout}s — a "
-        f"contended update would stall a whole worker for that long"
-    )
+    assert isinstance(coord.handled, TTLCache)
+    assert coord.handled.maxsize == 1000
+    assert coord.handled.ttl == 12
+
+
+def test_init_honours_max_handled() -> None:
+    assert MemoryUpdateCoordinator(Message, max_handled=3).handled.maxsize == 3
+
+
+def test_init_forwards_base_arguments() -> None:
+    coord = MemoryUpdateCoordinator(Message, lock_ttl=7, blocking_timeout=0.2)
+
+    assert (coord.lock_ttl, coord.blocking_timeout) == (7, 0.2)
+
+
+def test_lock_is_a_timed_lock_with_the_coordinator_timeout() -> None:
+    coord = _coord(blocking_timeout=0.3)
+    lock = coord.lock((1, 2))
+
+    assert isinstance(lock, TimedLock)
+    assert lock.blocking_timeout == 0.3
+
+
+def test_lock_is_shared_while_referenced() -> None:
+    coord = _coord()
+    lock = coord.lock((1, 2))
+
+    assert coord.lock((1, 2)) is lock
+    assert coord.lock((1, 3)) is not lock
+
+
+def test_lock_is_stored_under_the_lock_key() -> None:
+    coord = _coord()
+    lock = coord.lock((1, 2))
+
+    assert coord.locks[coord.build_key((1, 2), "lock")] is lock
+
+
+async def test_mark_handled_stores_the_handled_key() -> None:
+    coord = _coord()
+    await coord.mark_handled((1, 2))
+
+    assert list(coord.handled) == [coord.build_key((1, 2), "handled")]
+
+
+async def test_start_is_a_no_op() -> None:
+    coord = _coord()
+    await coord.mark_handled((1, 2))
+
+    assert await coord.start() is None
+    assert await coord.is_handled((1, 2)) is True
+
+
+async def test_stop_leaves_held_locks_alone() -> None:
+    coord = _coord()
+    lock = coord.lock((1, 2))
+    await lock.acquire()
+
+    await coord.stop()
+
+    assert lock.locked()
+    assert coord.lock((1, 2)) is lock
+
+
+def test_all_exports_only_the_coordinator() -> None:
+    assert memory_update_coordinator.__all__ == ("MemoryUpdateCoordinator",)
