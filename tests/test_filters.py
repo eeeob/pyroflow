@@ -13,7 +13,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
@@ -291,11 +291,6 @@ async def test_startswith_falls_back_to_caption() -> None:
     assert await matches(filters.startswith("hello"), msg) is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bytes callback data reaches bytes.startswith(str tuple) and raises "
-    "TypeError instead of not matching, pyroflow/filters.py:77",
-)
 async def test_startswith_callback_query_with_bytes_data_matches_nothing() -> None:
     cbq = make_callback_query(data=b"\x00\x01")
     assert await matches(filters.startswith("x"), cbq) is False
@@ -312,9 +307,71 @@ async def test_equal_is_case_sensitive() -> None:
     assert await matches(filters.equal("Hello"), make_message(text="hello")) is False
 
 
-async def test_equal_callback_query_with_bytes_data_matches_nothing() -> None:
+async def test_equal_callback_query_with_bytes_data_matches_its_utf8_text() -> None:
     cbq = make_callback_query(data=b"confirm")
-    assert await matches(filters.equal("confirm"), cbq) is False
+    assert await matches(filters.equal("confirm"), cbq) is True
+    assert await matches(filters.equal("cancel"), cbq) is False
+
+
+# --- endswith / startswith / equal: str and bytes ---------------------------
+
+TEXT_FILTERS = [
+    pytest.param(filters.endswith, "hello world", "world", id="endswith"),
+    pytest.param(filters.startswith, "hello world", "hello", id="startswith"),
+    pytest.param(filters.equal, "hello world", "hello world", id="equal"),
+]
+
+
+@pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
+async def test_str_pattern_matches_str_text(factory: Any, text: str, pattern: str) -> None:
+    assert await matches(factory(pattern), make_message(text=text)) is True
+
+
+@pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
+async def test_bytes_pattern_matches_str_text(factory: Any, text: str, pattern: str) -> None:
+    assert await matches(factory(pattern.encode()), make_message(text=text)) is True
+
+
+@pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
+async def test_str_pattern_matches_bytes_data(factory: Any, text: str, pattern: str) -> None:
+    cbq = make_callback_query(data=text.encode())
+    assert await matches(factory(pattern), cbq) is True
+
+
+@pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
+async def test_bytes_pattern_matches_bytes_data(factory: Any, text: str, pattern: str) -> None:
+    cbq = make_callback_query(data=text.encode())
+    assert await matches(factory(pattern.encode()), cbq) is True
+
+
+async def test_str_pattern_matches_non_utf8_bytes_data() -> None:
+    cbq = make_callback_query(data=b"cb:\xff")
+    assert await matches(filters.startswith("cb:"), cbq) is True
+    assert await matches(filters.endswith(b"\xff"), cbq) is True
+    assert await matches(filters.equal(b"cb:\xff"), cbq) is True
+
+
+@pytest.mark.parametrize("factory", [filters.endswith, filters.startswith, filters.equal])
+async def test_non_utf8_bytes_pattern_never_matches_str_text(factory: Any) -> None:
+    # `b"\xff"` لا يُفك بـ UTF-8، فلا يدخل في أنماط `str`
+    assert await matches(factory(b"\xff"), make_message(text="\xff")) is False
+
+
+@pytest.mark.parametrize("factory", [filters.endswith, filters.startswith, filters.equal])
+@pytest.mark.parametrize("update", [make_message(text=None), make_callback_query(data=b"")])
+async def test_empty_text_never_matches(factory: Any, update: Message | CallbackQuery) -> None:
+    assert await matches(factory("x", b"x", "", b""), update) is False
+
+
+@pytest.mark.parametrize(
+    ("factory", "text"),
+    [(filters.endswith, "b"), (filters.startswith, "b"), (filters.equal, "b")],
+)
+async def test_mixed_nested_containers_match_both_kinds(factory: Any, text: str) -> None:
+    flt = factory(["a", (b"b", [None, 1])], b"")
+    assert await matches(flt, make_message(text=text)) is True
+    assert await matches(flt, make_callback_query(data=b"b")) is True
+    assert await matches(flt, make_message(text="c")) is False
 
 
 # --- split_text: rule normalization ------------------------------------------

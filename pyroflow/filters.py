@@ -8,7 +8,8 @@ and `~` and registers like any Pyrogram filter. The text of a `Message` is its
 
 from __future__ import annotations as _annotations
 
-from typing import NoReturn, TYPE_CHECKING
+from typing import Protocol, AnyStr, NoReturn, TYPE_CHECKING
+from contextlib import suppress
 from enum import Enum, EnumMeta as EnumType
 
 from pyrogram.filters import Filter, create
@@ -17,7 +18,6 @@ from pytrove import (
     is_container,
     maybe_awaitable,
     extract_pyro_update_text,
-    to_coroutine,
 )
 
 if TYPE_CHECKING:
@@ -27,17 +27,74 @@ if TYPE_CHECKING:
     from .types import Message, CallbackQuery as Query
 
 
+class _TextMatch(Protocol):
+    """A text test called with patterns of the text's own kind."""
+
+    def __call__(self, text: AnyStr, patterns: tuple[AnyStr, ...], /) -> bool:
+        """Return whether `text` matches `patterns`."""
+        ...
+
+
 def _raise(exc: Exception) -> NoReturn:
     """`raise` as an expression, for use inside a comprehension."""
     raise exc
 
 
-def endswith(*texts: NestedContainer[str]) -> Filter:
+def _text_filter(
+    name: str,
+    texts: tuple[NestedContainer[str | bytes], ...],
+    match: _TextMatch,
+) -> Filter:
+    """Create a filter that matches the update's text against `texts` with `match`.
+
+    Both `str` and `bytes` patterns are accepted, and match both a `str` text
+    and `bytes` callback data; when the kinds differ they are compared in
+    UTF-8. Empty values and other types are ignored, and an empty text never
+    matches.
+
+    Args:
+        name: The name of the filter's class.
+        texts: The patterns, as given to the public filter.
+        match: Called as `match(text, patterns)` with patterns of the text's
+            own kind; returns whether the text matches.
+
+    Returns:
+        The filter.
+    """
+    str_view: set[str] = set()
+    bytes_view: set[bytes] = set()
+
+    for text in iter_flat_cont(texts):
+        if not text:
+            continue
+
+        if isinstance(text, str):
+            str_view.add(text)
+            bytes_view.add(text.encode())
+        elif isinstance(text, bytes):
+            bytes_view.add(text)
+            with suppress(UnicodeDecodeError):
+                str_view.add(text.decode())
+
+    str_texts, bytes_texts = tuple(str_view), tuple(bytes_view)
+
+    async def caller(_: Filter, __: Client, update: Message | Query) -> bool:
+        """Return whether the update's text matches the patterns of its own kind."""
+        text = extract_pyro_update_text(update)
+
+        if isinstance(text, bytes):
+            return match(text, bytes_texts)
+
+        return match(text, str_texts)
+
+    return create(caller, name)
+
+
+def endswith(*texts: NestedContainer[str | bytes]) -> Filter:
     """Match when the update's text ends with any of `texts`.
 
     Args:
-        *texts: Strings, or nested containers of them; empty strings and
-            non-strings are ignored.
+        *texts: Strings or bytes, or nested containers of them.
 
     Returns:
         The filter.
@@ -47,45 +104,38 @@ def endswith(*texts: NestedContainer[str]) -> Filter:
         >>> from pyrogram.types import Message
         >>> asyncio.run(endswith("world", ["!"])(None, Message(id=1, text="hello world")))
         True
+        >>> asyncio.run(endswith(b"world")(None, Message(id=1, text="hello world")))
+        True
     """
-    flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
-    caller = to_coroutine(
-        lambda _, __, update: extract_pyro_update_text(update).endswith(flat_texts)
-    )
-
-    return create(caller, "EndsWith")
+    return _text_filter("EndsWith", texts, lambda text, patterns: text.endswith(patterns))
 
 
-def startswith(*texts: NestedContainer[str]) -> Filter:
-    """Match when the update's text starts with any of `texts`.
+def startswith(*texts: NestedContainer[str | bytes]) -> Filter:
+    r"""Match when the update's text starts with any of `texts`.
 
     Args:
-        *texts: Strings, or nested containers of them; empty strings and
-            non-strings are ignored.
+        *texts: Strings or bytes, or nested containers of them.
 
     Returns:
         The filter.
 
     Example:
         >>> import asyncio
-        >>> from pyrogram.types import Message
+        >>> from pyrogram.types import CallbackQuery, Message
         >>> asyncio.run(startswith("/start")(None, Message(id=1, text="/start 42")))
         True
+        >>> query = CallbackQuery(id="1", from_user=None, chat_instance="", data=b"cb:\xff")
+        >>> asyncio.run(startswith("cb:")(None, query))
+        True
     """
-    flat_texts = tuple({t for t in iter_flat_cont(texts) if isinstance(t, str) and t})
-    caller = to_coroutine(
-        lambda _, __, update: extract_pyro_update_text(update).startswith(flat_texts)
-    )
-
-    return create(caller, "StartsWith")
+    return _text_filter("StartsWith", texts, lambda text, patterns: text.startswith(patterns))
 
 
-def equal(*texts: NestedContainer[str]) -> Filter:
+def equal(*texts: NestedContainer[str | bytes]) -> Filter:
     """Match when the update's text is exactly one of `texts`.
 
     Args:
-        *texts: Strings, or nested containers of them; empty strings and
-            non-strings are ignored.
+        *texts: Strings or bytes, or nested containers of them.
 
     Returns:
         The filter.
@@ -95,11 +145,10 @@ def equal(*texts: NestedContainer[str]) -> Filter:
         >>> from pyrogram.types import Message
         >>> asyncio.run(equal("hi", "hello")(None, Message(id=1, text="hello world")))
         False
+        >>> asyncio.run(equal(b"hello")(None, Message(id=1, text="hello")))
+        True
     """
-    flat_texts = frozenset(t for t in iter_flat_cont(texts) if isinstance(t, str) and t)
-    caller = to_coroutine(lambda _, __, update: extract_pyro_update_text(update) in flat_texts)
-
-    return create(caller, "Equal")
+    return _text_filter("Equal", texts, lambda text, patterns: text in patterns)
 
 
 def split_text(

@@ -25,6 +25,9 @@ if TYPE_CHECKING:
         assert_type(filters.startswith("a", ["b", ("c",)]), Filter)
         assert_type(filters.endswith("a"), Filter)
         assert_type(filters.equal("a", {"b"}), Filter)
+        assert_type(filters.startswith(b"a", ["b", (b"c",)]), Filter)
+        assert_type(filters.endswith(b"a"), Filter)
+        assert_type(filters.equal(b"a", {"b"}), Filter)
         assert_type(filters.split_text("/ban"), Filter)
         assert_type(
             filters.split_text(_Action, _is_digit, _is_digit_async, strip=True, separator=" "),
