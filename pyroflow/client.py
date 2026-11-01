@@ -15,6 +15,7 @@ from pyrogram import (
 from pyrogram.sync import wrap as async_to_sync
 from pytrove import (
     to_list,
+    dedupe,
     gather_abort,
     clean_none_kw,
     safe_call,
@@ -664,10 +665,8 @@ class BotCommandsMixin(_BotCommandsMixinBase):
         try:
             self._prune_bot_commands()
             for (language_code, scope), commands in self.bot_command_groups:
-                unique: list[BotCommand] = []
-                for command in commands:
-                    if command not in unique:
-                        unique.append(command)
+                # `BotCommand` يعرّف `__eq__` بلا `__hash__`
+                unique = dedupe(commands, hashable=False)
 
                 if not unique:
                     continue
