@@ -57,21 +57,39 @@ dependencies = [
 
 
 [project.optional-dependencies]
-dev = [
-    "hatch<=1.16.5",
-    "twine<=6.2.0",
-]
-
 redis = [
     "redis>=4.2.0",
 ]
 
+
+# Tooling lives in dependency groups (PEP 735), not extras: a library user never
+# installs it. `uv sync` installs these groups from `uv.lock`, and `make` is the
+# only place the commands that use them are written down.
+[dependency-groups]
+# The aggregate `uv sync` installs by default; it only lists other groups.
+dev = [
+    { include-group = "lint" },
+    { include-group = "test" },
+]
+
+lint = [
+    # Pinned exactly: ty is pre-1.0 and each release can add or change
+    # diagnostics, failing CI with no code change.
+    "ty==0.0.88",
+    # Pinned exactly for the same reason.
+    "ruff==0.17.1",
+    # Runs `make lint` and `make typecheck` before each commit.
+    "pre-commit>=4.5",
+]
+
 test = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.23",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.24",
     "redis>=4.2.0",
+    # Redis fakes for the Redis-backend tests: no real Redis or network.
     "fakeredis>=2.20",
     "lupa",
+    # TOML reading below 3.11, for test_compat_static.
     "tomli; python_version < '3.11'",
 ]
 
