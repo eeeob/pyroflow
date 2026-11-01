@@ -13,7 +13,7 @@ from typing import (
 )
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
-from pytrove.typings import MaybeList, MaybeCoroutineCallable
+from pytrove.typings import MaybeList, MaybeCoroutineCallable, StrInt
 
 from .models import ListenerKey
 
@@ -23,52 +23,45 @@ if TYPE_CHECKING:
     from .types import Message
 
 
-# The Pyrogram update class a generic listener, coordinated policy or history
-# is bound to.
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
+"""The Pyrogram update class a generic listener, coordinated policy or history is bound to."""
 
-UpdateCoordinatorKeyT: TypeAlias = tuple[int | str, ...]
+UpdateCoordinatorKeyT: TypeAlias = tuple[StrInt, ...]
+"""An update's lock key or dedupe id, as extracted by a coordinated policy."""
 UpdateHistoryKeyT: TypeAlias = UpdateCoordinatorKeyT
-ListenerCoordinatorIdT: TypeAlias = str | int
+"""The key an update history files its records under."""
+ListenerCoordinatorIdT: TypeAlias = StrInt
+"""Ownership token a listener coordinator hands out at registration time."""
 
-# The key a listener coordinator locks on.
 LockKeyT: TypeAlias = (
     int | tuple[int] | tuple[int, int | None] | tuple[int, int | None, int | None] | ListenerKey
 )
+"""The key a listener coordinator locks on."""
 
-# The key namespaces an `UpdateCoordinator` keeps apart: the update lock and the
-# handled registry.
 UpdateCoordinatorSectionT: TypeAlias = Literal["lock", "handled"]
+"""Key namespace an `UpdateCoordinator` keeps apart: the update lock or the handled registry."""
 
-# One declaration of "which bot commands a handler answers to", as accepted by
-# `mark_bot_commands()`: a command (or list of them) on its own, optionally
-# preceded by the scope it applies to, optionally preceded by a language code.
 BotCommandEntryT: TypeAlias = (
     MaybeList[BotCommand]
     | tuple[BotCommandScope, MaybeList[BotCommand]]
     | tuple[str, BotCommandScope, MaybeList[BotCommand]]
 )
+"""A `mark_bot_commands()` declaration: commands, optionally preceded by a scope and language."""
 
-# A `BotCommandEntryT` expanded into its three parts, with whatever the entry
-# left out filled in as `None` ("unrestricted").
 BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeList[BotCommand]]
+"""A `BotCommandEntryT` split into language, scope and commands, with `None` for omitted parts."""
 
-# The key a collected command group is filed under by `BotCommandsMixin`.
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
+"""The key a collected command group is filed under by `BotCommandsMixin`."""
 
-# Error handlers consulted only by `ask()`: maps one or more exception types to
-# a handler called with `(exc, message)` when that error occurs while `ask()`
-# awaits the listener. Used by `Client.ask(error_handlers=...)` and
-# `Client.ask_error_handlers`.
 AskErrorHandlersT: TypeAlias = dict[
     type[Exception] | tuple[type[Exception], ...],
     MaybeCoroutineCallable[[Exception, "Message"], Any],
 ]
+"""Handlers called as `(exc, message)` when a mapped error occurs while `ask()` awaits."""
 
-# Either an explicit message id, or a synchronous callable receiving the
-# sent/edited message (`m`) and returning the id to listen for (or `None`).
-# Must be fast and non-blocking: it is called inline, not via `to_thread`.
 ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
+"""A message id, or a fast synchronous callable mapping the sent or edited message to one (or `None`)."""
 
 
 class AsyncLockProto(Protocol):

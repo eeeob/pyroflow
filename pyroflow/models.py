@@ -61,7 +61,9 @@ class ListenerKey:
     """
 
     PLANS: ClassVar[KeyDefaultDict[int, tuple[int, ...]]] = KeyDefaultDict(_get_plan)
+    """Cache of `_get_plan` results, keyed by the mask of present optional components."""
     FIELDS: ClassVar[tuple[Field[Any], ...]]
+    """The dataclass fields, in declaration order."""
 
     if not TYPE_CHECKING:
 
@@ -184,6 +186,7 @@ class _WeakSlots:
     """Base that gives a slotted dataclass a `__weakref__` slot."""
 
     __slots__ = ("__weakref__",)
+    """Adds only the `__weakref__` slot so subclass records can be weakly referenced."""
 
 
 @dataclass(slots=True)
@@ -202,7 +205,9 @@ class UpdateRecord(_WeakSlots):
     """
 
     _SEQ: ClassVar[count[int]] = count()
+    """Counter handing out creation sequence numbers."""
     _SEQ_IDS: ClassVar[dict[int, int]] = {}
+    """Sequence number of each live record, keyed by the record's `id()`."""
 
     handler: PyroHandler
     """The handler that handled the update."""

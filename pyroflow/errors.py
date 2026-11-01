@@ -17,6 +17,7 @@ class ListenerError(Exception):
             'UpdateListener 5 timed out'
         """
         self.value = value
+        """The subject of the error."""
         # Subclasses carry their message as the class docstring. Fall back to
         # the class name when it is missing, so a malformed subclass degrades
         # to a plain message instead of raising `AttributeError` here.
@@ -41,6 +42,7 @@ class ListenerCancelled(ListenerError):
         """
         super().__init__(value)
         self.is_duplicate = is_duplicate
+        """Whether a newer listener for the same key caused the cancellation."""
 
 
 class ListenerTimeout(ListenerError):

@@ -46,6 +46,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
     return 0
     """
+    """Lua script that deletes a key holding the given id, returning 1 if the key is now gone and 0 if another id owns it."""
     LUA_BULK_UNREGISTER_SCRIPT: ClassVar[str] = """
     local deleted_count = 0
     for i, key in ipairs(KEYS) do
@@ -58,8 +59,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
     end
     return deleted_count
     """
-    # Atomic `GET` + `DEL` so the cancel signal names the id actually removed,
-    # not one a concurrent `register` put in between; `GETDEL` needs Redis 6.2+.
+    """Lua script that deletes each key still holding its id and returns the count."""
     LUA_GETDEL_SCRIPT: ClassVar[str] = """
     local value = redis.call('GET', KEYS[1])
 
@@ -69,10 +69,14 @@ class RedisListenerCoordinator(ListenerCoordinator):
 
     return value
     """
+    """Atomic `GET` + `DEL`, so a cancel names the id it removed; `GETDEL` needs Redis 6.2+."""
 
     lua_bulk_unregister: AsyncScript | None = None
+    """Registered `LUA_BULK_UNREGISTER_SCRIPT`, or `None` before registration."""
     lua_unregister: AsyncScript | None = None
+    """Registered `LUA_UNREGISTER_SCRIPT`, or `None` before registration."""
     lua_getdel: AsyncScript | None = None
+    """Registered `LUA_GETDEL_SCRIPT`, or `None` before registration."""
 
     def __init__(
         self,
@@ -95,25 +99,35 @@ class RedisListenerCoordinator(ListenerCoordinator):
         super().__init__(listener)
 
         self.update_type_name = self.listener.__class__.__update_type__.__name__
+        """Name of the listener's update type, used in every Redis key and channel."""
         self.redis = redis
+        """The async Redis client backing this coordinator."""
 
         self.lock_timeout = lock_timeout
+        """TTL in seconds of each per-chat lock."""
         self.lock_blocking_timeout = lock_blocking_timeout
+        """Seconds to wait for a per-chat lock before giving up."""
 
         self.pubsub: PubSub | None = None
+        """Pub/sub connection subscribed to the cancel channel, set by `start`."""
         self.listening_task: asyncio.Task | None = None
-        # Strong references keep in-flight cancels from being garbage collected;
-        # `stop` drains them.
+        """Task reading cancel signals, set by `start`."""
         self._pending_cancels: set[asyncio.Task] = set()
+        """Strong references that keep in-flight cancel tasks alive until `stop` drains them."""
 
         self._sep = "|"
+        """Separator between the components of a Redis key or cancel payload."""
         self._key_format = (
             f"listen{self._sep}{{section}}{self._sep}{self.update_type_name}{self._sep}{{key}}"
         )
+        """Template for Redis keys, filled with `section` and the joined key components."""
         self._null = "_"
+        """Placeholder for a missing key component."""
         self._owned_registrations: dict[str, str] = {}
+        """Packed keys this session registered, mapped to their ids."""
 
         self.cancel_channel_name = f"cancel{self._sep}listen{self._sep}{self.update_type_name}"
+        """Pub/sub channel that carries cancel signals between sessions."""
 
         self._register_scripts()
 

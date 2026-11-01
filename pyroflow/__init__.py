@@ -3,6 +3,9 @@
 Importing this package patches Pyrogram's classes in place.
 """
 
+__version__ = "0.2.1"
+"""The installed release, as a PEP 440 version string."""
+
 from .listener_coordinator import *
 from .update_coordinated import *
 from .update_coordinator import *
@@ -17,8 +20,6 @@ from .types import *
 # The one submodule exposed as an object rather than star-imported: its
 # filter factories stay namespaced as `pyroflow.filters.<name>`.
 from . import filters
-
-__version__ = "0.2.1"
 
 __all__ = (
     *listener_coordinator.__all__,

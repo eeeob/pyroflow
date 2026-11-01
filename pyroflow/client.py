@@ -36,7 +36,13 @@ if TYPE_CHECKING:
 
     from pyrogram.handlers.handler import Handler
     from pyrogram.types import BotCommand, BotCommandScope
-    from pytrove.typings import Number, JsonValue as JsonValueT, MaybeCoroutineCallable, MaybeList
+    from pytrove.typings import (
+        Number,
+        JsonValue as JsonValueT,
+        MaybeCoroutineCallable,
+        MaybeList,
+        StrInt,
+    )
 
     from .dispatcher import Dispatcher
     from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT, UpdateType
@@ -56,7 +62,9 @@ class Client(PyroClient):
 
     # `patch_cls` يجعل `Dispatcher` الخاص بـ `pyroflow` هو نفسه الخاص بـ `pyrogram` وقت التشغيل
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
+    """The dispatcher that routes updates to listeners, coordination, history and handlers."""
     ask_error_handlers: dict[type[pyro_types.Update], AskErrorHandlersT]
+    """Client-wide `ask` error handlers of each update type, tried after the per-call ones."""
 
     if not TYPE_CHECKING:  # for typehints
 
@@ -90,12 +98,18 @@ class Client(PyroClient):
 
     if TYPE_CHECKING:
         register_listener = Dispatcher.register_listener
+        """Forward to `Dispatcher.register_listener`."""
         register_coordinated = Dispatcher.register_coordinated
+        """Forward to `Dispatcher.register_coordinated`."""
         register_history = Dispatcher.register_history
+        """Forward to `Dispatcher.register_history`."""
 
         unregister_listener = Dispatcher.unregister_listener
+        """Forward to `Dispatcher.unregister_listener`."""
         unregister_coordinated = Dispatcher.unregister_coordinated
+        """Forward to `Dispatcher.unregister_coordinated`."""
         unregister_history = Dispatcher.unregister_history
+        """Forward to `Dispatcher.unregister_history`."""
 
     else:
 
@@ -173,7 +187,7 @@ class Client(PyroClient):
     @overload
     async def ask(
         self,
-        chat_id: int | str,
+        chat_id: StrInt,
         text: str,
         *,
         parse_mode: pyro_enums.ParseMode | None = None,
@@ -209,7 +223,7 @@ class Client(PyroClient):
     @overload
     async def ask(
         self,
-        chat_id: int | str,
+        chat_id: StrInt,
         text: str,
         *,
         parse_mode: pyro_enums.ParseMode | None = None,
@@ -245,7 +259,7 @@ class Client(PyroClient):
     @overload
     async def ask(
         self,
-        chat_id: int | str,
+        chat_id: StrInt,
         text: str,
         message_id: int,
         *,
@@ -268,7 +282,7 @@ class Client(PyroClient):
     @overload
     async def ask(
         self,
-        chat_id: int | str,
+        chat_id: StrInt,
         text: str,
         message_id: int,
         *,
@@ -290,7 +304,7 @@ class Client(PyroClient):
 
     async def ask(
         self,
-        chat_id: int | str,
+        chat_id: StrInt,
         text: str,
         message_id: int | None = None,
         *,
@@ -477,9 +491,8 @@ class Client(PyroClient):
 
 
 if TYPE_CHECKING:
-    # Type checking only: the mixin is typed as a `Client` so calls like
-    # `self.set_bot_commands()` resolve; at runtime its base is plain `object`.
     _BotCommandsMixinBase = Client
+    """Base of `BotCommandsMixin`: `Client` for type checkers so calls like `self.set_bot_commands()` resolve, plain `object` at runtime."""
 else:
     _BotCommandsMixinBase = object
 

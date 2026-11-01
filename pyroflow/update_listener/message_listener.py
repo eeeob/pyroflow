@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 _COMMAND_RE: Final[re.Pattern[str]] = re.compile(
     r"^/([a-zA-Z][a-zA-Z0-9_]{0,31})(?:@(\w+))?(?:\s|$)"
 )
+"""Telegram command syntax: `/name` with an optional `@username`, capturing both."""
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +47,9 @@ class MessageListener(UpdateListener[Message]):
     """
 
     __update_type__ = Message
+    """The Pyrogram update class this listener waits for."""
     _bot_commands_cache: dict[int, frozenset[str]]
+    """Lowercased bot command names per client, keyed by `id(client)`."""
 
     if not TYPE_CHECKING:
 

@@ -29,6 +29,7 @@ class MessageHistory(UpdateHistory[Message]):
     """
 
     __update_type__ = Message
+    """Update class whose handlers this history records."""
 
     if not TYPE_CHECKING:
 

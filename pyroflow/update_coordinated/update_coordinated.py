@@ -74,10 +74,14 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             coordinator_factory = MemoryUpdateCoordinator
 
         self.coordinator = coordinator_factory(self.__class__.__update_type__)
+        """Backend that locks scopes and remembers handled updates."""
 
         self.is_coordinatable_func = is_coordinatable_func
+        """Callable deciding whether an update is coordinated, or `None` to use an override."""
         self.extract_key_func = extract_key_func
+        """Callable returning an update's lock scope, or `None` to use an override."""
         self.extract_update_id_func = extract_update_id_func
+        """Callable returning an update's identity, or `None` to use an override."""
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
         """Return the executor of the client bound to `update`, or `None` if it has none."""

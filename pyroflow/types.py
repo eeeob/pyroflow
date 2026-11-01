@@ -108,6 +108,7 @@ class User(PyroUser):
     """Pyrogram `User` extended with `lang_code`."""
 
     _client: Client
+    """Client that received this user."""
 
     @property
     def lang_code(self) -> str | None:
@@ -133,7 +134,9 @@ class Message(PyroMessage):
     """Pyrogram `Message` extended with `ask`, `editable` and `respond`."""
 
     _client: Client
+    """Client that received or sent this message."""
     from_user: User | None
+    """Sender of the message, or `None` for messages sent on behalf of a chat."""
 
     @overload
     async def ask(
@@ -422,8 +425,11 @@ class CallbackQuery(PyroCallbackQuery):
     """Pyrogram `CallbackQuery` with `message` and `from_user` typed as the patched classes."""
 
     _client: Client
+    """Client that received this callback query."""
     message: Message | None
+    """Message with the pressed button, or `None` for a button on an inline-mode message."""
     from_user: User
+    """User who pressed the button."""
 
 
 if TYPE_CHECKING:

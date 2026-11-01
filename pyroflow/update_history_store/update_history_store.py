@@ -25,6 +25,7 @@ class UpdateHistoryStore(ABC):
     def __init__(self, update_type: type[UpdateType], **kw: Any) -> None:
         """Bind the store to its update type."""
         self.update_type = update_type
+        """Pyrogram update class whose records this store holds."""
 
         super().__init__(**kw)
 

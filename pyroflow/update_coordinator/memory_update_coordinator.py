@@ -38,6 +38,7 @@ class TimedLock(AsyncioLock):
         super().__init__()
 
         self.blocking_timeout = blocking_timeout
+        """Maximum seconds `acquire` waits for the lock."""
 
     async def acquire(self) -> bool:  # ty: ignore[invalid-method-override]  # `asyncio.Lock.acquire` is typed `Literal[True]`; the bounded wait returns `False` on timeout
         """Acquire the lock, waiting at most `blocking_timeout` seconds.
@@ -88,11 +89,11 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         """Initialise the coordinator; other arguments go to `UpdateCoordinator`."""
         super().__init__(*args, **kw)
 
-        # Weak values: an idle scope's lock is dropped, so callers keep a
-        # reference across `acquire`/`release`.
         self.locks = DefaultWeakValueDict(partial(TimedLock, self.blocking_timeout))
+        """Lock per scope key, held weakly: an idle scope's lock is dropped, so callers keep a reference across `acquire`/`release`."""
 
         self.handled: TTLCache[str, None] = TTLCache(maxsize=max_handled, ttl=self.handled_ttl)
+        """Expiring registry of handled update keys."""
 
     def lock(self, key: UpdateCoordinatorKeyT) -> TimedLock:
         """Return the process-local `TimedLock` for `key`.

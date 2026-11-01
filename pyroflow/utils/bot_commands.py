@@ -17,13 +17,12 @@ if TYPE_CHECKING:
 
     from ..typings import BotCommandEntryT, BotCommandPartsT
 
-# The handler types `mark_bot_commands()` is willing to mark. `BusinessMessageHandler`
-# is not present in every supported Pyrogram/Kurigram version.
 _MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = tuple(
     getattr(handlers, name)
     for name in ("MessageHandler", "BusinessMessageHandler")
     if hasattr(handlers, name)
 )
+"""Handler types `mark_bot_commands` marks; `BusinessMessageHandler` only where the installed Pyrogram has it."""
 
 
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:

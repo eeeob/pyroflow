@@ -63,7 +63,7 @@ Redis مزيّف في الاختبارات. لا شيء يلمس خادمًا ح
 ### 6. وثّقه
 
 - لكل دالة وكلاس `docstring` بأسلوب Google (6.3).
-- لكل حقل في `model` ولكل عضو في `enum` `docstring` خاص به (6.4).
+- لكل متغير على مستوى الـ `module` ولكل حقل وعضو `enum` وخاصية `docstring` خاص به (6.4).
 - أضف `Example` على شكل `doctest` حيث يفيد مثال الاستخدام (6.5).
 - التوثيق العام يشرح المفاهيم، ويربط بالمصدر الوحيد لأي تفصيل متغيّر (6.6).
 
@@ -123,7 +123,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **1.4 الأقسام بحسب المسؤولية.** ينتمي كل عنصر إلى قسم واحد: `enums` أو `typings` أو `models` أو `errors` أو `constants` أو الأدوات. لا يوجد كود `enum` أو نوع أو `model` أو خطأ في ملف أداة أو `helper`. كل ثابت عام يعيش في `pyroflow.constants` باسم يقول ما هو. والثابت الخاص (`_NAME`) يبقى بجوار الكود الذي يستخدمه.
 
-**1.5 الأدوات المساعدة.** الـ `helpers` التي تتشاركها الأقسام تعيش في `pyroflow.utils`، مجمّعة بحسب المسؤولية في `modules` متماسكة، لا `module` صغير لكل دالة. والـ `helper` الذي يستخدمه قسم واحد فقط يعيش في `_internal.py` الخاص بذلك القسم. قبل كتابة `helper` عام الغرض، ابحث في `pytrove`، فهو اعتمادية موجودة أصلًا، واستورده من `pytrove` مباشرة. لا يُعاد تصدير أسماء خارجية عبر `pyroflow`.
+**1.5 الأدوات المساعدة.** الـ `helpers` التي تتشاركها الأقسام تعيش في `pyroflow.utils`، مجمّعة بحسب المسؤولية في `modules` متماسكة، لا `module` صغير لكل دالة. والـ `helper` الذي يستخدمه قسم واحد فقط يعيش في `_internal.py` الخاص بذلك القسم. قبل كتابة `helper` عام الغرض، ابحث في `pytrove`، فهو اعتمادية موجودة أصلًا، واستورده من `pytrove` مباشرة. النوع أو الـ `helper` الذي يوفّره `pytrove` أصلًا (`StrInt`، `Number`، `MaybeList`، `MaybeCoroutineCallable`، ...) يُستورد من `pytrove` ولا يُعاد كتابته؛ ويجوز أن يحتفظ `pyroflow` باسم `alias` عام معرَّف عبره. لا يُعاد تصدير أسماء خارجية عبر `pyroflow`.
 
 **1.6 للاستيراد أثر جانبي واحد.** يرقّع `import pyroflow` كلاسات Pyrogram في مكانها (`pyroflow.Client is pyrogram.Client`)، ولا يفعل شيئًا آخر: لا `I/O` ولا شبكة.
 
@@ -131,7 +131,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **1.8 الواجهات المجمّعة.** تعرض كل حزمة واجهة موحّدة واحدة من `__init__.py`. لا يحتاج المستخدم إلى معرفة ترتيب الملفات الداخلي.
 
-**1.9 `__all__` والاستيراد بالنجمة.** يأتي `__all__` آخر كل `module`. لا يظهر الاستيراد بالنجمة إلا في ملفات `__init__.py` التجميعية، وهذه لا تحتوي إلا الـ `docstring` وأسطر `from .<module> import *` و`__all__ = (*<module>.__all__, ...)`. الاستيراد بالنجمة يربط اسم كل `submodule` أصلًا، فلا حاجة إلى `from . import <module>` للوصول إلى `__all__` الخاص به، ولا تحمل هذه الملفات استيراد `__future__`. يحمل `pyroflow/__init__.py` العلوي أيضًا سطر `__version__` الذي يقرؤه الـ `build backend`، ويستورد `filters` بـ `from . import filters` كي تبقى دوالّه ضمن الـ `namespace` بصيغة `pyroflow.filters.<name>`، ويذكر `"filters"` باسمه في `__all__`.
+**1.9 `__all__` والاستيراد بالنجمة.** يأتي `__all__` آخر كل `module`. لا يظهر الاستيراد بالنجمة إلا في ملفات `__init__.py` التجميعية، وهذه لا تحتوي إلا الـ `docstring` وأسطر `from .<module> import *` و`__all__ = (*<module>.__all__, ...)`. الاستيراد بالنجمة يربط اسم كل `submodule` أصلًا، فلا حاجة إلى `from . import <module>` للوصول إلى `__all__` الخاص به، ولا تحمل هذه الملفات استيراد `__future__`. يحمل `pyroflow/__init__.py` العلوي أيضًا سطر `__version__` الذي يقرؤه الـ `build backend`، مباشرة بعد الـ `docstring` الخاص بالـ `module` وقبل الاستيرادات، ويستورد `filters` بـ `from . import filters` كي تبقى دوالّه ضمن الـ `namespace` بصيغة `pyroflow.filters.<name>`، ويذكر `"filters"` باسمه في `__all__`.
 
 **1.10 الكود مقابل القاعدة.** الكود المخالف لقاعدة يُصلَح. ولا تُضعَّف قاعدة لتبرير كود.
 
@@ -230,9 +230,13 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 
 **6.3 الـ docstrings.** لكل دالة وكلاس `docstring` بأسلوب Google مهما صغر (`D`، `convention = "google"`). الـ `docstrings` ورسائل الـ `logs` ورسائل الأخطاء بالإنجليزية.
 
-**6.4 الـ models والـ enums.** لكل حقل في `model` ولكل عضو في `enum` `docstring` خاص به في السطر التالي له. ولا يحتوي `docstring` الكلاس قسم `Attributes` يكررها.
+**6.4 المتغيرات والحقول.** لكل متغير على مستوى الـ `module`، عامًا كان أو خاصًا (الثوابت، والـ `type aliases`، والـ `type variables`)، ولكل عنصر في بنية شبيهة بالـ `model` (حقول `dataclass` و`TypedDict` و`NamedTuple`، وأعضاء الـ `enum`، وخصائص الكلاس، وخصائص الـ `instance` التي يضبطها كلاس ذو حالة في `__init__`)، `docstring` من سطر واحد في السطر الذي يليه مباشرة. يقول الـ `docstring` ما الذي يحمله العنصر، ولا يكرر اسمه ولا نوعه. ولا يحتوي `docstring` الكلاس قسم `Attributes` يكررها.
 
 ```python
+_LOCK_TTL: Final[float] = 30.0
+"""Seconds a coordination lock lives before the backend frees it."""
+
+
 class ChatKind(Enum):
     """Kind of chat a listener waits in."""
 

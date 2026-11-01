@@ -36,6 +36,7 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
     """
 
     __update_type__ = CallbackQuery
+    """Update class whose handlers this history records."""
 
     if not TYPE_CHECKING:
 

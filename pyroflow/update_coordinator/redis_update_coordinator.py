@@ -33,7 +33,9 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         super().__init__(*args, **kw)
 
         self.redis = redis
+        """Async Redis client holding the locks and the handled registry."""
         self.sleep = sleep
+        """Seconds between lock acquisition attempts while waiting."""
 
     def lock(self, key: UpdateCoordinatorKeyT) -> Lock:
         """Build the distributed lock for `key`, expiring after `lock_ttl`."""

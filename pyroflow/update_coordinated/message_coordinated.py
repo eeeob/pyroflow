@@ -26,6 +26,7 @@ class MessageCoordinated(UpdateCoordinated[Message]):
     """
 
     __update_type__ = Message
+    """Update class this policy coordinates."""
 
     if not TYPE_CHECKING:
 

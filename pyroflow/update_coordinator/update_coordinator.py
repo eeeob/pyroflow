@@ -48,15 +48,21 @@ class UpdateCoordinator(ABC):
     ) -> None:
         """Initialise the coordinator; see the class docstring for the parameters."""
         self.lock_ttl = lock_ttl
+        """Seconds before a held distributed lock expires on its own."""
         self.handled_ttl = handled_ttl
+        """Seconds an update id stays registered as handled."""
         self.blocking_timeout = blocking_timeout
+        """Maximum seconds `lock` waits before reporting failure."""
 
         self._update_name = update_type.__name__
+        """Name of the handled update class, used to namespace the keys."""
         self._sep = "|"
+        """Separator joining the parts of a backend key."""
         self._key_formats = {
             section: (f"update{self._sep}{section}{self._sep}{self._update_name}{self._sep}{{key}}")
             for section in get_args(UpdateCoordinatorSectionT)
         }
+        """Backend key template per section, with a `{key}` placeholder."""
 
         super().__init__(**kw)
 

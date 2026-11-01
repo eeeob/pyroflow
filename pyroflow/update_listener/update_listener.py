@@ -90,16 +90,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             duplicate_policy = DuplicatePolicy.REPLACE
 
         self.coordinator = coordinator_factory(self)
+        """Backend that tracks listener ownership and locks across sessions."""
         self.duplicate_policy = duplicate_policy
+        """What `listen` does when the key is already registered."""
 
         self.is_listenable_func = is_listenable_func
+        """Optional predicate behind `is_listenable`."""
         self.extract_key_func = extract_key_func
+        """Optional key extractor behind `extract_key`."""
         self.bypass_func = bypass_func
+        """Optional predicate behind `is_bypass`."""
 
         self.timeout = timeout
+        """Default seconds `listen` waits; `None` waits indefinitely."""
 
-        # Local listeners owned by this process; the `coordinator` handles other sessions.
         self.listeners: dict[ListenerKey, ListenerModel] = {}
+        """Local listeners owned by this process; the `coordinator` handles other sessions."""
 
     async def start(self) -> None:
         """Start the listener coordinator."""
@@ -318,6 +324,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 await self.coordinator.unregister(key, coordinator_id)
 
     __call__ = listen
+    """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
 
     async def resolve(self, update: UpdateType) -> None:
         """Resolve the most specific pending listener matching the update.

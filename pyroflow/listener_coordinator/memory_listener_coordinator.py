@@ -40,8 +40,11 @@ class MemoryListenerCoordinator(ListenerCoordinator):
         super().__init__(listener)
 
         self.locks: DefaultWeakValueDict[LockKeyT, AsyncioLock] = DefaultWeakValueDict(AsyncioLock)
+        """Per-key locks, held weakly and created on first use."""
         self.data: dict[ListenerKey, int] = {}
+        """Registered keys mapped to the id each was registered under."""
         self.counter = count()
+        """Source of the next registration id."""
 
     def lock(self, key: LockKeyT) -> AsyncioLock:
         """Return the in-process lock for `key`, created on first use.

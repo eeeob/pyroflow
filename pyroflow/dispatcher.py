@@ -29,11 +29,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# The `_CoordinatedRelease` of the update being processed. A `ContextVar` so sync
-# handlers in the executor and raw handlers reach it too.
 _HANDLED_MARKER: Final[ContextVar[_CoordinatedRelease | None]] = ContextVar(
     "pyroflow_handled_marker", default=None
 )
+"""Settlement of the update being processed, reachable from sync handlers in the executor and raw handlers too."""
 
 
 class _CoordinatedRelease:
@@ -45,6 +44,7 @@ class _CoordinatedRelease:
     """
 
     __slots__ = ("_coordinated", "_lock", "_loop", "_early", "_released", "update_id")
+    """Fixed attribute layout; a settlement is created per coordinated update."""
 
     def __init__(
         self,
@@ -60,14 +60,18 @@ class _CoordinatedRelease:
             loop: The event loop an early settlement is scheduled onto.
         """
         self._coordinated = coordinated
+        """Coordinated whose coordinator registers the update as handled."""
         self._lock = lock
+        """Held lock released on settlement."""
         self._loop = loop
+        """Event loop an early settlement is scheduled onto."""
         self._early: Future[None] | asyncio.Future[None] | None = None
+        """Scheduled early settlement, set once `mark_handled` claims it."""
         self._released: bool = False
+        """Whether the settlement already ran."""
 
-        # Known only after the lock is held; a settlement before that releases
-        # the lock and registers nothing.
         self.update_id: UpdateCoordinatorKeyT | None = None
+        """Update key, known only once the lock is held; a settlement before that registers nothing."""
 
     def claim_early(self) -> bool:
         """Claim the settlement and schedule it on the loop. Backs `mark_handled`.
@@ -143,8 +147,11 @@ class Dispatcher(PyroDispatcher):
     """
 
     old__init__: Callable[..., None]
+    """Original Pyrogram initializer, kept by `patch_cls`."""
     oldstart: Callable[..., Awaitable[None]]
+    """Original Pyrogram `start`, kept by `patch_cls`."""
     oldstop: Callable[..., Awaitable[None]]
+    """Original Pyrogram `stop`, kept by `patch_cls`."""
 
     def __init__(self, *args: Any, **kw: Any) -> None:
         """Run the original initializer, then set up empty registries.
@@ -156,10 +163,14 @@ class Dispatcher(PyroDispatcher):
         self.old__init__(*args, **kw)
 
         self.listeners: dict[type[PyroUpdate], UpdateListener[Any]] = {}
+        """Registered listener per update type."""
         self.coordinateds: dict[type[PyroUpdate], UpdateCoordinated[Any]] = {}
+        """Registered coordinated per update type."""
         self.histories: dict[type[PyroUpdate], UpdateHistory[Any]] = {}
+        """Registered history per update type."""
 
         self.is_started = False
+        """Whether the dispatcher is running; registration is refused while it is."""
 
     async def start(self, *args: Any, **kw: Any) -> None:
         """Start the dispatcher and all registered listeners, coordinators and histories.

@@ -75,10 +75,14 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
             store_factory = MemoryUpdateHistoryStore
 
         self.store = store_factory(self.__class__.__update_type__)
+        """Backend that holds the records."""
 
         self.is_recordable_func = is_recordable_func
+        """Callable behind `is_recordable`, or `None` when the method is overridden."""
         self.extract_key_func = extract_key_func
+        """Callable behind `extract_key`, or `None` when the method is overridden."""
         self.extract_data_func = extract_data_func
+        """Callable behind `extract_data`, or `None` when the method is overridden."""
 
     def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
         """Return the executor of the update's client, or `None` if it has none."""

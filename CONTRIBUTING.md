@@ -43,7 +43,7 @@ Test every element you added or changed, at the path that mirrors its module (0.
 
 ### 6. Document it
 
-Give every function and class a Google-style docstring (6.3); give every model field and enum member its own docstring (6.4); add an `Example` doctest where a usage example helps (6.5). Public documentation explains concepts and links to the single source of anything that changes (6.6).
+Give every function and class a Google-style docstring (6.3); give every module-level variable, field, enum member and attribute its own docstring (6.4); add an `Example` doctest where a usage example helps (6.5). Public documentation explains concepts and links to the single source of anything that changes (6.6).
 
 ### 7. Run the checks
 
@@ -97,7 +97,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **1.4 Sections by responsibility.** Every element belongs to one section: enums, typings, models, errors, constants, or the tools. Enum, type, model and error code never lives in a tool or helper file. Every public constant lives in `pyroflow.constants` under a name that says what it is; a private constant (`_NAME`) stays beside the code that uses it.
 
-**1.5 Helpers.** Helpers shared by sections live in `pyroflow.utils`, grouped by responsibility into cohesive modules, not one tiny module per function. A helper that only one section uses lives in that section's own `_internal.py`. Before writing a general-purpose helper, check `pytrove`, which is already a dependency, and import it from `pytrove` directly. External names are never re-exported through `pyroflow`.
+**1.5 Helpers.** Helpers shared by sections live in `pyroflow.utils`, grouped by responsibility into cohesive modules, not one tiny module per function. A helper that only one section uses lives in that section's own `_internal.py`. Before writing a general-purpose helper, check `pytrove`, which is already a dependency, and import it from `pytrove` directly. A type or helper `pytrove` already provides (`StrInt`, `Number`, `MaybeList`, `MaybeCoroutineCallable`, ...) is imported from `pytrove`, never spelled out again; `pyroflow` may still keep a public alias name defined through it. External names are never re-exported through `pyroflow`.
 
 **1.6 Import has one side effect.** `import pyroflow` patches Pyrogram's classes in place (`pyroflow.Client is pyrogram.Client`) and does nothing else: no I/O, no network.
 
@@ -105,7 +105,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **1.8 Aggregated interfaces.** A package exposes one unified interface from its `__init__.py`. Users never need to know the internal file layout.
 
-**1.9 `__all__` and wildcard imports.** `__all__` comes last in every module. Wildcard imports appear only in aggregation `__init__.py` files, which contain nothing but the docstring, `from .<module> import *` lines and `__all__ = (*<module>.__all__, ...)`. The star import already binds each submodule's name, so no `from . import <module>` is needed to reach its `__all__`, and these files carry no `__future__` import. The top-level `pyroflow/__init__.py` also holds the `__version__` line the build backend reads, and imports `filters` with `from . import filters` so its factories stay namespaced as `pyroflow.filters.<name>`; it lists `"filters"` by name in `__all__`.
+**1.9 `__all__` and wildcard imports.** `__all__` comes last in every module. Wildcard imports appear only in aggregation `__init__.py` files, which contain nothing but the docstring, `from .<module> import *` lines and `__all__ = (*<module>.__all__, ...)`. The star import already binds each submodule's name, so no `from . import <module>` is needed to reach its `__all__`, and these files carry no `__future__` import. The top-level `pyroflow/__init__.py` also holds the `__version__` line the build backend reads, right after the module docstring and before the imports, and imports `filters` with `from . import filters` so its factories stay namespaced as `pyroflow.filters.<name>`; it lists `"filters"` by name in `__all__`.
 
 **1.10 Code versus rule.** Code that violates a rule is fixed. A rule is never weakened to justify code.
 
@@ -204,9 +204,13 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 
 **6.3 Docstrings.** Every function and class has a Google-style docstring, however small (`D`, `convention = "google"`). Docstrings, log messages and error messages are in English.
 
-**6.4 Models and enums.** Every field of a model and every member of an enum has its own docstring on the line below it. The class docstring has no `Attributes` section repeating them.
+**6.4 Variables and fields.** Every module-level variable, public or private (constants, type aliases, type variables), and every element of a model-like structure (dataclass, `TypedDict` and `NamedTuple` fields, enum members, class attributes, and the instance attributes a stateful class sets in `__init__`) has a one-line docstring on the line right under it. The docstring says what it holds, never repeating its name or type. The class docstring has no `Attributes` section repeating them.
 
 ```python
+_LOCK_TTL: Final[float] = 30.0
+"""Seconds a coordination lock lives before the backend frees it."""
+
+
 class ChatKind(Enum):
     """Kind of chat a listener waits in."""
 

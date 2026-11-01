@@ -30,6 +30,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
     """
 
     __update_type__ = CallbackQuery
+    """The Pyrogram update class this listener waits for."""
 
     if not TYPE_CHECKING:
 

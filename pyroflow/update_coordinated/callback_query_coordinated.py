@@ -23,6 +23,7 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
     """
 
     __update_type__ = CallbackQuery
+    """Update class this policy coordinates."""
 
     if not TYPE_CHECKING:
 

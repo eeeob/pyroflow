@@ -55,11 +55,14 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         super().__init__(update_type, **kw)
 
         self.ttl = ttl
+        """Seconds a record stays valid."""
         self.max_history_len = max_history_len
+        """Most records kept per key."""
 
         self.histories: TTLCache[UpdateHistoryKeyT, list[UpdateRecord]] = TTLCache(
             maxsize=max_keys, ttl=ttl
         )
+        """Record heaps per key, capped by key count and key age."""
 
     def _expires_at(self, record: UpdateRecord) -> Number:
         """Return the time at which `record` expires."""

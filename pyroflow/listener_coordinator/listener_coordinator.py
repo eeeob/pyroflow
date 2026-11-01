@@ -32,6 +32,7 @@ class ListenerCoordinator(ABC):
         super().__init__(**kw)
 
         self.listener = listener
+        """The listener whose registrations this coordinator tracks."""
 
     @abstractmethod
     def lock(self, key: LockKeyT) -> AsyncLockProto:
