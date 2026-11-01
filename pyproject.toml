@@ -49,9 +49,9 @@ dependencies = [
     # The floor pytrove 2.0 enforces for its Telegram tools
     # (`extract_pyro_update_text`, used by filters).
     "kurigram>=2.2.24",
-    # Floor: cancel_task and yield_control are pytrove 2.0 APIs. Ceiling: pyroflow
-    # imports many pytrove names, and a major release may remove or change them.
-    "pytrove>=2.0.0,<3.0",
+    # cancel_task and yield_control are pytrove 2.0 APIs; 2.0 is also the line
+    # whose Telegram tools need kurigram>=2.2.24.
+    "pytrove>=2.0.0",
 ]
 
 

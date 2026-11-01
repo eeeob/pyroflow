@@ -354,7 +354,7 @@ test-redis = [
 requires-dist = [
     { name = "cachetools", specifier = ">=4.1.0" },
     { name = "kurigram", specifier = ">=2.2.24" },
-    { name = "pytrove", specifier = ">=2.0.0,<3.0" },
+    { name = "pytrove", specifier = ">=2.0.0" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=4.2.0" },
 ]
 provides-extras = ["redis"]
