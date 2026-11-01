@@ -1,0 +1,19 @@
+# Run `make hooks` once. Every commit then runs the same two recipes as the
+# `lint` and `typecheck` CI jobs. Rule sets live in `pyproject.toml`.
+repos:
+  - repo: local
+    hooks:
+      # ruff reads its file list from the recipe and the whole tree takes well
+      # under a second, so the hook checks everything, not only staged files.
+      - id: lint
+        name: ruff
+        entry: make lint
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: typecheck
+        name: ty
+        entry: make typecheck
+        language: system
+        pass_filenames: false
+        always_run: true
