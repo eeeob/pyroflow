@@ -5,6 +5,7 @@ from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import re
     from enum import Enum
 
     from pyrogram.filters import Filter
@@ -31,5 +32,9 @@ if TYPE_CHECKING:
         assert_type(filters.split_text("/ban"), Filter)
         assert_type(
             filters.split_text(_Action, _is_digit, _is_digit_async, strip=True, separator=" "),
+            Filter,
+        )
+        assert_type(
+            filters.split_text("/ban", re.compile(r"\d+"), separator=" "),
             Filter,
         )

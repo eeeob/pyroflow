@@ -9,6 +9,7 @@ relies on.
 from __future__ import annotations as _annotations
 
 import inspect
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
@@ -227,6 +228,27 @@ async def test_mixed_nested_containers_match_both_kinds(factory: Any, text: str)
     assert await matches(flt, make_message(text="c")) is False
 
 
+# --- _normalize_rule -----------------------------------------------------------
+
+
+def test_normalize_rule_turns_each_kind_into_its_matcher_form() -> None:
+    class Command(Enum):
+        BAN = "ban"
+        NUMBER = 1
+        EMPTY = ""
+
+    pattern = re.compile(r"\d+")
+    assert filters._normalize_rule(pattern) is pattern
+    assert filters._normalize_rule(Command) == frozenset({"ban"})
+    assert filters._normalize_rule("ban") == frozenset({"ban"})
+    assert filters._normalize_rule(["a", ("b", ["", 1])]) == frozenset({"a", "b"})  # type: ignore[arg-type]
+    assert filters._normalize_rule(str.isdigit) is str.isdigit
+    with pytest.raises(TypeError, match="Unsupported split_text rule"):
+        filters._normalize_rule(1.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must not be empty"):
+        filters._normalize_rule(["", None])  # type: ignore[arg-type]
+
+
 # --- split_text: rule normalization ------------------------------------------
 
 
@@ -369,16 +391,17 @@ async def test_split_text_bytes_data_with_separator_matches_nothing() -> None:
     assert called == []
 
 
-async def test_split_text_bytes_data_without_separator_is_one_part() -> None:
-    parts: list[object] = []
+async def test_split_text_bytes_data_without_separator_matches_nothing() -> None:
+    called: list[object] = []
+    flt = filters.split_text(called.append)
+    assert await matches(flt, make_callback_query(data=b"\x00\x01")) is False
+    assert called == []
 
-    async def record(part: object) -> bool:
-        parts.append(part)
-        return True
 
-    flt = filters.split_text(record)
-    assert await matches(flt, make_callback_query(data=b"\x00\x01")) is True
-    assert parts == [b"\x00\x01"]
+async def test_split_text_regex_rule_must_fullmatch_the_part() -> None:
+    flt = filters.split_text("/ban", re.compile(r"\d+"), separator=" ")
+    assert await matches(flt, make_message(text="/ban 42")) is True
+    assert await matches(flt, make_message(text="/ban 42a")) is False
 
 
 # --- module surface -------------------------------------------------------------

@@ -8,7 +8,8 @@ and `~` and registers like any Pyrogram filter. The text of a `Message` is its
 
 from __future__ import annotations as _annotations
 
-from typing import Protocol, AnyStr, NoReturn, TYPE_CHECKING
+import re
+from typing import Protocol, AnyStr, TYPE_CHECKING
 from contextlib import suppress
 from enum import Enum, EnumMeta as EnumType
 
@@ -35,9 +36,45 @@ class _TextMatch(Protocol):
         ...
 
 
-def _raise(exc: Exception) -> NoReturn:
-    """`raise` as an expression, for use inside a comprehension."""
-    raise exc
+def _normalize_rule(
+    rule: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
+) -> frozenset[str] | re.Pattern[str] | MaybeCoroutineCallable[[str], bool]:
+    """Turn one `split_text` rule into the form its matcher checks.
+
+    Args:
+        rule: A compiled pattern or a callable (kept as is), an `Enum` class
+            (its non-empty `str` values), or a string or nested container of
+            strings (its non-empty `str` items).
+
+    Returns:
+        The pattern or callable itself, or a frozenset of the allowed strings.
+
+    Raises:
+        ValueError: If the rule resolves to no strings.
+        TypeError: If the rule is none of the supported kinds.
+
+    Example:
+        >>> sorted(_normalize_rule(["a", ("b", "")]))
+        ['a', 'b']
+    """
+    if isinstance(rule, re.Pattern):
+        return rule
+
+    if isinstance(rule, type) and issubclass(rule, Enum):
+        strings = frozenset(e.value for e in rule if isinstance(e.value, str) and e.value)
+    elif is_container(rule) or isinstance(rule, str):
+        strings = frozenset(v for v in iter_flat_cont(rule) if isinstance(v, str) and v)
+    elif callable(rule):
+        return rule  # ty: ignore[invalid-return-type]  # `is_container` does not narrow, so ty keeps callable containers in the union
+    else:
+        msg = f"Unsupported split_text rule: {type(rule)!r}"
+        raise TypeError(msg)
+
+    if not strings:
+        msg = "split_text rules must not be empty"
+        raise ValueError(msg)
+
+    return strings
 
 
 def _text_filter(
@@ -152,21 +189,22 @@ def equal(*texts: NestedContainer[str | bytes]) -> Filter:
 
 
 def split_text(
-    *rules: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType,
+    *rules: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
     strip: bool = False,
     separator: str | None = None,
 ) -> Filter:
-    """Split the update's text by `separator` and match each part against its `rules` entry.
+    r"""Split the update's text by `separator` and match each part against its `rules` entry.
 
     The update matches only when the text splits into exactly one part per
     rule and every part satisfies its rule. A synchronous callable rule runs
     in a thread on the client's executor. Callback data left as `bytes` never
-    matches when a `separator` is given.
+    matches.
 
     Args:
         *rules: One per part: a string, a container of strings or an `Enum`
-            class (its values), which the part must equal one of; or a
-            callable, called as `rule(part)`, which must return truthy.
+            class (its values), which the part must equal one of; a compiled
+            `re.Pattern`, which must `fullmatch` the part; or a callable,
+            called as `rule(part)`, which must return truthy.
         strip: Whether to strip whitespace from each part before matching.
         separator: What to split the text on, at most `len(rules) - 1`
             times. `None` (the default) is only valid with exactly one rule:
@@ -179,7 +217,7 @@ def split_text(
         ValueError: If no rules are given, a rule resolves to an empty set of
             strings, or more than one rule is given without a `separator`.
         TypeError: If a rule is neither a container, a string, an `Enum`
-            class, nor a callable.
+            class, a compiled pattern, nor a callable.
 
     Example:
         >>> import asyncio
@@ -187,30 +225,20 @@ def split_text(
         >>> f = split_text("/ban", ["user", "chat"], separator=" ")
         >>> asyncio.run(f(None, Message(id=1, text="/ban chat")))
         True
+        >>> import re
+        >>> f = split_text("/ban", re.compile(r"\d+"), separator=" ")
+        >>> asyncio.run(f(None, Message(id=1, text="/ban 42")))
+        True
         >>> split_text("/ban", str.isdigit)
         Traceback (most recent call last):
         ...
         ValueError: separator is required when split_text is given more than one rule
     """
-    if not rules:
+    normalized_rules = tuple(_normalize_rule(rule) for rule in rules)
+
+    if not normalized_rules:
         msg = "split_text filter must be given at least one rule"
         raise ValueError(msg)
-
-    normalized_rules = tuple(
-        frozenset(e.value for e in rule if isinstance(e.value, str) and e.value)
-        if isinstance(rule, type) and issubclass(rule, Enum)
-        else frozenset(v for v in iter_flat_cont(rule) if isinstance(v, str) and v)
-        if is_container(rule) or isinstance(rule, str)
-        else rule
-        if callable(rule)
-        else _raise(TypeError(f"Unsupported split_text rule: {type(rule)!r}"))
-        for rule in rules
-    )
-
-    for rule in normalized_rules:
-        if not rule:
-            msg = "split_text rules must not be empty"
-            raise ValueError(msg)
 
     if len(normalized_rules) > 1 and separator is None:
         msg = "separator is required when split_text is given more than one rule"
@@ -220,16 +248,14 @@ def split_text(
         """Return whether the update's text splits into parts that each satisfy their rule."""
         text = extract_pyro_update_text(update)
 
-        if not text:
+        if not text or isinstance(text, bytes):
             return False
 
-        if separator is None:
-            parts = [text]
-        elif isinstance(text, bytes):
-            # بيانات callback التي لا تُفك بـ UTF-8 تبقى `bytes`، ولا تنقسم بفاصل نصي
-            return False
-        else:
-            parts = text.split(separator, maxsplit=len(normalized_rules) - 1)
+        parts = (
+            [text]
+            if separator is None
+            else text.split(separator, maxsplit=len(normalized_rules) - 1)
+        )
 
         if strip:
             parts = [p.strip() for p in parts]
@@ -240,6 +266,9 @@ def split_text(
         for part, rule in zip(parts, normalized_rules, strict=True):
             if isinstance(rule, frozenset):
                 if part not in rule:
+                    return False
+            elif isinstance(rule, re.Pattern):
+                if rule.fullmatch(part) is None:
                     return False
             elif not await maybe_awaitable(rule, part, executor=client.executor, log_exc=False):
                 return False
