@@ -24,9 +24,30 @@ Every breaking change lists what changed, who is affected and how to migrate.
   and returns the id to listen for.
 - `User.lang_code` and `Message.editable`.
 - `py.typed`: the package ships its type hints.
+- `ListenerKey.to_dict()`: the key's fields by name.
+- `split_text` rules can be compiled `re.Pattern` objects; a part matches when
+  the pattern fullmatches it.
+- `pyroflow.utils.get_update_executor(update)`: the executor of the client an
+  update is bound to, or `None`.
+- `PyroflowError`, the root of every pyroflow error, and `CoordinationError`,
+  the family of coordination signals.
 
 ### Changed
 
+- **BREAKING:** `ListenerKey.to_tuple` is a method. Affects code reading
+  `key.to_tuple` as a property.
+  Migration: call `key.to_tuple()`.
+- **BREAKING:** the error hierarchy. `PyroflowError` is the root;
+  `ListenerError` keeps `ListenerCancelled`, `ListenerTimeout`,
+  `ListenerAlreadyExists` and `UnresolvedUpdate`; `UnhandledUpdate` now
+  subclasses `CoordinationError`, not `ListenerError`. Every message changed,
+  e.g. "Listener for {value} timed out" instead of
+  "UpdateListener {value} timed out". Affects code that catches
+  `ListenerError` to catch `UnhandledUpdate`, or matches message text.
+  Migration: catch `CoordinationError`/`UnhandledUpdate` (or `PyroflowError`
+  for everything) and match on the class, not the message.
+- `split_text` never matches `bytes` callback data, even without a
+  `separator` (it used to pass the bytes to a single callable rule).
 - pyroflow now depends on `pytrove>=2.0` and `kurigram>=2.2.24`, and
   `cachetools` gained a `>=4.1.0` floor. It no longer depends on
   `sortedcontainers` or `typing_extensions`.
