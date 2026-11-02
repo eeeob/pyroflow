@@ -559,6 +559,13 @@ async def test_resolve_bypass_cancels_the_listener_and_stays_unresolved() -> Non
     assert lis.coordinator.data == {}
 
 
+async def test_on_unresolved_raises_unresolved_update() -> None:
+    update = make_message()
+    with pytest.raises(UnresolvedUpdate) as exc:
+        await _make().on_unresolved(ListenerKey(100), update)
+    assert exc.value.value is update
+
+
 def test__get_executor_without_client() -> None:
     lis = _make()
     assert lis._get_executor(make_message(_client=None)) is None

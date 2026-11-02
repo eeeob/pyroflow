@@ -183,6 +183,44 @@ def test_registered_matches_exact_key_only(coordinator: MemoryListenerCoordinato
     assert coordinator._registered(ListenerKey(1, 2)) is False
 
 
+# --- async API --------------------------------------------------------------
+
+
+async def test_register_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
+    assert await coordinator.register(KEY) == 0
+    assert await coordinator.register(OTHER) == 1
+
+    with pytest.raises(KeyError):
+        await coordinator.register(KEY)
+
+
+async def test_unregister_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
+    _id = await coordinator.register(KEY)
+
+    assert await coordinator.unregister(KEY, _id + 1) is False
+    assert await coordinator.registered(KEY) is True
+    assert await coordinator.unregister(KEY, _id) is True
+    assert await coordinator.registered(KEY) is False
+    assert await coordinator.unregister(KEY) is True
+
+
+async def test_cancel_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
+    await coordinator.register(KEY)
+
+    assert await coordinator.cancel(KEY) is True
+    assert await coordinator.registered(KEY) is False
+    assert await coordinator.cancel(KEY) is True
+
+
+async def test_registered_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
+    assert await coordinator.registered(KEY) is False
+    _id = await coordinator.register(KEY)
+
+    assert await coordinator.registered(KEY) is True
+    assert await coordinator.registered(KEY, _id) is True
+    assert await coordinator.registered(KEY, _id + 1) is False
+
+
 # --- stop -------------------------------------------------------------------
 
 

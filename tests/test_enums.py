@@ -2,6 +2,10 @@
 
 from __future__ import annotations as _annotations
 
+import sys
+from enum import auto
+
+import pytest
 
 import pyroflow.enums
 from pyroflow.enums import DuplicatePolicy
@@ -24,3 +28,19 @@ def test_duplicate_policy_str_is_the_value() -> None:
 
 def test_enums_all() -> None:
     assert pyroflow.enums.__all__ == ("DuplicatePolicy",)
+
+
+@pytest.mark.skipif(sys.version_info >= (3, 11), reason="StrEnum backport exists on 3.10 only")
+def test_str_enum_backport_generates_lowercase_values() -> None:
+    backport = pyroflow.enums.StrEnum
+    assert backport._generate_next_value_("Some_Name", 1, 0, []) == "some_name"
+
+
+@pytest.mark.skipif(sys.version_info >= (3, 11), reason="StrEnum backport exists on 3.10 only")
+def test_str_enum_backport_str_returns_value() -> None:
+    class Color(pyroflow.enums.StrEnum):
+        RED = auto()
+
+    assert Color.RED == "red"
+    assert str(Color.RED) == "red"
+    assert isinstance(Color.RED, str)

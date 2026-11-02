@@ -53,3 +53,10 @@ def test_init_passes_extra_kwargs_along_the_mro() -> None:
 async def test_abstract_bodies_raise_not_implemented(method: str, args: tuple[Any, ...]) -> None:
     with pytest.raises(NotImplementedError):
         await getattr(_SuperStore(Message), method)(*args)
+
+
+async def test_start_and_stop_are_no_op_hooks() -> None:
+    store = _SuperStore(Message)
+    assert await store.start() is None
+    assert await store.stop() is None
+    assert store.update_type is Message

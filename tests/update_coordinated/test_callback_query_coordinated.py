@@ -82,6 +82,15 @@ def test_init_forwards_the_coordinator_factory() -> None:
     assert seen == [CallbackQuery]
 
 
+async def test_private_hooks_use_the_query_id() -> None:
+    cc = CallbackQueryCoordinated()
+    query = make_callback_query(id="q-42")
+
+    assert await cc._extract_key(query) == ("q-42",)
+    assert await cc._extract_update_id(query) == ("q-42",)
+    assert await cc._is_coordinatable(query) is True
+
+
 async def test_widened_key_keeps_the_per_query_identity() -> None:
     cc = CallbackQueryCoordinated(extract_key_func=lambda q: (q.from_user.id,))
     first = make_callback_query(id="a")

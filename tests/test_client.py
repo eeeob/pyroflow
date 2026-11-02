@@ -492,6 +492,12 @@ def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:
         assert inspect.iscoroutinefunction(method.__wrapped__), name
 
 
+def test_client_init_runs_pyrograms_own_init() -> None:
+    c = make_client()
+    assert c.name == "probe"
+    assert c.api_id == 1
+
+
 # --- BotCommandsMixin -------------------------------------------------------
 
 

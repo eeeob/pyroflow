@@ -39,7 +39,12 @@ def test_init_custom_bounds_reach_the_key_cache() -> None:
     assert (store.histories.maxsize, store.histories.ttl) == (7, 30)
 
 
-# --- _is_expired ---------------------------------------------------------------------------
+# --- _expires_at / _is_expired -------------------------------------------------------------
+
+
+def test_expires_at_is_created_at_plus_ttl() -> None:
+    store = _store(ttl=10)
+    assert store._expires_at(UpdateRecord(handler="h", created_at=1000)) == 1010
 
 
 def test_is_expired_at_explicit_now_includes_the_boundary() -> None:
@@ -64,7 +69,20 @@ def test_clean_up_pops_expired_records_in_place() -> None:
     assert [r.handler for r in heap] == ["fresh"]
 
 
+def test_clean_up_defaults_to_the_current_time() -> None:
+    store = _store(ttl=10)
+    now = time.time()
+    heap = [UpdateRecord(handler="old", created_at=now - 20), UpdateRecord(handler="new")]
+    assert [r.handler for r in store._clean_up(heap)] == ["new"]
+
+
 # --- _update / update ----------------------------------------------------------------------
+
+
+def test_update_creates_the_key() -> None:
+    store = _store()
+    store._update("k", UpdateRecord(handler="h"))
+    assert [r.handler for r in store.histories["k"]] == ["h"]
 
 
 async def test_update_appends_to_existing_key_and_trims_oldest() -> None:
@@ -159,6 +177,19 @@ async def test_get_drops_the_key_once_every_record_expired() -> None:
 
 
 # --- _pop / pop ----------------------------------------------------------------------------
+
+
+def test_pop_sync_returns_sorted_unexpired_records_and_removes_the_key() -> None:
+    store = _store(ttl=10, max_history_len=3)
+    now = time.time()
+    store.histories["k"] = [
+        UpdateRecord(handler="old", created_at=now - 100),
+        UpdateRecord(handler="b", created_at=now - 1),
+        UpdateRecord(handler="a", created_at=now - 2),
+    ]
+    assert [r.handler for r in store._pop("k")] == ["a", "b"]
+    assert "k" not in store.histories
+    assert store._pop("missing") == []
 
 
 async def test_pop_returns_sorted_unexpired_records_and_removes_the_key() -> None:

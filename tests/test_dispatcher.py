@@ -717,6 +717,16 @@ def make_release(
     return release, coordinator, lock
 
 
+async def test_release_starts_unsettled_without_an_identity() -> None:
+    release, coordinator, lock = make_release()
+
+    assert release.update_id is None
+    assert release._early is None
+    assert release._released is False
+    assert coordinator.marked == []
+    assert lock.releases == 0
+
+
 async def test_claim_early_on_the_loop_schedules_a_handled_settlement() -> None:
     release, coordinator, lock = make_release()
     release.update_id = "id"
@@ -774,6 +784,17 @@ async def test_settle_swallows_a_failing_release() -> None:
 
     assert lock.releases == 1
     assert release._released is True
+
+
+async def test_private_settle_is_a_one_shot() -> None:
+    release, coordinator, lock = make_release()
+    release.update_id = "id"
+
+    await release._settle(True)
+    await release._settle(True)
+
+    assert coordinator.marked == ["id"]
+    assert lock.releases == 1
 
 
 # --- Dispatcher: construction, start and stop -------------------------------

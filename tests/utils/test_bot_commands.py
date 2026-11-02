@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from pyrogram import Client, filters, handlers
-from pyrogram.handlers import CallbackQueryHandler, MessageHandler
+from pyrogram.handlers import CallbackQueryHandler, Handler, MessageHandler
 from pyrogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from pyroflow.constants import BOT_COMMANDS_ATTR
@@ -15,6 +15,22 @@ from pyroflow.utils import bot_commands, mark_bot_commands, split_bot_command_en
 
 async def _callback(client: Any, update: Any) -> None:  # pragma: no cover - never called
     pass
+
+
+# --- _MESSAGES_HANDLER ----------------------------------------------------
+
+
+def test_messages_handler_holds_the_available_message_handler_types() -> None:
+    expected = tuple(
+        getattr(handlers, name)
+        for name in ("MessageHandler", "BusinessMessageHandler")
+        if hasattr(handlers, name)
+    )
+
+    assert bot_commands._MESSAGES_HANDLER == expected
+    assert MessageHandler in bot_commands._MESSAGES_HANDLER
+    assert all(issubclass(cls, Handler) for cls in bot_commands._MESSAGES_HANDLER)
+    assert CallbackQueryHandler not in bot_commands._MESSAGES_HANDLER
 
 
 # --- mark_bot_commands() --------------------------------------------------

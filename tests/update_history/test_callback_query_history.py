@@ -73,6 +73,13 @@ async def test_extract_key_user_id_is_none_without_sender() -> None:
     assert await CallbackQueryHistory()._extract_key(cbq) == (100, None, 5)
 
 
+@pytest.mark.parametrize("data", ["payload", b"\x00raw", None])
+async def test_extract_data_is_callback_data(data: str | bytes | None) -> None:
+    cbq = make_callback_query()
+    cbq.data = data
+    assert await CallbackQueryHistory()._extract_data(cbq) == data
+
+
 async def test_callback_query_history_rejects_message() -> None:
     with pytest.raises(TypeError, match="Expected CallbackQuery, got Message"):
         await CallbackQueryHistory().is_recordable(make_message())

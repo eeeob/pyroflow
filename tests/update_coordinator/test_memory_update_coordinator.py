@@ -25,6 +25,7 @@ from pyroflow.update_coordinator.memory_update_coordinator import (
     MemoryUpdateCoordinator,
     TimedLock,
 )
+from pyroflow.utils import AsyncioLock
 
 
 # --- the lock: a plain mutex, nothing more --------------------------------
@@ -176,6 +177,14 @@ async def test_marking_handled_does_not_lock() -> None:
 
 
 # --- TimedLock on its own -------------------------------------------------
+
+
+def test_timed_lock_starts_unlocked_with_its_timeout() -> None:
+    lock = TimedLock(0.5)
+
+    assert lock.blocking_timeout == 0.5
+    assert isinstance(lock, AsyncioLock)
+    assert not lock.locked()
 
 
 async def test_timed_lock_timeout_leaves_the_holder_in_place() -> None:

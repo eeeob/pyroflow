@@ -5,11 +5,13 @@ from __future__ import annotations as _annotations
 import asyncio
 import gc
 import time
+import weakref
+from dataclasses import Field
 
 import pytest
 
 import pyroflow.models
-from pyroflow.models import ListenerKey, ListenerModel, UpdateRecord
+from pyroflow.models import ListenerKey, ListenerModel, UpdateRecord, _get_plan, _WeakSlots
 
 
 def test_listener_key_to_tuple() -> None:
@@ -97,6 +99,41 @@ async def test_models_are_slotted() -> None:
         rec.unknown_attr = 1
 
 
+def test_get_plan_orders_by_size_then_bit_position() -> None:
+    assert _get_plan(0b110) == (0b110, 0b010, 0b100, 0)
+    assert _get_plan(0b10) == (0b10, 0)
+    assert _get_plan(0b1011) == (
+        0b1011,
+        0b0011,
+        0b1001,
+        0b1010,
+        0b0001,
+        0b0010,
+        0b1000,
+        0,
+    )
+
+
+def test_listener_key_plans_caches_get_plan_per_mask() -> None:
+    list(ListenerKey(1, 2, 3).sub_keys())
+    assert 0b110 in ListenerKey.PLANS
+    assert ListenerKey.PLANS[0b110] == _get_plan(0b110)
+    assert ListenerKey.PLANS[0b110] is ListenerKey.PLANS[0b110]
+
+
+def test_listener_key_fields_are_the_dataclass_fields_in_order() -> None:
+    assert tuple(f.name for f in ListenerKey.FIELDS) == ("chat_id", "user_id", "message_id")
+    assert all(isinstance(f, Field) for f in ListenerKey.FIELDS)
+    assert ListenerKey.FIELDS is ListenerKey.FIELDS
+
+
+def test_listener_key_fields_falls_back_to_class_dict_before_dataclass() -> None:
+    class Plain:
+        FIELDS = "sentinel"
+
+    assert ListenerKey.__dict__["FIELDS"].call(Plain) == "sentinel"
+
+
 def test_listener_key_sub_keys_rejects_a_missing_chat_id() -> None:
     with pytest.raises(AssertionError, match="chat_id must not be None"):
         list(ListenerKey(None).sub_keys())  # type: ignore[arg-type]
@@ -122,10 +159,24 @@ async def test_listener_model_defaults_bind_to_the_running_loop() -> None:
     assert ListenerModel(ListenerKey(1)).future is not model.future
 
 
+def test_weak_slots_adds_only_a_weakref_slot() -> None:
+    assert _WeakSlots.__slots__ == ("__weakref__",)
+    assert issubclass(UpdateRecord, _WeakSlots)
+    rec = UpdateRecord(handler="H")
+    ref = weakref.ref(rec)
+    assert ref() is rec
+
+
 def test_update_record_created_at_defaults_to_now() -> None:
     before = time.time()
     rec = UpdateRecord(handler="H")
     assert before <= rec.created_at <= time.time()
+
+
+def test_update_record_post_init_assigns_increasing_sequence() -> None:
+    first = UpdateRecord(handler="H")
+    second = UpdateRecord(handler="H")
+    assert UpdateRecord._SEQ_IDS[id(first)] < UpdateRecord._SEQ_IDS[id(second)]
 
 
 def test_update_record_sequence_dropped_when_collected() -> None:

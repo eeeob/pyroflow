@@ -68,6 +68,10 @@ async def test_extract_key_user_id_is_none_without_sender() -> None:
     assert await MessageHistory()._extract_key(msg) == (100, None, 5)
 
 
+async def test_extract_data_is_message_text() -> None:
+    assert await MessageHistory()._extract_data(make_message(text="hello")) == "hello"
+
+
 async def test_message_history_rejects_callback_query() -> None:
     with pytest.raises(TypeError, match="Expected Message, got CallbackQuery"):
         await MessageHistory().is_recordable(make_callback_query())
