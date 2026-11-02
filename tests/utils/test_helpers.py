@@ -9,11 +9,19 @@ from __future__ import annotations as _annotations
 
 import threading
 from abc import ABC
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from pyroflow.utils import AsyncioLock, UpdateBound, handle_ask_error, helpers
+from pyroflow.utils import (
+    AsyncioLock,
+    UpdateBound,
+    get_update_executor,
+    handle_ask_error,
+    helpers,
+)
 from pyrogram.types import Message
 
 
@@ -262,5 +270,30 @@ def test_validate_update_error_message() -> None:
         Good.validate_update("text")
 
 
+# --- get_update_executor ----------------------------------------------------
+
+
+def test_get_update_executor_returns_the_client_executor() -> None:
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        update = SimpleNamespace(_client=SimpleNamespace(executor=executor))
+        assert get_update_executor(update) is executor
+    finally:
+        executor.shutdown()
+
+
+def test_get_update_executor_without_client() -> None:
+    assert get_update_executor(SimpleNamespace()) is None
+
+
+def test_get_update_executor_client_without_executor() -> None:
+    assert get_update_executor(SimpleNamespace(_client=SimpleNamespace())) is None
+
+
 def test_module_all_lists_public_names() -> None:
-    assert helpers.__all__ == ("AsyncioLock", "UpdateBound", "handle_ask_error")
+    assert helpers.__all__ == (
+        "AsyncioLock",
+        "UpdateBound",
+        "get_update_executor",
+        "handle_ask_error",
+    )

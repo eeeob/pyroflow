@@ -566,16 +566,6 @@ async def test_on_unresolved_raises_unresolved_update() -> None:
     assert exc.value.value is update
 
 
-def test__get_executor_without_client() -> None:
-    lis = _make()
-    assert lis._get_executor(make_message(_client=None)) is None
-    assert lis._get_executor(SimpleNamespace()) is None  # type: ignore[arg-type]
-
-
-def test__get_executor_client_without_executor() -> None:
-    assert _make()._get_executor(make_message(_client=SimpleNamespace())) is None
-
-
 async def test_is_listenable_requires_func_or_override() -> None:
     with pytest.raises(NotImplementedError, match="_Listener must either pass is_listenable_func"):
         await _Listener().is_listenable(make_message())

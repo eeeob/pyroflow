@@ -12,11 +12,10 @@ from pytrove import maybe_awaitable
 from ..models import UpdateRecord
 from ..typings import UpdateType
 from ..update_history_store import UpdateHistoryStore, MemoryUpdateHistoryStore
-from ..utils import UpdateBound
+from ..utils import UpdateBound, get_update_executor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from concurrent.futures import ThreadPoolExecutor
 
     from pyrogram.handlers import Handler as PyroHandler
     from pytrove.typings import MaybeCoroutineCallable
@@ -84,10 +83,6 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.extract_data_func = extract_data_func
         """Callable behind `extract_data`, or `None` when the method is overridden."""
 
-    def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        """Return the executor of the update's client, or `None` if it has none."""
-        return getattr(getattr(update, "_client", None), "executor", None)
-
     async def is_recordable(self, update: UpdateType) -> bool:
         """Return whether the update should be recorded; checked before any key or store access.
 
@@ -112,7 +107,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.is_recordable_func, update, executor=self._get_executor(update)
+            self.is_recordable_func, update, executor=get_update_executor(update)
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateHistoryKeyT:
@@ -139,7 +134,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.extract_key_func, update, executor=self._get_executor(update)
+            self.extract_key_func, update, executor=get_update_executor(update)
         )
 
     async def extract_data(self, update: UpdateType) -> Any:
@@ -166,7 +161,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.extract_data_func, update, executor=self._get_executor(update)
+            self.extract_data_func, update, executor=get_update_executor(update)
         )
 
     async def record(self, update: UpdateType, handler: PyroHandler, check: bool = True) -> None:

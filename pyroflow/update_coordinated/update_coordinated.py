@@ -10,11 +10,10 @@ from pytrove import maybe_awaitable
 
 from ..typings import AsyncLockProto, UpdateType
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
-from ..utils import UpdateBound
+from ..utils import UpdateBound, get_update_executor
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from concurrent.futures import ThreadPoolExecutor
 
     from pytrove.typings import MaybeCoroutineCallable
 
@@ -83,10 +82,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.extract_update_id_func = extract_update_id_func
         """Callable returning an update's identity, or `None` to use an override."""
 
-    def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        """Return the executor of the client bound to `update`, or `None` if it has none."""
-        return getattr(getattr(update, "_client", None), "executor", None)
-
     async def is_coordinatable(self, update: UpdateType) -> bool:
         """Return whether `update` is coordinated.
 
@@ -116,7 +111,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.is_coordinatable_func,
             update,
-            executor=self._get_executor(update),
+            executor=get_update_executor(update),
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT:
@@ -148,7 +143,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.extract_key_func,
             update,
-            executor=self._get_executor(update),
+            executor=get_update_executor(update),
         )
 
     async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
@@ -182,7 +177,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.extract_update_id_func,
             update,
-            executor=self._get_executor(update),
+            executor=get_update_executor(update),
         )
 
     async def lock(self, update: UpdateType) -> AsyncLockProto:

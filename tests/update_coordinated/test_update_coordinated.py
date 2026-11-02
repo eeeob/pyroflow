@@ -73,16 +73,6 @@ def test_init_passes_extra_keywords_along_the_mro() -> None:
     assert _Mixed(extra="seen").extra == "seen"
 
 
-def test_get_executor_is_none_without_client_or_executor() -> None:
-    policy = _Coordinated()
-    without_executor = make_message()
-    without_executor._client = SimpleNamespace()
-
-    assert policy._get_executor(make_message()) is None
-    assert policy._get_executor(without_executor) is None
-    assert policy._get_executor(SimpleNamespace()) is None  # ty: ignore[invalid-argument-type]
-
-
 @pytest.mark.parametrize(
     ("method", "attribute"),
     [

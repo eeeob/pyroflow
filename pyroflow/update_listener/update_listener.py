@@ -11,7 +11,7 @@ from typing import Any, TYPE_CHECKING
 from pytrove import gather_helper, maybe_awaitable
 
 from ..typings import UpdateType
-from ..utils import UpdateBound
+from ..utils import UpdateBound, get_update_executor
 from ..errors import ListenerAlreadyExists, ListenerCancelled, ListenerTimeout, UnresolvedUpdate
 from ..enums import DuplicatePolicy
 from ..models import ListenerKey, ListenerModel
@@ -19,7 +19,6 @@ from ..listener_coordinator import ListenerCoordinator, MemoryListenerCoordinato
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from concurrent.futures import ThreadPoolExecutor
 
     from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
 
@@ -396,18 +395,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """
         raise UnresolvedUpdate(update)
 
-    def _get_executor(self, update: UpdateType) -> ThreadPoolExecutor | None:
-        """Return the executor of the client the update came from.
-
-        Args:
-            update: The incoming update object.
-
-        Returns:
-            The client's `executor`, or `None` when the update carries no
-            client or the client has no executor.
-        """
-        return getattr(getattr(update, "_client", None), "executor", None)
-
     async def is_listenable(self, update: UpdateType) -> bool:
         """Return whether this update should be listened to.
 
@@ -443,7 +430,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.is_listenable_func,
             update,
-            executor=self._get_executor(update),
+            executor=get_update_executor(update),
         )
 
     async def extract_key(self, update: UpdateType) -> ListenerKey:
@@ -481,7 +468,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.extract_key_func,
             update,
-            executor=self._get_executor(update),
+            executor=get_update_executor(update),
         )
 
     async def is_bypass(self, update: UpdateType) -> bool:
@@ -513,7 +500,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.bypass_func,
             update,
-            executor=self._get_executor(update),
+            executor=get_update_executor(update),
         )
 
 

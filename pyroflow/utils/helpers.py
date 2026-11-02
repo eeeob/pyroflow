@@ -12,6 +12,7 @@ from pytrove import maybe_awaitable
 from ..typings import UpdateType
 
 if TYPE_CHECKING:
+    from concurrent.futures import ThreadPoolExecutor
     from types import TracebackType
 
     from ..types import Message
@@ -174,8 +175,26 @@ async def handle_ask_error(
     return False
 
 
+def get_update_executor(update: object) -> ThreadPoolExecutor | None:
+    """Return the executor of the client bound to `update`.
+
+    Args:
+        update: The incoming update object.
+
+    Returns:
+        The client's `executor`, or `None` when the update carries no client
+        or the client has no executor.
+
+    Example:
+        >>> get_update_executor(object()) is None
+        True
+    """
+    return getattr(getattr(update, "_client", None), "executor", None)
+
+
 __all__ = (
     "AsyncioLock",
     "UpdateBound",
+    "get_update_executor",
     "handle_ask_error",
 )

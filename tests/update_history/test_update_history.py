@@ -110,15 +110,6 @@ def test_init_passes_extra_kwargs_along_the_mro() -> None:
     assert _MixedHistory(extra=3).extra == 3
 
 
-# --- _get_executor -------------------------------------------------------------------------
-
-
-def test_get_executor_is_none_when_client_has_no_executor() -> None:
-    msg = make_message()
-    msg._client = SimpleNamespace()
-    assert _BareHistory()._get_executor(msg) is None
-
-
 # --- is_recordable / extract_key / extract_data --------------------------------------------
 
 
