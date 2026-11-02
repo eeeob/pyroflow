@@ -156,7 +156,7 @@ class RedisListenerCoordinator(ListenerCoordinator):
             {
                 "section": section,
                 "key": self._sep.join(
-                    str(i if i is not None else self._null) for i in key.to_tuple
+                    str(i if i is not None else self._null) for i in key.to_tuple()
                 ),
             }
         )

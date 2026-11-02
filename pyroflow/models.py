@@ -85,15 +85,23 @@ class ListenerKey:
     query it is the id of the message holding the pressed button.
     """
 
-    @property
     def to_tuple(self) -> tuple[int, int | None, int | None]:
-        """The key's components, in field order.
+        """Return the key's components, in field order.
 
         Example:
-            >>> ListenerKey(1, 2).to_tuple
+            >>> ListenerKey(1, 2).to_tuple()
             (1, 2, None)
         """
         return tuple(getattr(self, f.name) for f in self.FIELDS)
+
+    def to_dict(self) -> dict[str, int | None]:
+        """Return the key's components keyed by field name, in field order.
+
+        Example:
+            >>> ListenerKey(1, 2).to_dict()
+            {'chat_id': 1, 'user_id': 2, 'message_id': None}
+        """
+        return {f.name: getattr(self, f.name) for f in self.FIELDS}
 
     def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
         """Yield every key a listener for this update could be registered under, most specific first.
@@ -113,13 +121,13 @@ class ListenerKey:
 
         Example:
             >>> for key in ListenerKey(1, 2, 3).sub_keys():
-            ...     print(key.to_tuple)
+            ...     print(key.to_tuple())
             (1, 2, 3)
             (1, 2, None)
             (1, None, 3)
             (1, None, None)
         """
-        chat_id, *rest = self.to_tuple
+        chat_id, *rest = self.to_tuple()
 
         if chat_id is None:
             msg = "ListenerKey.chat_id must not be None"

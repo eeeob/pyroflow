@@ -15,8 +15,18 @@ from pyroflow.models import ListenerKey, ListenerModel, UpdateRecord, _get_plan,
 
 
 def test_listener_key_to_tuple() -> None:
-    assert ListenerKey(1, 2, 3).to_tuple == (1, 2, 3)
-    assert ListenerKey(1).to_tuple == (1, None, None)
+    assert callable(ListenerKey.to_tuple)
+    assert ListenerKey(1, 2, 3).to_tuple() == (1, 2, 3)
+    assert ListenerKey(1).to_tuple() == (1, None, None)
+
+
+def test_listener_key_to_dict() -> None:
+    assert ListenerKey(1, 2, 3).to_dict() == {"chat_id": 1, "user_id": 2, "message_id": 3}
+    assert list(ListenerKey(1).to_dict().items()) == [
+        ("chat_id", 1),
+        ("user_id", None),
+        ("message_id", None),
+    ]
 
 
 def test_listener_key_sub_keys_most_to_least_specific() -> None:
