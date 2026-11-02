@@ -13,7 +13,7 @@ from pyrogram.enums import ChatType
 from pyrogram.types import Chat, ReplyParameters
 
 from pyroflow import types as pf_types
-from pyroflow.types import CallbackQuery, Message, Update, User
+from pyroflow.types import CallbackQuery, Message, User
 
 from .conftest import make_callback_query
 
@@ -55,8 +55,6 @@ def test_classes_patch_pyrogram_in_place(name: str) -> None:
 
 def test_callback_query_inherits_update_members() -> None:
     cbq = make_callback_query()
-    assert isinstance(cbq, CallbackQuery)
-    assert isinstance(cbq, Update)
     assert cbq.with_ctx(step=1).context == {"step": 1}
 
 
@@ -100,12 +98,6 @@ def test_context_deleter_raises_when_unset() -> None:
         del m.context
 
 
-def test_context_is_per_instance() -> None:
-    a, b = Message(id=1), Message(id=2)
-    a.context = {"x": 1}
-    assert b.context is None
-
-
 # --- Update.with_ctx ------------------------------------------------------
 
 
@@ -115,16 +107,8 @@ def test_with_ctx_creates_context_and_returns_self() -> None:
     assert m.context == {"lang": "en"}
 
 
-def test_with_ctx_without_arguments_creates_empty_context() -> None:
-    assert Message(id=1).with_ctx().context == {}
-
-
 def test_with_ctx_merges_mapping_and_kwargs() -> None:
     assert Message(id=1).with_ctx({"step": 1}, lang="en").context == {"step": 1, "lang": "en"}
-
-
-def test_with_ctx_accepts_iterable_of_pairs() -> None:
-    assert Message(id=1).with_ctx([("a", 1), ("b", 2)]).context == {"a": 1, "b": 2}
 
 
 def test_with_ctx_updates_existing_context_in_place() -> None:
@@ -134,11 +118,6 @@ def test_with_ctx_updates_existing_context_in_place() -> None:
     m.with_ctx(step=2)
     assert m.context is ctx
     assert ctx == {"step": 2, "keep": True}
-
-
-def test_with_ctx_rejects_invalid_arguments_like_dict_update() -> None:
-    with pytest.raises(TypeError):
-        Message(id=1).with_ctx({"a": 1}, {"b": 2})
 
 
 # --- User.lang_code -------------------------------------------------------

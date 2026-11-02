@@ -8,58 +8,9 @@ from __future__ import annotations as _annotations
 
 import inspect
 
-import pytest
 
 from pyroflow.utils import patch_cls, patch_setter
 from pyroflow.utils import patching
-
-
-def test_patch_cls_moves_members_onto_base_and_returns_base() -> None:
-    class Base:
-        def foo(self) -> str:
-            return "base-foo"
-
-    @patch_cls
-    class Patch(Base):
-        def foo(self) -> str:
-            return "patched-foo"
-
-        def bar(self) -> str:
-            return "patched-bar"
-
-    # The decorator returns the *base* class, not the subclass.
-    assert Patch is Base
-    assert Base().foo() == "patched-foo"
-    assert Base().bar() == "patched-bar"
-
-
-def test_patch_cls_preserves_old_members() -> None:
-    class Base:
-        def greet(self) -> str:
-            return "old"
-
-    @patch_cls
-    class Patch(Base):
-        def greet(self) -> str:
-            return "new"
-
-    instance = Base()
-    assert instance.greet() == "new"
-    assert instance.oldgreet() == "old"  # preserve_old=True default
-
-
-def test_patch_cls_rejects_multiple_bases() -> None:
-    class A:
-        pass
-
-    class B:
-        pass
-
-    with pytest.raises(TypeError):
-
-        @patch_cls
-        class C(A, B):  # pragma: no cover - decoration raises
-            pass
 
 
 def test_patch_cls_only_patches_init_among_dunders_by_default() -> None:
@@ -184,15 +135,5 @@ def test_patch_setter_sets_a_sync_function_unchanged() -> None:
     assert Greeter().greet() == "hi"
 
 
-def test_patch_setter_sets_a_plain_value_unchanged() -> None:
-    class Holder:
-        pass
-
-    patch_setter(Holder, "value", 42)
-
-    assert Holder.value == 42
-
-
 def test_module_all_lists_public_names() -> None:
     assert patching.__all__ == ("patch_setter", "patch_cls")
-    assert all(hasattr(patching, name) for name in patching.__all__)

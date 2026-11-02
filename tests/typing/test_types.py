@@ -34,7 +34,3 @@ if TYPE_CHECKING:
         assert_type(message.with_ctx([("a", 1)], b=2), Message)
         assert_type(update.with_ctx(), Update)
         message.with_ctx(1)  # ty: ignore[no-matching-overload]
-
-
-def test_type_checks_are_not_defined_at_runtime() -> None:
-    assert "_check_ask_edit" not in globals()

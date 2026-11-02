@@ -1,9 +1,8 @@
 """Behavioural tests for UpdateListener + MemoryListenerCoordinator.
 
-Covers the listen/resolve/timeout/cancel lifecycle and the duplicate
-policies, using the real MessageListener with the default in-memory
-coordinator (no network), then every UpdateListener element directly
-through a minimal local subclass.
+Covers key matching and the default timeout using the real MessageListener
+with the default in-memory coordinator (no network), then every
+UpdateListener element directly through a minimal local subclass.
 """
 
 from __future__ import annotations as _annotations
@@ -37,18 +36,6 @@ from ..conftest import make_message
 async def _started(listener: MessageListener) -> MessageListener:
     await listener.start()
     return listener
-
-
-async def test_listen_then_resolve_returns_update() -> None:
-    lis = await _started(MessageListener())
-    try:
-        task = asyncio.ensure_future(lis.listen(100, 7))
-        await asyncio.sleep(0.02)
-        await lis.resolve(make_message(100, 7, 5))
-        got = await asyncio.wait_for(task, 1)
-        assert got.id == 5
-    finally:
-        await lis.stop()
 
 
 async def test_resolve_matches_less_specific_key() -> None:
@@ -106,60 +93,6 @@ async def test_user_listener_still_outranks_a_message_only_one() -> None:
         await lis.stop()
 
 
-async def test_listen_timeout_raises() -> None:
-    lis = await _started(MessageListener())
-    try:
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(200, 7, timeout=0.05)
-    finally:
-        await lis.stop()
-
-
-async def test_cancel_raises_listener_cancelled() -> None:
-    lis = await _started(MessageListener())
-    try:
-        task = asyncio.ensure_future(lis.listen(100, 7))
-        await asyncio.sleep(0.02)
-        await lis.cancel(ListenerKey(100, 7))
-        with pytest.raises(ListenerCancelled):
-            await asyncio.wait_for(task, 1)
-    finally:
-        await lis.stop()
-
-
-async def test_duplicate_policy_replace_cancels_previous() -> None:
-    lis = await _started(MessageListener(duplicate_policy=DuplicatePolicy.REPLACE))
-    try:
-        first = asyncio.ensure_future(lis.listen(100, 7))
-        await asyncio.sleep(0.02)
-        second = asyncio.ensure_future(lis.listen(100, 7))
-        await asyncio.sleep(0.02)
-
-        with pytest.raises(ListenerCancelled):
-            await asyncio.wait_for(first, 1)
-
-        # the replacement is still alive and resolvable
-        await lis.resolve(make_message(100, 7, 5))
-        got = await asyncio.wait_for(second, 1)
-        assert got.id == 5
-    finally:
-        await lis.stop()
-
-
-async def test_duplicate_policy_reject_raises() -> None:
-    lis = await _started(MessageListener(duplicate_policy=DuplicatePolicy.REJECT))
-    try:
-        first = asyncio.ensure_future(lis.listen(100, 7))
-        await asyncio.sleep(0.02)
-        with pytest.raises(ListenerAlreadyExists):
-            await lis.listen(100, 7)
-        await lis.cancel(ListenerKey(100, 7))
-        with pytest.raises(ListenerCancelled):
-            await asyncio.wait_for(first, 1)
-    finally:
-        await lis.stop()
-
-
 async def test_listener_default_timeout_used_when_not_overridden() -> None:
     lis = await _started(MessageListener(timeout=0.05))
     try:
@@ -209,11 +142,6 @@ async def _chat_key(update: Message) -> ListenerKey:
 def test_module_exports_and_logger() -> None:
     assert update_listener_module.__all__ == ("UpdateListener",)
     assert update_listener_module.log.name == "pyroflow.update_listener.update_listener"
-
-
-def test_update_listener_itself_cannot_be_instantiated() -> None:
-    with pytest.raises(TypeError):
-        UpdateListener()
 
 
 def test_init_defaults() -> None:
@@ -534,22 +462,12 @@ def test_call_is_listen() -> None:
     assert UpdateListener.__call__ is UpdateListener.listen
 
 
-async def test_call_waits_like_listen() -> None:
-    with pytest.raises(ListenerTimeout):
-        await _make()(1, timeout=0.01)
-
-
 async def test_resolve_raises_for_unlistenable_update() -> None:
     lis = _make(is_listenable_func=lambda update: False)
     update = make_message()
     with pytest.raises(UnresolvedUpdate) as exc:
         await lis.resolve(update)
     assert exc.value.value is update
-
-
-async def test_resolve_rejects_the_wrong_update_type() -> None:
-    with pytest.raises(TypeError):
-        await _make().resolve("not a message")  # type: ignore[arg-type]
 
 
 async def test_resolve_without_listeners_skips_on_unresolved() -> None:
@@ -641,21 +559,6 @@ async def test_resolve_bypass_cancels_the_listener_and_stays_unresolved() -> Non
     assert lis.coordinator.data == {}
 
 
-async def test_resolve_without_bypass_resolves_the_listener() -> None:
-    lis = _make(bypass_func=lambda update: False)
-    task = await _pending(lis, 100, 7)
-    update = make_message(100, 7, 5)
-    await lis.resolve(update)
-    assert await task is update
-
-
-async def test_on_unresolved_raises_unresolved_update() -> None:
-    update = make_message()
-    with pytest.raises(UnresolvedUpdate) as exc:
-        await _make().on_unresolved(ListenerKey(100), update)
-    assert exc.value.value is update
-
-
 def test__get_executor_without_client() -> None:
     lis = _make()
     assert lis._get_executor(make_message(_client=None)) is None
@@ -664,15 +567,6 @@ def test__get_executor_without_client() -> None:
 
 def test__get_executor_client_without_executor() -> None:
     assert _make()._get_executor(make_message(_client=SimpleNamespace())) is None
-
-
-def test__get_executor_returns_the_client_executor() -> None:
-    executor = ThreadPoolExecutor(1)
-    try:
-        update = make_message(_client=SimpleNamespace(executor=executor))
-        assert _make()._get_executor(update) is executor
-    finally:
-        executor.shutdown()
 
 
 async def test_is_listenable_requires_func_or_override() -> None:

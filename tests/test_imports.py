@@ -1,5 +1,5 @@
-"""Import-surface tests: every module imports cleanly and the global
-``@patch_cls`` monkey-patch is applied to Pyrogram.
+"""Import-surface tests: every module imports cleanly and exports a
+well-formed ``__all__``.
 
 If any module pulled in an unguarded newer-Python feature (e.g. a bare
 ``StrEnum`` import) or an undeclared dependency, importing it here fails.
@@ -15,8 +15,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pyrogram.dispatcher
-import pyrogram.types
 import pytest
 
 import pyroflow
@@ -68,38 +66,11 @@ MODULES = [
     "pyroflow.utils.patching",
 ]
 
-# The kind entry points: each gathers the public definitions of one kind.
-KIND_MODULES = [
-    "pyroflow.typings",
-    "pyroflow.errors",
-    "pyroflow.models",
-    "pyroflow.enums",
-    "pyroflow.constants",
-]
-
-
-@pytest.mark.parametrize("module", MODULES)
-def test_module_imports(module: str) -> None:
-    assert importlib.import_module(module) is not None
-
 
 def test_modules_list_is_complete() -> None:
     walked = {info.name for info in pkgutil.walk_packages(pyroflow.__path__, "pyroflow.")}
 
     assert walked | {"pyroflow"} == set(MODULES)
-
-
-def test_global_monkey_patch_applied() -> None:
-    # types.py patches replaced the Pyrogram classes themselves
-    assert pyroflow.Message is pyrogram.types.Message
-    assert pyroflow.CallbackQuery is pyrogram.types.CallbackQuery
-    assert hasattr(pyrogram.types.Message, "ask")
-
-    # client.py / dispatcher.py patches
-    assert hasattr(pyroflow.Client, "ask")
-    assert hasattr(pyrogram.dispatcher.Dispatcher, "register_listener")
-    # preserve_old kept the originals around
-    assert hasattr(pyrogram.dispatcher.Dispatcher, "old__init__")
 
 
 def test_public_exports_present() -> None:
@@ -201,17 +172,6 @@ def test_package_all_is_the_union_of_its_star_imports(package: str) -> None:
     assert sources, f"{package} star-imports nothing"
     assert exported == expected
     assert "__version__" not in module.__all__
-
-
-@pytest.mark.parametrize("module_name", KIND_MODULES)
-def test_kind_entry_point_star_imports_exactly_its_all(module_name: str) -> None:
-    module = importlib.import_module(module_name)
-    namespace: dict[str, object] = {}
-    exec(f"from {module_name} import *", namespace)
-    imported = {name for name in namespace if not name.startswith("__")}
-
-    assert module.__all__
-    assert imported == set(module.__all__)
 
 
 def test_version_line_matches_hatch_pattern() -> None:

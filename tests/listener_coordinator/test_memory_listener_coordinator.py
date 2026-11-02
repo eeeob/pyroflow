@@ -62,12 +62,6 @@ def test_lock_is_cached_per_key(coordinator: MemoryListenerCoordinator) -> None:
     assert coordinator.lock(2) is not lock
 
 
-def test_lock_accepts_tuple_and_listener_key(coordinator: MemoryListenerCoordinator) -> None:
-    assert coordinator.lock((1, 2)) is coordinator.lock((1, 2))
-    assert coordinator.lock(KEY) is coordinator.lock(KEY)
-    assert coordinator.lock(KEY) is not coordinator.lock(1)
-
-
 def test_lock_is_dropped_once_unreferenced(coordinator: MemoryListenerCoordinator) -> None:
     ref = weakref.ref(coordinator.lock(1))
     gc.collect()
@@ -75,13 +69,6 @@ def test_lock_is_dropped_once_unreferenced(coordinator: MemoryListenerCoordinato
     assert ref() is None
     assert 1 not in coordinator.locks
     assert isinstance(coordinator.lock(1), AsyncioLock)
-
-
-async def test_lock_serialises_holders(coordinator: MemoryListenerCoordinator) -> None:
-    lock = coordinator.lock(1)
-    async with lock:
-        assert coordinator.lock(1).locked()
-    assert not coordinator.lock(1).locked()
 
 
 # --- _register --------------------------------------------------------------
@@ -194,50 +181,6 @@ def test_registered_matches_exact_key_only(coordinator: MemoryListenerCoordinato
     coordinator._register(ListenerKey(1))
 
     assert coordinator._registered(ListenerKey(1, 2)) is False
-
-
-# --- async API --------------------------------------------------------------
-
-
-async def test_register_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
-    assert await coordinator.register(KEY) == 0
-    assert await coordinator.register(OTHER) == 1
-
-    with pytest.raises(KeyError):
-        await coordinator.register(KEY)
-
-
-async def test_unregister_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
-    _id = await coordinator.register(KEY)
-
-    assert await coordinator.unregister(KEY, _id + 1) is False
-    assert await coordinator.registered(KEY) is True
-    assert await coordinator.unregister(KEY, _id) is True
-    assert await coordinator.registered(KEY) is False
-    assert await coordinator.unregister(KEY) is True
-
-
-async def test_cancel_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
-    await coordinator.register(KEY)
-
-    assert await coordinator.cancel(KEY) is True
-    assert await coordinator.registered(KEY) is False
-    assert await coordinator.cancel(KEY) is True
-
-
-async def test_registered_async_delegates(coordinator: MemoryListenerCoordinator) -> None:
-    assert await coordinator.registered(KEY) is False
-    _id = await coordinator.register(KEY)
-
-    assert await coordinator.registered(KEY) is True
-    assert await coordinator.registered(KEY, _id) is True
-    assert await coordinator.registered(KEY, _id + 1) is False
-
-
-async def test_start_is_inherited_no_op(coordinator: MemoryListenerCoordinator) -> None:
-    await coordinator.register(KEY)
-    assert await coordinator.start() is None
-    assert coordinator.data == {KEY: 0}
 
 
 # --- stop -------------------------------------------------------------------

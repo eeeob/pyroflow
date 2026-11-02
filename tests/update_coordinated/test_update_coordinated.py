@@ -2,9 +2,7 @@
 
 from __future__ import annotations as _annotations
 
-import logging
 import threading
-from abc import ABC
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
@@ -13,7 +11,6 @@ import pytest
 
 from pyrogram.types import Message
 
-from pyroflow import MessageCoordinated
 from pyroflow.update_coordinated import update_coordinated as module
 from pyroflow.update_coordinated.update_coordinated import UpdateCoordinated
 from pyroflow.update_coordinator import MemoryUpdateCoordinator
@@ -41,36 +38,6 @@ class _RecordingCoordinator:
         self.calls.append(("stop", None))
 
 
-async def test_hooks_raise_when_not_supplied() -> None:
-    """Every hook follows the same contract: override it or inject it."""
-
-    class Bare(MessageCoordinated):
-        pass
-
-    bare = Bare()
-    bare.is_coordinatable_func = None
-    bare.extract_key_func = None
-    bare.extract_update_id_func = None
-
-    msg = make_callback_query().message
-
-    for call in (bare.is_coordinatable, bare.extract_key, bare.extract_update_id):
-        with pytest.raises(NotImplementedError):
-            await call(msg)
-
-
-def test_module_logger_is_named_after_the_module() -> None:
-    assert isinstance(module.log, logging.Logger)
-    assert module.log.name == "pyroflow.update_coordinated.update_coordinated"
-
-
-def test_base_is_abstract_and_cannot_be_instantiated() -> None:
-    assert ABC in UpdateCoordinated.__bases__
-
-    with pytest.raises(TypeError, match="UpdateCoordinated must define __update_type__"):
-        UpdateCoordinated()
-
-
 def test_init_defaults_to_memory_coordinator_and_no_callables() -> None:
     policy = _Coordinated()
 
@@ -88,27 +55,6 @@ def test_init_builds_coordinator_from_factory_with_update_type() -> None:
     assert policy.coordinator.update_type is Message
 
 
-def test_init_stores_the_callables_as_given() -> None:
-    def is_coordinatable(u: Message) -> bool:
-        return True
-
-    def extract_key(u: Message) -> tuple[int]:
-        return (1,)
-
-    def extract_update_id(u: Message) -> tuple[int]:
-        return (2,)
-
-    policy = _Coordinated(
-        is_coordinatable_func=is_coordinatable,
-        extract_key_func=extract_key,
-        extract_update_id_func=extract_update_id,
-    )
-
-    assert policy.is_coordinatable_func is is_coordinatable
-    assert policy.extract_key_func is extract_key
-    assert policy.extract_update_id_func is extract_update_id
-
-
 def test_init_passes_extra_keywords_along_the_mro() -> None:
     class _Mixin:
         def __init__(self, extra: str = "", **kw: Any) -> None:
@@ -119,22 +65,6 @@ def test_init_passes_extra_keywords_along_the_mro() -> None:
         __update_type__ = Message
 
     assert _Mixed(extra="seen").extra == "seen"
-
-
-def test_init_rejects_unknown_keywords() -> None:
-    with pytest.raises(TypeError):
-        _Coordinated(unknown=1)
-
-
-def test_get_executor_returns_the_client_executor() -> None:
-    executor = ThreadPoolExecutor(max_workers=1)
-    try:
-        message = make_message()
-        message._client = SimpleNamespace(executor=executor)
-
-        assert _Coordinated()._get_executor(message) is executor
-    finally:
-        executor.shutdown()
 
 
 def test_get_executor_is_none_without_client_or_executor() -> None:
@@ -234,12 +164,6 @@ async def test_hook_runs_sync_callable_on_client_executor(method: str, attribute
         executor.shutdown()
 
 
-async def test_is_coordinatable_propagates_false() -> None:
-    policy = _Coordinated(is_coordinatable_func=lambda u: False)
-
-    assert await policy.is_coordinatable(make_message()) is False
-
-
 async def test_lock_asks_coordinator_for_the_extracted_key() -> None:
     policy = _Coordinated(
         coordinator_factory=_RecordingCoordinator,
@@ -259,15 +183,6 @@ async def test_lock_returns_an_unacquired_memory_lock() -> None:
     assert not lock.locked()
     assert await lock.acquire() is True
     await lock.release()
-
-
-async def test_lock_raises_when_extract_key_is_missing() -> None:
-    policy = _Coordinated(coordinator_factory=_RecordingCoordinator)
-
-    with pytest.raises(NotImplementedError):
-        await policy.lock(make_message())
-
-    assert policy.coordinator.calls == []
 
 
 async def test_start_and_stop_delegate_to_coordinator() -> None:

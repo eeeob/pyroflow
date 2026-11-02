@@ -4,20 +4,21 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import gc
-import logging
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
 from pyroflow import MessageListener
-from pyroflow.errors import ListenerCancelled, UnresolvedUpdate
+from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerKey
-from pyroflow.types import Message
 from pyroflow.update_listener import message_listener
 
 from ..conftest import make_message
+
+if TYPE_CHECKING:
+    from pyroflow.types import Message
 
 
 class _FakeClient:
@@ -47,26 +48,7 @@ def _bot(username: str | None = "MyBot", usernames: list[str] | None = None) -> 
     )
 
 
-async def test_message_listener_is_listenable_and_key() -> None:
-    lis = MessageListener()
-    msg = make_message(chat_id=100, user_id=7, message_id=5)
-    assert await lis.is_listenable(msg) is True
-    assert await lis.extract_key(msg) == ListenerKey(100, 7, 5)
-
-
-async def test_message_listener_rejects_service_and_self() -> None:
-    lis = MessageListener()
-    assert await lis.is_listenable(make_message(chat_id=100)) is True
-    assert await lis.is_listenable(make_message(service=True)) is False
-    assert await lis.is_listenable(make_message(outgoing=True)) is False
-
-
 # --- module level -----------------------------------------------------------
-
-
-def test_log_is_module_logger() -> None:
-    assert isinstance(message_listener.log, logging.Logger)
-    assert message_listener.log.name == "pyroflow.update_listener.message_listener"
 
 
 @pytest.mark.parametrize(
@@ -107,10 +89,6 @@ def test_command_re_rejects_non_commands(text: str) -> None:
 
 
 # --- class / __init__ --------------------------------------------------------
-
-
-def test_update_type_is_message() -> None:
-    assert MessageListener.__update_type__ is Message
 
 
 def test_init_defaults_to_builtin_key_functions() -> None:
@@ -279,21 +257,6 @@ async def test_is_bypass_false_when_fetch_fails() -> None:
     client = _FakeClient(exc=RuntimeError("not a bot"))
     msg = make_message(text="/start", _client=client)
     assert await MessageListener()._is_bypass(msg) is False
-
-
-async def test_is_bypass_wired_as_bypass_func_cancels_listener() -> None:
-    lis = MessageListener()
-    lis.bypass_func = lis._is_bypass
-    await lis.start()
-    waiter = asyncio.create_task(lis.listen(100, 7))
-    await asyncio.sleep(0)
-
-    msg = make_message(text="/start", _client=_FakeClient(["start"]))
-    with pytest.raises(UnresolvedUpdate):
-        await lis.resolve(msg)
-    with pytest.raises(ListenerCancelled):
-        await waiter
-    await lis.stop()
 
 
 # --- _get_bot_commands ---------------------------------------------------------

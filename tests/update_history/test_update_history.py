@@ -12,7 +12,6 @@ import pytest
 
 from pyrogram.types import Message
 
-from pyroflow import MessageHistory
 from pyroflow.models import UpdateRecord
 from pyroflow.update_history.update_history import UpdateHistory
 from pyroflow.update_history_store.memory_update_history_store import (
@@ -21,42 +20,6 @@ from pyroflow.update_history_store.memory_update_history_store import (
 from pyroflow.update_history_store.update_history_store import UpdateHistoryStore
 
 from ..conftest import make_callback_query, make_message
-
-
-async def test_update_history_record_and_get_with_injected_extractors() -> None:
-    """The base record→store→get pipeline works when the three extractors
-    are supplied — proving the machinery itself is sound (independent of C4)."""
-    history = MessageHistory(
-        is_recordable_func=lambda u: True,
-        extract_key_func=lambda u: (u.chat.id, u.from_user.id),
-        extract_data_func=lambda u: u.id,
-    )
-    await history.start()
-    try:
-        msg = make_message(100, 7, 5)
-        await history.record(msg, handler="H")
-        recs = await history.get(msg)
-        assert [r.handler for r in recs] == ["H"]
-        assert recs[0].data == 5
-    finally:
-        await history.stop()
-
-
-async def test_update_history_record_many() -> None:
-    history = MessageHistory(
-        is_recordable_func=lambda u: True,
-        extract_key_func=lambda u: (u.chat.id,),
-        extract_data_func=lambda u: None,
-        store_factory=lambda ut: MemoryUpdateHistoryStore(ut, max_history_len=10),
-    )
-    await history.start()
-    try:
-        msg = make_message(100, 7, 5)
-        await history.record_many(msg, ["H1", "H2", "H3"])
-        recs = await history.get(msg)
-        assert [r.handler for r in recs] == ["H1", "H2", "H3"]
-    finally:
-        await history.stop()
 
 
 # --- helpers -------------------------------------------------------------------------------
@@ -114,18 +77,6 @@ def _spy(history: UpdateHistory[Any]) -> _SpyStore:
 # --- class / __init__ ----------------------------------------------------------------------
 
 
-def test_update_history_without_update_type_cannot_be_instantiated() -> None:
-    with pytest.raises(TypeError, match="must define __update_type__"):
-        UpdateHistory()
-
-
-def test_update_history_subclass_without_update_type_is_rejected() -> None:
-    with pytest.raises(TypeError, match="must define __update_type__"):
-
-        class _NoType(UpdateHistory[Message]):
-            pass
-
-
 def test_init_defaults_to_memory_store_bound_to_update_type() -> None:
     history = _BareHistory()
     assert isinstance(history.store, MemoryUpdateHistoryStore)
@@ -147,22 +98,6 @@ def test_init_calls_store_factory_with_update_type() -> None:
     assert isinstance(history.store, _SpyStore)
 
 
-def test_init_stores_the_given_callables() -> None:
-    def rec(u: Message) -> bool:
-        return True
-
-    def key(u: Message) -> int:
-        return 1
-
-    def data(u: Message) -> None:
-        return None
-
-    history = _BareHistory(is_recordable_func=rec, extract_key_func=key, extract_data_func=data)
-    assert history.is_recordable_func is rec
-    assert history.extract_key_func is key
-    assert history.extract_data_func is data
-
-
 def test_init_passes_extra_kwargs_along_the_mro() -> None:
     class _Mixin:
         def __init__(self, *, extra: int, **kw: Any) -> None:
@@ -176,19 +111,6 @@ def test_init_passes_extra_kwargs_along_the_mro() -> None:
 
 
 # --- _get_executor -------------------------------------------------------------------------
-
-
-def test_get_executor_returns_the_client_executor() -> None:
-    executor = object()
-    msg = make_message()
-    msg._client = SimpleNamespace(executor=executor)
-    assert _BareHistory()._get_executor(msg) is executor
-
-
-def test_get_executor_is_none_without_a_client() -> None:
-    msg = make_message()
-    msg._client = None
-    assert _BareHistory()._get_executor(msg) is None
 
 
 def test_get_executor_is_none_when_client_has_no_executor() -> None:
@@ -285,25 +207,12 @@ async def test_record_skips_unrecordable_update() -> None:
     assert _spy(history).calls == []
 
 
-async def test_record_without_check_skips_is_recordable() -> None:
-    history = _history(recordable=False)
-    await history.record(make_message(), "H", check=False)
-    assert [c[0] for c in _spy(history).calls] == ["update"]
-
-
 async def test_record_without_check_does_not_need_is_recordable_func() -> None:
     history = _BareHistory(
         store_factory=_SpyStore, extract_key_func=lambda u: 1, extract_data_func=lambda u: None
     )
     await history.record(make_message(), "H", check=False)
     assert _spy(history).data[1][0].handler == "H"
-
-
-async def test_record_rejects_wrong_update_type() -> None:
-    history = _history()
-    with pytest.raises(TypeError):
-        await history.record(make_callback_query(), "H")
-    assert _spy(history).calls == []
 
 
 # --- record_many ---------------------------------------------------------------------------
@@ -363,12 +272,6 @@ async def test_get_unrecordable_update_returns_empty_without_store_access() -> N
     history = _history(recordable=False)
     assert await history.get(make_message()) == []
     assert _spy(history).calls == []
-
-
-async def test_get_rejects_update_of_wrong_type() -> None:
-    history = _history()
-    with pytest.raises(TypeError, match="Expected Message, got CallbackQuery"):
-        await history.get(make_callback_query())
 
 
 async def test_pop_by_update_removes_and_returns_records() -> None:

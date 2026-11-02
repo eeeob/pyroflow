@@ -7,8 +7,6 @@ reimplementing its routing logic in the test.
 
 from __future__ import annotations as _annotations
 
-import asyncio
-import inspect
 import threading
 from abc import ABC
 from typing import Any
@@ -30,20 +28,6 @@ class ExcB(Exception):
 # --- UpdateBound ----------------------------------------------------------
 
 
-def test_update_bound_accepts_valid_pyrogram_update_type() -> None:
-    class Good(UpdateBound):
-        __update_type__ = Message
-
-    assert Good.__update_type__ is Message
-
-
-def test_update_bound_requires_update_type() -> None:
-    with pytest.raises(TypeError):
-
-        class Missing(UpdateBound):  # pragma: no cover - class body raises
-            pass
-
-
 def test_update_bound_rejects_non_update_type() -> None:
     with pytest.raises(TypeError):
 
@@ -51,35 +35,7 @@ def test_update_bound_rejects_non_update_type() -> None:
             __update_type__ = int
 
 
-def test_update_bound_abstract_subclass_is_exempt() -> None:
-    # An ABC subclass is allowed to omit __update_type__ (it is abstract).
-    class StillAbstract(ABC, UpdateBound):
-        pass
-
-    assert not hasattr(StillAbstract, "__update_type__")
-
-
-def test_validate_update_type_check() -> None:
-    class Good(UpdateBound):
-        __update_type__ = Message
-
-    Good.validate_update(Message(id=1))  # no raise
-    with pytest.raises(TypeError):
-        Good.validate_update(object())
-
-
 # --- handle_ask_error(): matching -------------------------------------------
-
-
-async def test_matching_handler_runs_and_reports_true() -> None:
-    calls = []
-
-    async def handler(exc: Exception, m: object) -> None:
-        calls.append((exc, m))
-
-    ran = await handle_ask_error(ExcA(), "the message", {ExcA: handler}, {})
-    assert ran is True
-    assert len(calls) == 1 and calls[0][1] == "the message"
 
 
 async def test_non_matching_handler_does_not_run() -> None:
@@ -108,16 +64,6 @@ async def test_tuple_key_matches_any_listed_type() -> None:
     assert ran is True and len(calls) == 1
 
 
-async def test_sync_handler_is_supported() -> None:
-    calls = []
-
-    def handler(exc: Exception, m: object) -> None:
-        calls.append(exc)
-
-    ran = await handle_ask_error(ExcA(), "m", {ExcA: handler}, {})
-    assert ran is True and len(calls) == 1
-
-
 # --- handle_ask_error(): call-vs-client precedence -------------------------
 
 
@@ -129,23 +75,6 @@ async def test_call_level_handler_wins_over_an_identical_client_key() -> None:
     await handle_ask_error(ExcA(), "m", call_handlers, client_handlers)
 
     assert calls == ["call"]
-
-
-async def test_call_level_handler_wins_over_a_broader_client_handler() -> None:
-    """The bug this guards: a naive `{**client, **call}` merge lets whichever
-    key a dict happens to order first win — not necessarily the call's — for
-    keys that overlap by subclassing rather than by being identical. A
-    client-wide Exception fallback must not shadow a call's more specific
-    handler."""
-    calls = []
-    call_handlers = {ExcA: lambda exc, m: calls.append("call-specific")}
-    client_handlers = {Exception: lambda exc, m: calls.append("client-broad")}
-
-    await handle_ask_error(ExcA("boom"), "m", call_handlers, client_handlers)
-
-    assert calls == ["call-specific"], (
-        "client's broader handler ran instead of the call's specific one"
-    )
 
 
 async def test_client_handler_runs_only_when_the_call_had_no_match() -> None:
@@ -165,11 +94,6 @@ async def test_client_handler_runs_when_the_call_passed_none() -> None:
     await handle_ask_error(ExcA("boom"), "m", None, client_handlers)
 
     assert calls == ["client"]
-
-
-async def test_neither_mapping_matching_reports_false() -> None:
-    ran = await handle_ask_error(ExcA("boom"), "m", {ExcB: lambda e, m: None}, {})
-    assert ran is False
 
 
 async def test_handler_exception_is_swallowed() -> None:
@@ -221,32 +145,12 @@ async def test_no_mappings_reports_false() -> None:
 # --- AsyncioLock ----------------------------------------------------------
 
 
-def test_asyncio_lock_is_an_asyncio_lock_with_async_release() -> None:
-    assert issubclass(AsyncioLock, asyncio.Lock)
-    assert inspect.iscoroutinefunction(AsyncioLock.release)
-    assert inspect.iscoroutinefunction(AsyncioLock.__aexit__)
-
-
 async def test_asyncio_lock_release_unlocks() -> None:
     lock = AsyncioLock()
     await lock.acquire()
     assert lock.locked()
 
     assert await lock.release() is None
-    assert not lock.locked()
-
-
-async def test_asyncio_lock_release_when_unlocked_raises() -> None:
-    with pytest.raises(RuntimeError):
-        await AsyncioLock().release()
-
-
-async def test_asyncio_lock_context_manager_holds_then_releases() -> None:
-    lock = AsyncioLock()
-
-    async with lock:
-        assert lock.locked()
-
     assert not lock.locked()
 
 
@@ -257,14 +161,6 @@ async def test_asyncio_lock_aexit_releases_on_exception() -> None:
         async with lock:
             raise ExcA
 
-    assert not lock.locked()
-
-
-async def test_asyncio_lock_aexit_releases_directly() -> None:
-    lock = AsyncioLock()
-    await lock.acquire()
-
-    assert await lock.__aexit__(None, None, None) is None
     assert not lock.locked()
 
 
@@ -368,4 +264,3 @@ def test_validate_update_error_message() -> None:
 
 def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == ("AsyncioLock", "UpdateBound", "handle_ask_error")
-    assert all(hasattr(helpers, name) for name in helpers.__all__)

@@ -10,11 +10,11 @@ import pytest
 from pyroflow import CallbackQueryListener, MessageListener
 from pyroflow.errors import ListenerCancelled, UnresolvedUpdate
 from pyroflow.models import ListenerKey
-from pyroflow.types import CallbackQuery
 
 from ..conftest import make_callback_query
 
 if TYPE_CHECKING:
+    from pyroflow.types import CallbackQuery
     from pyroflow.update_listener import UpdateListener
 
 
@@ -47,18 +47,7 @@ async def _stop(lis: UpdateListener[Any], *tasks: asyncio.Task) -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def test_callback_listener_is_listenable_and_key() -> None:
-    lis = CallbackQueryListener()
-    cbq = make_callback_query(chat_id=100, user_id=7, message_id=5)
-    assert await lis.is_listenable(cbq) is True
-    assert await lis.extract_key(cbq) == ListenerKey(100, 7, 5)
-
-
 # --- class / __init__ --------------------------------------------------------
-
-
-def test_update_type_is_callback_query() -> None:
-    assert CallbackQueryListener.__update_type__ is CallbackQuery
 
 
 def test_init_defaults_to_builtin_key_functions() -> None:

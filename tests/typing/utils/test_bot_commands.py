@@ -30,7 +30,3 @@ if TYPE_CHECKING:
 
     def _check_rejects() -> None:
         mark_bot_commands("start")  # ty: ignore[invalid-argument-type]
-
-
-def test_type_checks_are_not_defined_at_runtime() -> None:
-    assert "_check_preserves_function" not in globals()

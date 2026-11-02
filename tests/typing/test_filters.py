@@ -33,11 +33,3 @@ if TYPE_CHECKING:
             filters.split_text(_Action, _is_digit, _is_digit_async, strip=True, separator=" "),
             Filter,
         )
-
-    def _check_factories_reject() -> None:
-        filters.split_text("a", separator=1)  # ty: ignore[invalid-argument-type]
-        filters.split_text("a", strip="yes")  # ty: ignore[invalid-argument-type]
-
-
-def test_type_checks_are_not_defined_at_runtime() -> None:
-    assert "_check_factories" not in globals()

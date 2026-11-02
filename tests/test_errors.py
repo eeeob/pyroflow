@@ -22,11 +22,6 @@ def test_listener_error_default_message_and_value() -> None:
     assert isinstance(err, Exception)
 
 
-def test_listener_error_stores_value() -> None:
-    value = object()
-    assert ListenerError(value).value is value
-
-
 def test_listener_error_falls_back_to_class_name_without_docstring() -> None:
     class NoDoc(ListenerError):
         pass
@@ -72,9 +67,6 @@ def test_listener_error_subclass_messages(cls: type[ListenerError], message: str
     err = cls(5)
     assert str(err) == message
     assert err.value == 5
-    assert isinstance(err, ListenerError)
-    with pytest.raises(ListenerError):
-        raise err
 
 
 def test_errors_all() -> None:

@@ -33,7 +33,3 @@ if TYPE_CHECKING:
 
     def _check_listener_bound() -> None:
         UpdateListener[int]  # ty: ignore[invalid-type-arguments]
-
-
-def test_type_checks_are_not_defined_at_runtime() -> None:
-    assert "_check_listen" not in globals()

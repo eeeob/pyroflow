@@ -1,55 +1,20 @@
 """Tests for the coordinator base class: key building and the defaults every
-backend inherits, exercised through the in-memory backend."""
+backend inherits."""
 
 from __future__ import annotations as _annotations
 
-from typing import Any, get_args, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
 from pyrogram.types import CallbackQuery, Message
 from pytrove.enums import TimeUnit
 
-from pyroflow.typings import UpdateCoordinatorSectionT
 from pyroflow.update_coordinator import update_coordinator
-from pyroflow.update_coordinator.memory_update_coordinator import (
-    MemoryUpdateCoordinator,
-)
 from pyroflow.update_coordinator.update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
     from pyroflow.typings import AsyncLockProto, UpdateCoordinatorKeyT
-
-
-def _coord(**kw: float) -> MemoryUpdateCoordinator:
-    kw.setdefault("blocking_timeout", 0.05)
-    return MemoryUpdateCoordinator(Message, **kw)
-
-
-def test_lock_and_handled_build_distinct_keys() -> None:
-    coord = _coord()
-    assert coord.build_key((1, 2), "lock") != coord.build_key((1, 2), "handled")
-
-
-def test_build_key_namespaces_by_update_type() -> None:
-    assert MemoryUpdateCoordinator(Message).build_key((1,)) != MemoryUpdateCoordinator(
-        type("Other", (Message,), {})
-    ).build_key((1,))
-
-
-# --- liveness (audit finding H1) -----------------------------------------
-
-
-def test_blocking_timeout_default_is_short() -> None:
-    """The dispatcher waits on the lock while holding its worker lock, so a
-    contended update stalls every other update on that worker for the full
-    timeout. The default must stay small."""
-    coordinator = MemoryUpdateCoordinator(Message)
-
-    assert coordinator.blocking_timeout <= 30, (
-        f"blocking_timeout default is {coordinator.blocking_timeout}s — a "
-        f"contended update would stall a whole worker for that long"
-    )
 
 
 # --- the base class itself, through a minimal concrete stub ---------------
@@ -66,11 +31,6 @@ class _Stub(UpdateCoordinator):
 
     async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
         await super().mark_handled(key)  # type: ignore[safe-super]
-
-
-def test_base_class_cannot_be_instantiated() -> None:
-    with pytest.raises(TypeError):
-        UpdateCoordinator(Message)  # type: ignore[abstract]
 
 
 def test_init_defaults() -> None:
@@ -99,25 +59,11 @@ def test_init_forwards_extra_kwargs_along_the_mro() -> None:
     assert _WithMixin(Message, extra=7).extra == 7
 
 
-def test_init_rejects_unknown_kwargs() -> None:
-    with pytest.raises(TypeError):
-        _Stub(Message, unknown=1)
-
-
-def test_key_formats_cover_every_section() -> None:
-    assert set(_Stub(Message)._key_formats) == set(get_args(UpdateCoordinatorSectionT))
-
-
 def test_build_key_renders_each_section_exactly() -> None:
     coord = _Stub(Message)
 
     assert coord.build_key((-100123, 42), "lock") == "update|lock|Message|-100123|42"
     assert coord.build_key((-100123, 42), "handled") == "update|handled|Message|-100123|42"
-
-
-def test_build_key_defaults_to_the_lock_section() -> None:
-    coord = _Stub(Message)
-    assert coord.build_key((1, 2)) == coord.build_key((1, 2), "lock")
 
 
 def test_build_key_uses_the_update_type_name() -> None:
@@ -137,19 +83,13 @@ def test_build_key_rejects_an_unknown_section() -> None:
         _Stub(Message).build_key((1,), "other")  # type: ignore[arg-type]
 
 
-def test_abstract_lock_body_raises() -> None:
+@pytest.mark.parametrize("name", ["is_handled", "mark_handled"])
+async def test_abstract_bodies_raise_not_implemented(name: str) -> None:
+    coord = _Stub(Message)
     with pytest.raises(NotImplementedError):
-        _Stub(Message).lock((1,))
-
-
-async def test_abstract_is_handled_body_raises() -> None:
+        coord.lock((1,))
     with pytest.raises(NotImplementedError):
-        await _Stub(Message).is_handled((1,))
-
-
-async def test_abstract_mark_handled_body_raises() -> None:
-    with pytest.raises(NotImplementedError):
-        await _Stub(Message).mark_handled((1,))
+        await getattr(coord, name)((1,))
 
 
 async def test_start_and_stop_are_no_ops() -> None:

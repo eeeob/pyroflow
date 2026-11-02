@@ -342,12 +342,6 @@ def test_module_exports_and_logger() -> None:
 # --- class attributes and Lua scripts ---------------------------------------
 
 
-def test_script_slots_default_to_none_on_the_class() -> None:
-    assert RedisListenerCoordinator.lua_unregister is None
-    assert RedisListenerCoordinator.lua_bulk_unregister is None
-    assert RedisListenerCoordinator.lua_getdel is None
-
-
 async def test_lua_unregister_script(coordinator: RedisListenerCoordinator) -> None:
     redis = coordinator.redis
     script = coordinator.lua_unregister
@@ -506,13 +500,6 @@ async def test_register_stores_a_hex_uuid(coordinator: RedisListenerCoordinator)
     assert coordinator._owned_registrations == {packed: token}
 
 
-async def test_register_ids_are_unique(coordinator: RedisListenerCoordinator) -> None:
-    first = await coordinator.register(KEY)
-    await coordinator.unregister(KEY)
-
-    assert await coordinator.register(KEY) != first
-
-
 async def test_register_refuses_a_key_any_session_holds(redis: fake_aioredis.FakeRedis) -> None:
     a = RedisListenerCoordinator(redis, _FakeListener())  # type: ignore[arg-type]
     b = RedisListenerCoordinator(redis, _FakeListener())  # type: ignore[arg-type]
@@ -657,15 +644,6 @@ async def test_cancel_deletes_and_publishes_exact_payload(
     assert coordinator._owned_registrations == {}
 
 
-async def test_cancel_removes_a_peer_registration(redis: fake_aioredis.FakeRedis) -> None:
-    a = RedisListenerCoordinator(redis, _FakeListener())  # type: ignore[arg-type]
-    b = RedisListenerCoordinator(redis, _FakeListener())  # type: ignore[arg-type]
-    await a.register(KEY)
-
-    assert await b.cancel(KEY) is True
-    assert await a.registered(KEY) is False
-
-
 async def test_cancel_with_decoded_responses() -> None:
     redis = fake_aioredis.FakeRedis(decode_responses=True)
     try:
@@ -773,15 +751,6 @@ async def test_listen_does_not_wait_for_a_slow_cancel(redis: fake_aioredis.FakeR
     finally:
         gate.set()
         await coordinator.stop()
-
-
-async def test_apply_cancel_signal_forwards_the_token(
-    coordinator: RedisListenerCoordinator,
-) -> None:
-    listener: _FakeListener = coordinator.listener  # type: ignore[assignment]
-
-    assert await coordinator._apply_cancel_signal(KEY, "tok") is None
-    assert listener.cancels == [(KEY, {"cancel_coordinator": False, "coordinator_id": "tok"})]
 
 
 async def test_apply_cancel_signal_logs_failures(

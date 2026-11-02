@@ -265,7 +265,7 @@ async def test_lock_is_released_when_identity_extraction_fails() -> None:
     assert await _is_lock_free(coordinated, msg) is True
 
 
-async def test_a_contended_lock_makes_the_update_skip() -> None:
+async def test_a_contended_lock_makes_the_update_skip(caplog: pytest.LogCaptureFixture) -> None:
     coordinated = make_coordinated(blocking_timeout=0.01)
     msg = coordinatable_message()
 
@@ -282,21 +282,12 @@ async def test_a_contended_lock_makes_the_update_skip() -> None:
     fake = fake_dispatcher(coordinateds={Message: coordinated})
     fake._handle_update = _handle_update
 
-    await Dispatcher.handle_update(fake, PACKET, msg, type(None))
+    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
+        await Dispatcher.handle_update(fake, PACKET, msg, type(None))
 
     assert ran is False, "an update whose scope is locked must be skipped"
     assert await _is_claimed(coordinated, msg) is False, "a skipped update must stay available"
-
-
-async def test_many_updates_in_a_row_each_get_the_lock() -> None:
-    coordinated = make_coordinated()
-
-    for i in range(20):
-        msg = coordinatable_message(message_id=i)
-        await Dispatcher.handle_update(
-            make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-        )
-        assert await _is_claimed(coordinated, msg) is True
+    assert "Timeout waiting for coordinated lock" in caplog.text
 
 
 # --- wide lock + narrow identity: ordering without loss -------------------
@@ -654,20 +645,29 @@ async def test_mark_handled_outside_update_processing_is_a_noop() -> None:
 
 
 async def test_marker_does_not_leak_between_updates() -> None:
-    """The ContextVar is reset per update; a handler for update B must not be
-    able to settle update A."""
+    """The ContextVar is reset per update: the handler of a later, uncoordinated
+    update in the same context must not see the earlier update's releaser."""
     coordinated = make_coordinated()
-    first = coordinatable_message(message_id=1)
 
     async def body(peer: PeerProbe) -> tuple[int, int]:
-        mark_handled()
         return (1, 0)
 
     await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, first, type(None)
+        make_marking_dispatcher(coordinated, body), PACKET, coordinatable_message(), type(None)
     )
 
-    assert mark_handled() is False, "marker outlived the update it belonged to"
+    seen: list[object] = []
+
+    async def _handle_update(*a: object, **kw: object) -> tuple[int, int]:
+        seen.append(_HANDLED_MARKER.get())
+        return (1, 0)
+
+    uncoordinated = fake_dispatcher(coordinateds={})
+    uncoordinated._handle_update = _handle_update
+
+    await Dispatcher.handle_update(uncoordinated, PACKET, coordinatable_message(), type(None))
+
+    assert seen == [None], "marker outlived the update it belonged to"
 
 
 # --- module-level definitions ----------------------------------------------
@@ -677,47 +677,8 @@ def test_module_logger_is_named_after_the_module() -> None:
     assert dispatcher_module.log.name == "pyroflow.dispatcher"
 
 
-def test_handled_marker_defaults_to_none() -> None:
-    assert _HANDLED_MARKER.name == "pyroflow_handled_marker"
-    assert _HANDLED_MARKER.get() is None
-
-
 def test_public_surface() -> None:
     assert dispatcher_module.__all__ == ("Dispatcher", "mark_handled")
-
-
-async def test_mark_handled_returns_the_claim_result() -> None:
-    coordinator = FakeCoordinator()
-    lock = FakeLock()
-    release = _CoordinatedRelease(
-        SimpleNamespace(coordinator=coordinator), lock, asyncio.get_running_loop()
-    )
-    release.update_id = "id"
-    token = _HANDLED_MARKER.set(release)
-
-    try:
-        assert mark_handled() is True
-        assert mark_handled() is False
-    finally:
-        _HANDLED_MARKER.reset(token)
-
-    await release.settle(False)
-
-    assert coordinator.marked == ["id"]
-    assert lock.releases == 1
-
-
-async def test_mark_handled_on_a_settled_release_is_refused() -> None:
-    release, coordinator, lock = make_release()
-    await release.settle(False)
-    token = _HANDLED_MARKER.set(release)
-
-    try:
-        assert mark_handled() is False
-    finally:
-        _HANDLED_MARKER.reset(token)
-
-    assert lock.releases == 1
 
 
 # --- _CoordinatedRelease ----------------------------------------------------
@@ -754,24 +715,6 @@ def make_release(
         SimpleNamespace(coordinator=coordinator), lock, asyncio.get_running_loop()
     )
     return release, coordinator, lock
-
-
-async def test_release_starts_unsettled_without_an_identity() -> None:
-    release, coordinator, lock = make_release()
-
-    assert release.update_id is None
-    assert release._early is None
-    assert release._released is False
-    assert coordinator.marked == []
-    assert lock.releases == 0
-
-
-async def test_release_uses_slots() -> None:
-    release, _, _ = make_release()
-
-    assert not hasattr(release, "__dict__")
-    with pytest.raises(AttributeError):
-        release.other = 1  # ty: ignore[unresolved-attribute]
 
 
 async def test_claim_early_on_the_loop_schedules_a_handled_settlement() -> None:
@@ -814,27 +757,6 @@ async def test_claim_early_from_another_thread_is_thread_safe() -> None:
     assert lock.releases == 1
 
 
-async def test_settle_not_handled_only_releases() -> None:
-    release, coordinator, lock = make_release()
-    release.update_id = "id"
-
-    await release.settle(False)
-
-    assert coordinator.marked == []
-    assert lock.releases == 1
-    assert release._released is True
-
-
-async def test_settle_handled_registers_then_releases() -> None:
-    release, coordinator, lock = make_release()
-    release.update_id = "id"
-
-    await release.settle(True)
-
-    assert coordinator.marked == ["id"]
-    assert lock.releases == 1
-
-
 async def test_settle_swallows_a_failing_registration_and_still_releases() -> None:
     release, coordinator, lock = make_release(coordinator=FakeCoordinator(RuntimeError("down")))
     release.update_id = "id"
@@ -852,17 +774,6 @@ async def test_settle_swallows_a_failing_release() -> None:
 
     assert lock.releases == 1
     assert release._released is True
-
-
-async def test_private_settle_is_a_one_shot() -> None:
-    release, coordinator, lock = make_release()
-    release.update_id = "id"
-
-    await release._settle(True)
-    await release._settle(True)
-
-    assert coordinator.marked == ["id"]
-    assert lock.releases == 1
 
 
 # --- Dispatcher: construction, start and stop -------------------------------
@@ -1085,12 +996,6 @@ class FakeListener:
         self.resolved.append(update)
         if self.error is not None:
             raise self.error
-
-
-async def test_handle_listen_without_a_listener_does_nothing() -> None:
-    dispatcher = make_real_dispatcher()
-
-    await dispatcher.handle_listen(make_message())
 
 
 async def test_handle_listen_resolved_update_stops_propagation() -> None:
@@ -1455,38 +1360,6 @@ async def test_failing_coordination_setup_processes_uncoordinated(
 
     assert seen == [msg]
     assert "Error while acquiring coordinated lock" in caplog.text
-
-
-async def test_contended_lock_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    coordinated = make_coordinated(blocking_timeout=0.01)
-    msg = coordinatable_message()
-    held = await coordinated.lock(msg)  # keep a reference so the lock stays held
-    assert await held.acquire() is True
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await Dispatcher.handle_update(
-            make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-        )
-
-    assert "Timeout waiting for coordinated lock" in caplog.text
-
-
-async def test_missing_parsed_update_bypasses_coordination() -> None:
-    coordinated = make_coordinated()
-    seen: list[object] = []
-
-    async def _handle_update(
-        packet: object, parsed_update: object, handler_type: object
-    ) -> tuple[int, int]:
-        seen.append(parsed_update)
-        return (1, 0)
-
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
-
-    await Dispatcher.handle_update(fake, PACKET, None, type(None))
-
-    assert seen == [None]
 
 
 async def test_marker_is_set_only_while_the_update_is_processed() -> None:

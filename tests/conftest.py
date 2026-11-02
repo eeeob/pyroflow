@@ -1,4 +1,4 @@
-"""Shared fixtures and object factories for the pyroflow test suite.
+"""Shared object factories for the pyroflow test suite.
 
 Importing ``pyroflow`` here is deliberate and must happen before any test
 runs: ``@patch_cls`` monkey-patches Pyrogram's ``Client``, ``Dispatcher``,
@@ -8,17 +8,10 @@ suite relies on that global patch being active.
 
 from __future__ import annotations as _annotations
 
-from types import SimpleNamespace
-from typing import TYPE_CHECKING
-
 import pyroflow  # noqa: F401 — activates the @patch_cls global monkey-patch
-import pytest
 
 from pyrogram.types import Message, CallbackQuery, Chat, User
 from pyrogram.enums import ChatType
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 def make_message(
@@ -58,29 +51,3 @@ def make_callback_query(
     for key, value in overrides.items():
         setattr(cbq, key, value)
     return cbq
-
-
-@pytest.fixture
-def message_factory() -> Callable[..., Message]:
-    return make_message
-
-
-@pytest.fixture
-def callback_factory() -> Callable[..., CallbackQuery]:
-    return make_callback_query
-
-
-@pytest.fixture
-def raw_message_factory() -> Callable[..., Message]:
-    """A ``Message`` carrying a ``raw.peer_id`` for coordinator key extraction."""
-
-    def _factory(
-        chat_id: int = 100, user_id: int = 7, message_id: int = 5, peer_channel_id: int = 100
-    ) -> Message:
-        msg = make_message(chat_id, user_id, message_id)
-        # get_peer_id() understands raw PeerChannel/PeerUser objects; a
-        # SimpleNamespace with the right attribute name is enough here.
-        msg.raw = SimpleNamespace(peer_id=SimpleNamespace(channel_id=peer_channel_id))
-        return msg
-
-    return _factory

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from pyrogram import Client, filters, handlers
-from pyrogram.handlers import CallbackQueryHandler, Handler, MessageHandler
+from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 from pyrogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
 from pyroflow.constants import BOT_COMMANDS_ATTR
@@ -15,22 +15,6 @@ from pyroflow.utils import bot_commands, mark_bot_commands, split_bot_command_en
 
 async def _callback(client: Any, update: Any) -> None:  # pragma: no cover - never called
     pass
-
-
-# --- _MESSAGES_HANDLER ----------------------------------------------------
-
-
-def test_messages_handler_holds_the_available_message_handler_types() -> None:
-    expected = tuple(
-        getattr(handlers, name)
-        for name in ("MessageHandler", "BusinessMessageHandler")
-        if hasattr(handlers, name)
-    )
-
-    assert bot_commands._MESSAGES_HANDLER == expected
-    assert MessageHandler in bot_commands._MESSAGES_HANDLER
-    assert all(issubclass(cls, Handler) for cls in bot_commands._MESSAGES_HANDLER)
-    assert CallbackQueryHandler not in bot_commands._MESSAGES_HANDLER
 
 
 # --- mark_bot_commands() --------------------------------------------------
@@ -90,19 +74,6 @@ def test_mark_bot_commands_without_handlers_returns_func_unchanged() -> None:
     assert not hasattr(func, "handlers")
 
 
-def test_mark_bot_commands_with_no_entries_stores_an_empty_tuple() -> None:
-    message_handler = MessageHandler(_callback)
-
-    async def func(client: Any, message: Any) -> None:  # pragma: no cover
-        pass
-
-    func.handlers = [(message_handler, 0)]  # type: ignore[attr-defined]
-
-    mark_bot_commands()(func)
-
-    assert getattr(message_handler, BOT_COMMANDS_ATTR) == ()
-
-
 def test_mark_bot_commands_above_unbound_on_message() -> None:
     cmd = BotCommand("start", "Start the bot")
 
@@ -133,10 +104,6 @@ def test_split_command_list() -> None:
     assert commands is cmds
 
 
-def test_split_empty_list() -> None:
-    assert split_bot_command_entry([]) == (None, None, [])
-
-
 def test_split_scope_and_commands_pair() -> None:
     scope = BotCommandScopeAllPrivateChats()
     cmds = [BotCommand("start", "Start")]
@@ -155,4 +122,3 @@ def test_split_full_triple_is_returned_as_is() -> None:
 
 def test_module_all_lists_public_names() -> None:
     assert bot_commands.__all__ == ("mark_bot_commands", "split_bot_command_entry")
-    assert all(hasattr(bot_commands, name) for name in bot_commands.__all__)

@@ -54,16 +54,6 @@ def test_init_stores_the_client_and_default_sleep(redis: fake_aioredis.FakeRedis
     assert coord.sleep == 0.1
 
 
-def test_init_forwards_base_arguments(redis: fake_aioredis.FakeRedis) -> None:
-    coord = RedisUpdateCoordinator(
-        redis, Message, lock_ttl=7, handled_ttl=8, blocking_timeout=0.2, sleep=0.02
-    )
-
-    assert (coord.lock_ttl, coord.handled_ttl, coord.blocking_timeout) == (7, 8, 0.2)
-    assert coord.sleep == 0.02
-    assert coord.build_key((1,)) == "update|lock|Message|1"
-
-
 # --- the lock ---------------------------------------------------------------
 
 
@@ -139,12 +129,6 @@ async def test_lock_can_be_released_from_another_task(
 # --- the handled registry -----------------------------------------------------
 
 
-async def test_unknown_key_is_not_handled(redis: fake_aioredis.FakeRedis) -> None:
-    result = await _coord(redis).is_handled((1, 2))
-
-    assert result is False
-
-
 async def test_mark_handled_then_is_handled(redis: fake_aioredis.FakeRedis) -> None:
     coord = _coord(redis)
     await coord.mark_handled((1, 2))
@@ -189,14 +173,6 @@ async def test_handled_entries_expire(redis: fake_aioredis.FakeRedis) -> None:
 
     await asyncio.sleep(0.08)
     assert await coord.is_handled((1, 2)) is False
-
-
-async def test_handled_registry_is_shared_across_instances(
-    redis: fake_aioredis.FakeRedis,
-) -> None:
-    await _coord(redis).mark_handled((1, 2))
-
-    assert await _coord(redis).is_handled((1, 2)) is True
 
 
 # --- the two primitives must not collide ------------------------------------

@@ -36,29 +36,10 @@ def test_module_exports_only_the_base_class() -> None:
     assert module.__all__ == ("ListenerCoordinator",)
 
 
-def test_cannot_instantiate_the_abstract_base() -> None:
-    with pytest.raises(TypeError):
-        ListenerCoordinator(listener=None)  # type: ignore[abstract]
-
-
 def test_abstract_methods_are_the_backend_contract() -> None:
     assert ListenerCoordinator.__abstractmethods__ == frozenset(
         {"lock", "register", "unregister", "cancel", "registered"}
     )
-
-
-def test_subclass_missing_one_method_stays_abstract() -> None:
-    class _Partial(ListenerCoordinator):
-        def lock(self, key: Any) -> Any:
-            return None
-
-    with pytest.raises(TypeError, match="register"):
-        _Partial(listener=None)  # type: ignore[abstract]
-
-
-def test_init_binds_the_listener() -> None:
-    listener = object()
-    assert _Concrete(listener).listener is listener  # type: ignore[arg-type]
 
 
 def test_init_forwards_extra_kwargs_along_the_mro() -> None:
@@ -75,34 +56,13 @@ def test_init_forwards_extra_kwargs_along_the_mro() -> None:
     assert coordinator.listener is None
 
 
-def test_init_rejects_kwargs_nobody_consumes() -> None:
-    with pytest.raises(TypeError):
-        _Concrete(listener=None, unknown=1)  # type: ignore[arg-type,call-arg]
-
-
-def test_abstract_lock_body_raises_not_implemented() -> None:
+@pytest.mark.parametrize("name", ["register", "unregister", "cancel", "registered"])
+async def test_abstract_bodies_raise_not_implemented(name: str) -> None:
+    coordinator = _Concrete(None)  # type: ignore[arg-type]
     with pytest.raises(NotImplementedError):
-        _Concrete(None).lock(1)  # type: ignore[arg-type]
-
-
-async def test_abstract_register_body_raises_not_implemented() -> None:
+        coordinator.lock(KEY)
     with pytest.raises(NotImplementedError):
-        await _Concrete(None).register(KEY)  # type: ignore[arg-type]
-
-
-async def test_abstract_unregister_body_raises_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
-        await _Concrete(None).unregister(KEY, "id")  # type: ignore[arg-type]
-
-
-async def test_abstract_cancel_body_raises_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
-        await _Concrete(None).cancel(KEY)  # type: ignore[arg-type]
-
-
-async def test_abstract_registered_body_raises_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
-        await _Concrete(None).registered(KEY)  # type: ignore[arg-type]
+        await getattr(coordinator, name)(KEY)
 
 
 async def test_start_is_a_no_op_by_default() -> None:

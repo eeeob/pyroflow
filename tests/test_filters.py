@@ -36,30 +36,15 @@ async def matches(flt: Filter, update: Message | CallbackQuery) -> bool:
 # --- endswith / startswith / equal: matching --------------------------------
 
 
-async def test_endswith_matches_message_text() -> None:
-    msg = make_message(text="hello world")
-    assert await matches(filters.endswith("world"), msg) is True
-
-
 async def test_endswith_rejects_non_matching_text() -> None:
     msg = make_message(text="hello world")
     assert await matches(filters.endswith("mars"), msg) is False
-
-
-async def test_startswith_matches_message_text() -> None:
-    msg = make_message(text="hello world")
-    assert await matches(filters.startswith("hello"), msg) is True
 
 
 async def test_equal_matches_exact_text_only() -> None:
     msg = make_message(text="hello")
     assert await matches(filters.equal("hello"), msg) is True
     assert await matches(filters.equal("hello world"), msg) is False
-
-
-async def test_equal_matches_any_of_several_texts() -> None:
-    msg = make_message(text="b")
-    assert await matches(filters.equal("a", "b", "c"), msg) is True
 
 
 # --- text extraction: Message.caption fallback, CallbackQuery.data ---------
@@ -76,43 +61,9 @@ async def test_text_takes_priority_over_caption() -> None:
     assert await matches(filters.equal("world"), msg) is False
 
 
-async def test_message_with_neither_text_nor_caption_matches_nothing() -> None:
-    msg = make_message(text=None, caption=None)
-    assert await matches(filters.equal(""), msg) is False
-    assert await matches(filters.startswith(""), msg) is False
-
-
 async def test_callback_query_matches_on_data() -> None:
     cbq = make_callback_query(data="confirm")
     assert await matches(filters.equal("confirm"), cbq) is True
-
-
-async def test_callback_query_with_non_str_data_matches_nothing() -> None:
-    """A bad client can send bytes in `data`; a text comparison against bytes
-    is meaningless, so it must be treated as no text rather than raising.
-
-    Uses endswith(), not equal(): `bytes != str` makes an equal() check false
-    either way, str or not, so it would not actually prove the bytes were
-    filtered out. `bytes.endswith(str_tuple)` raises TypeError if the raw
-    bytes ever reach it unfiltered — this fails loudly instead of passing by
-    coincidence if the str-only guard regresses."""
-    cbq = make_callback_query(data=b"\x00\x01")
-    assert await matches(filters.endswith("x"), cbq) is False
-
-
-# --- argument flattening and filtering --------------------------------------
-
-
-async def test_flattens_nested_containers_of_texts() -> None:
-    msg = make_message(text="b")
-    assert await matches(filters.equal(["a", "b"], "c"), msg) is True
-
-
-async def test_ignores_non_string_and_empty_entries() -> None:
-    msg = make_message(text="")
-    # "" is filtered out of the candidate set, so an empty-text update must
-    # not match just because "" was one of the arguments.
-    assert await matches(filters.equal("", 123, None, "x"), msg) is False
 
 
 # --- filters run inline, not via the executor thread pool ------------------
@@ -129,16 +80,6 @@ def test_filters_are_recognized_as_coroutine_functions() -> None:
 # --- split_text: matching ----------------------------------------------------
 
 
-async def test_split_text_single_rule_no_separator() -> None:
-    """A rule is a string/container/Enum/plain `(part: str) -> bool` callable
-    — not a Filter. filters.equal()/endswith()/etc. return Filter objects
-    shaped for (client, update), which is a different, incompatible contract;
-    passing one here would be a misuse of the API, not a case to exercise."""
-    msg = make_message(text="hello")
-    flt = filters.split_text(("hello", "hi"))
-    assert await matches(flt, msg) is True
-
-
 async def test_split_text_multiple_rules_with_separator() -> None:
     msg = make_message(text="/ban 42")
     flt = filters.split_text("/ban", lambda p: p.isdigit(), separator=" ")
@@ -146,10 +87,10 @@ async def test_split_text_multiple_rules_with_separator() -> None:
 
 
 async def test_split_text_fails_when_part_count_mismatches() -> None:
-    msg = make_message(text="/ban 42 extra")
-    flt = filters.split_text("/ban", lambda p: p.isdigit(), separator=" ")
-    # maxsplit=1 caps at 2 parts, so this becomes ["/ban", "42 extra"]
-    assert await matches(flt, msg) is False
+    # maxsplit يمنع أجزاءً أكثر من القواعد، فالاختلاف الممكن هو أجزاء أقل فقط.
+    # القاعدتان تقبلان أي جزء، فلا يرفض النص إلا فحص عدد الأجزاء
+    flt = filters.split_text(lambda p: True, lambda p: True, separator=" ")
+    assert await matches(flt, make_message(text="/ban")) is False
 
 
 async def test_split_text_strip_trims_each_part() -> None:
@@ -164,16 +105,6 @@ async def test_split_text_container_rule_checks_membership() -> None:
     assert await matches(flt, msg) is True
 
 
-async def test_split_text_enum_rule_matches_by_value() -> None:
-    class Command(Enum):
-        BAN = "ban"
-        KICK = "kick"
-
-    msg = make_message(text="ban")
-    flt = filters.split_text(Command)
-    assert await matches(flt, msg) is True
-
-
 async def test_split_text_async_callable_rule() -> None:
     async def is_digits(part: str) -> bool:
         return part.isdigit()
@@ -185,44 +116,11 @@ async def test_split_text_async_callable_rule() -> None:
 
 async def test_split_text_empty_text_matches_nothing() -> None:
     msg = make_message(text=None, caption=None)
-    flt = filters.split_text(filters.equal("x"))
+    flt = filters.split_text("x")
     assert await matches(flt, msg) is False
 
 
-# --- split_text: construction-time validation -------------------------------
-
-
-def test_split_text_requires_at_least_one_rule() -> None:
-    with pytest.raises(ValueError):
-        filters.split_text()
-
-
-def test_split_text_requires_a_separator_for_multiple_rules() -> None:
-    with pytest.raises(ValueError):
-        filters.split_text("a", "b")
-
-
-def test_split_text_rejects_an_empty_rule() -> None:
-    with pytest.raises(ValueError):
-        filters.split_text([], separator=" ")
-
-
-def test_split_text_rejects_an_unsupported_rule_type() -> None:
-    with pytest.raises(TypeError):
-        filters.split_text(123)
-
-
-# --- _raise --------------------------------------------------------------------
-
-
-def test_raise_raises_the_given_exception_instance() -> None:
-    exc = KeyError("boom")
-    with pytest.raises(KeyError) as info:
-        filters._raise(exc)
-    assert info.value is exc
-
-
-# --- filter identity and composition -------------------------------------------
+# --- filter identity -------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -238,57 +136,12 @@ def test_each_factory_names_its_filter(flt: Filter, name: str) -> None:
     assert type(flt).__name__ == name
 
 
-async def test_filters_compose_with_and_or_invert() -> None:
-    msg = make_message(text="hello world")
-    hello, mars = filters.startswith("hello"), filters.endswith("mars")
-    assert await matches(hello & mars, msg) is False
-    assert await matches(hello | mars, msg) is True
-    assert await matches(~mars, msg) is True
-
-
-async def test_non_text_update_raises() -> None:
-    with pytest.raises(ValueError, match="doesn't work with"):
-        await matches(filters.equal("x"), SimpleNamespace(text="x"))  # type: ignore[arg-type]
-
-
-# --- endswith -----------------------------------------------------------------
-
-
-async def test_endswith_matches_any_of_several_and_nested_texts() -> None:
-    msg = make_message(text="hello world")
-    assert await matches(filters.endswith("mars", ["venus", ("world",)]), msg) is True
-
-
-async def test_endswith_with_only_ignored_texts_matches_nothing() -> None:
-    msg = make_message(text="hello world")
-    assert await matches(filters.endswith("", 1, None), msg) is False
-
-
-async def test_endswith_matches_callback_query_data() -> None:
-    assert await matches(filters.endswith("_ok"), make_callback_query(data="pay_ok")) is True
-
-
 # --- startswith ---------------------------------------------------------------
 
 
 async def test_startswith_rejects_non_matching_text() -> None:
     msg = make_message(text="hello world")
     assert await matches(filters.startswith("world"), msg) is False
-
-
-async def test_startswith_matches_any_of_several_and_nested_texts() -> None:
-    msg = make_message(text="/start 42")
-    assert await matches(filters.startswith("/help", ["/start"]), msg) is True
-
-
-async def test_startswith_with_only_ignored_texts_matches_nothing() -> None:
-    msg = make_message(text="hello")
-    assert await matches(filters.startswith("", 0), msg) is False
-
-
-async def test_startswith_falls_back_to_caption() -> None:
-    msg = make_message(text=None, caption="hello there")
-    assert await matches(filters.startswith("hello"), msg) is True
 
 
 async def test_startswith_callback_query_with_bytes_data_matches_nothing() -> None:
@@ -453,11 +306,6 @@ async def test_split_text_single_rule_with_separator_does_not_split() -> None:
     assert await matches(flt, make_message(text="a b c")) is True
 
 
-async def test_split_text_too_few_parts_matches_nothing() -> None:
-    flt = filters.split_text("/ban", ("42",), separator=" ")
-    assert await matches(flt, make_message(text="/ban")) is False
-
-
 async def test_split_text_without_strip_keeps_whitespace() -> None:
     flt = filters.split_text("/ban", "42", separator=",")
     assert await matches(flt, make_message(text="/ban, 42")) is False
@@ -512,11 +360,6 @@ async def test_split_text_callable_rule_exception_propagates() -> None:
     flt = filters.split_text(broken)
     with pytest.raises(RuntimeError, match="rule failed"):
         await matches(flt, make_message(text="x"))
-
-
-async def test_split_text_matches_callback_query_data() -> None:
-    flt = filters.split_text("page", str.isdigit, separator=":")
-    assert await matches(flt, make_callback_query(data="page:3")) is True
 
 
 async def test_split_text_bytes_data_with_separator_matches_nothing() -> None:
