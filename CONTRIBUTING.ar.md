@@ -149,7 +149,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **2.6 تبقى `redis` اختيارية.** لا يُستورد `redis` إلا تحت `TYPE_CHECKING`، ويمرّر المستخدم عميل Redis بنفسه، لأن `redis` `extra` اختياري (3.1).
 
-**2.7 الأخطاء.** كل خطأ جديد يرث `ListenerError` في `pyroflow.errors`. الـ `docstring` الخاص بالكلاس هو قالب الرسالة، ويُملأ بالقيمة لحظة رفع الخطأ.
+**2.7 الأخطاء.** كل خطأ جديد يُعرَّف في `pyroflow.errors` ويرث عائلته: `ListenerError` للانتظار و`ask`، و`CoordinationError` للتنسيق، أو `PyroflowError` إن لم يناسب أيًّا منهما. الـ `docstring` الخاص بالكلاس هو قالب الرسالة، ويُملأ بالقيمة لحظة رفع الخطأ.
 
 ### الأولوية 3 — الاعتماديات
 
@@ -209,7 +209,7 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 **5.7 الإسكات يحمل سببه.** كل `type: ignore` و`ty: ignore` و`noqa` يذكر رمزه، ثم السبب (`PGH`).
 
 ```python
-"""UpdateListener {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
+"""Listener for {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
 ```
 
 **5.8 التسجيل (`logging`).** يسجّل كل `module` عبر `log = logging.getLogger(__name__)`. الرسائل بالإنجليزية. والخطأ غير المتوقع يُسجَّل بـ `log.exception`، الذي يحتفظ بالـ `traceback`.

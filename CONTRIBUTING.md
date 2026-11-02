@@ -123,7 +123,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **2.6 `redis` stays optional.** `redis` is imported only under `TYPE_CHECKING`, and the user passes the Redis client in, because `redis` is an optional extra (3.1).
 
-**2.7 Errors.** A new error subclasses `ListenerError` in `pyroflow.errors`. Its class docstring is the message template, formatted with the value at raise time.
+**2.7 Errors.** A new error lives in `pyroflow.errors` and subclasses its family: `ListenerError` for waiting and `ask`, `CoordinationError` for coordination, or `PyroflowError` when it fits neither. Its class docstring is the message template, formatted with the value at raise time.
 
 ### Priority 3 — Dependencies
 
@@ -183,7 +183,7 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 **5.7 Suppressions carry reasons.** Every `type: ignore`, `ty: ignore` and `noqa` names its code, followed by the reason (`PGH`).
 
 ```python
-"""UpdateListener {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
+"""Listener for {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
 ```
 
 **5.8 Logging.** Each module logs through `log = logging.getLogger(__name__)`. Messages are in English. An unexpected error is logged with `log.exception`, which keeps the traceback.

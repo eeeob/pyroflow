@@ -1,10 +1,10 @@
-"""Exceptions raised by listeners and `ask`."""
+"""Exceptions raised by pyroflow."""
 
 from __future__ import annotations as _annotations
 
 
-class ListenerError(Exception):
-    """Listener error"""  # noqa: D415  # the docstring is the runtime message template
+class PyroflowError(Exception):
+    """pyroflow error"""  # noqa: D415  # the docstring is the runtime message template
 
     def __init__(self, value: object = None) -> None:
         """Format the class docstring with `value` as the error message.
@@ -14,7 +14,7 @@ class ListenerError(Exception):
 
         Example:
             >>> str(ListenerTimeout(5))
-            'UpdateListener 5 timed out'
+            'Listener for 5 timed out'
         """
         self.value = value
         """The subject of the error."""
@@ -25,8 +25,12 @@ class ListenerError(Exception):
         super().__init__(template.format(value=value))
 
 
+class ListenerError(PyroflowError):
+    """Listener error"""  # noqa: D415  # the docstring is the runtime message template
+
+
 class ListenerCancelled(ListenerError):
-    """UpdateListener {value} was cancelled"""  # noqa: D415  # the docstring is the runtime message template
+    """Listener for {value} was cancelled"""  # noqa: D415  # the docstring is the runtime message template
 
     def __init__(self, value: object = None, is_duplicate: bool = False) -> None:
         """Build the error and record whether a newer listener caused it.
@@ -38,7 +42,7 @@ class ListenerCancelled(ListenerError):
         Example:
             >>> err = ListenerCancelled("k", is_duplicate=True)
             >>> str(err), err.is_duplicate
-            ('UpdateListener k was cancelled', True)
+            ('Listener for k was cancelled', True)
         """
         super().__init__(value)
         self.is_duplicate = is_duplicate
@@ -46,26 +50,32 @@ class ListenerCancelled(ListenerError):
 
 
 class ListenerTimeout(ListenerError):
-    """UpdateListener {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
+    """Listener for {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
 
 
 class ListenerAlreadyExists(ListenerError):
-    """UpdateListener already exists for key {value}"""  # noqa: D415  # the docstring is the runtime message template
+    """A listener already exists for {value}"""  # noqa: D415  # the docstring is the runtime message template
 
 
 class UnresolvedUpdate(ListenerError):
-    """UnresolvedUpdate {value}"""  # noqa: D415  # the docstring is the runtime message template
+    """No listener resolved update {value}"""  # noqa: D415  # the docstring is the runtime message template
 
 
-class UnhandledUpdate(ListenerError):
-    """UnhandledUpdate {value}"""  # noqa: D415  # the docstring is the runtime message template
+class CoordinationError(PyroflowError):
+    """Coordination error"""  # noqa: D415  # the docstring is the runtime message template
+
+
+class UnhandledUpdate(CoordinationError):
+    """Update {value} was not handled"""  # noqa: D415  # the docstring is the runtime message template
 
 
 __all__ = (
+    "PyroflowError",
     "ListenerError",
     "ListenerCancelled",
     "ListenerTimeout",
     "ListenerAlreadyExists",
     "UnresolvedUpdate",
+    "CoordinationError",
     "UnhandledUpdate",
 )

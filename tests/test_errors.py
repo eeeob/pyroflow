@@ -6,37 +6,50 @@ import pytest
 
 import pyroflow.errors
 from pyroflow.errors import (
+    CoordinationError,
     ListenerAlreadyExists,
     ListenerCancelled,
     ListenerError,
     ListenerTimeout,
+    PyroflowError,
     UnhandledUpdate,
     UnresolvedUpdate,
 )
 
 
-def test_listener_error_default_message_and_value() -> None:
-    err = ListenerError()
+def test_pyroflow_error_default_message_and_value() -> None:
+    err = PyroflowError()
     assert err.value is None
-    assert str(err) == "Listener error"
+    assert str(err) == "pyroflow error"
     assert isinstance(err, Exception)
 
 
-def test_listener_error_falls_back_to_class_name_without_docstring() -> None:
-    class NoDoc(ListenerError):
+def test_pyroflow_error_falls_back_to_class_name_without_docstring() -> None:
+    class NoDoc(PyroflowError):
         pass
 
     assert NoDoc.__doc__ is None
     assert str(NoDoc(7)) == "NoDoc 7"
 
 
-def test_listener_error_value_with_braces_is_not_reformatted() -> None:
-    assert str(ListenerTimeout("{x}")) == "UpdateListener {x} timed out"
+def test_pyroflow_error_value_with_braces_is_not_reformatted() -> None:
+    assert str(ListenerTimeout("{x}")) == "Listener for {x} timed out"
+
+
+@pytest.mark.parametrize(
+    ("cls", "message"),
+    [(ListenerError, "Listener error"), (CoordinationError, "Coordination error")],
+)
+def test_error_families(cls: type[PyroflowError], message: str) -> None:
+    err = cls(5)
+    assert isinstance(err, PyroflowError)
+    assert str(err) == message
+    assert err.value == 5
 
 
 def test_listener_cancelled_message_and_default_is_duplicate() -> None:
     err = ListenerCancelled("k")
-    assert str(err) == "UpdateListener k was cancelled"
+    assert str(err) == "Listener for k was cancelled"
     assert err.value == "k"
     assert err.is_duplicate is False
     assert isinstance(err, ListenerError)
@@ -45,36 +58,46 @@ def test_listener_cancelled_message_and_default_is_duplicate() -> None:
 def test_listener_cancelled_is_duplicate() -> None:
     err = ListenerCancelled("k", is_duplicate=True)
     assert err.is_duplicate is True
-    assert str(err) == "UpdateListener k was cancelled"
+    assert str(err) == "Listener for k was cancelled"
 
 
 def test_listener_cancelled_defaults() -> None:
     err = ListenerCancelled()
     assert err.value is None
-    assert str(err) == "UpdateListener None was cancelled"
+    assert str(err) == "Listener for None was cancelled"
 
 
 @pytest.mark.parametrize(
-    ("cls", "message"),
+    ("cls", "family", "message"),
     [
-        (ListenerTimeout, "UpdateListener 5 timed out"),
-        (ListenerAlreadyExists, "UpdateListener already exists for key 5"),
-        (UnresolvedUpdate, "UnresolvedUpdate 5"),
-        (UnhandledUpdate, "UnhandledUpdate 5"),
+        (ListenerTimeout, ListenerError, "Listener for 5 timed out"),
+        (ListenerAlreadyExists, ListenerError, "A listener already exists for 5"),
+        (UnresolvedUpdate, ListenerError, "No listener resolved update 5"),
+        (UnhandledUpdate, CoordinationError, "Update 5 was not handled"),
     ],
 )
-def test_listener_error_subclass_messages(cls: type[ListenerError], message: str) -> None:
+def test_error_subclass_messages(
+    cls: type[PyroflowError], family: type[PyroflowError], message: str
+) -> None:
     err = cls(5)
+    assert isinstance(err, family)
     assert str(err) == message
     assert err.value == 5
 
 
+def test_unhandled_update_is_not_a_listener_error() -> None:
+    # `except ListenerError` around `ask` must not swallow the coordination signal.
+    assert not isinstance(UnhandledUpdate(5), ListenerError)
+
+
 def test_errors_all() -> None:
     assert pyroflow.errors.__all__ == (
+        "PyroflowError",
         "ListenerError",
         "ListenerCancelled",
         "ListenerTimeout",
         "ListenerAlreadyExists",
         "UnresolvedUpdate",
+        "CoordinationError",
         "UnhandledUpdate",
     )

@@ -245,6 +245,8 @@ except ListenerCancelled:
     await client.send_message(chat_id, "Session was cancelled.")
 ```
 
+Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`, `UnresolvedUpdate`), and `CoordinationError` covers coordination (`UnhandledUpdate`), so `except ListenerError` around `ask` never swallows `UnhandledUpdate`.
+
 ---
 
 ## Development
