@@ -68,9 +68,9 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         """Return the time at which `record` expires."""
         return record.created_at + self.ttl
 
-    def _is_expired(self, record: UpdateRecord, now: Number | None = None) -> bool:
-        """Return whether `record` has expired at `now`, or at the current time if `None`."""
-        return (time.time() if now is None else now) >= self._expires_at(record)
+    def _is_expired(self, record: UpdateRecord, now: Number) -> bool:
+        """Return whether `record` has expired at `now`."""
+        return now >= self._expires_at(record)
 
     def _clean_up(self, heap: list[UpdateRecord], now: Number | None = None) -> list[UpdateRecord]:
         """Pop expired records off the front of `heap` in place and return it."""
