@@ -222,13 +222,19 @@ from pyroflow import Client, MessageCoordinated, RedisUpdateCoordinator
 
 
 client = Client("my_session")
-redis = Redis(db=client.name)
+redis = Redis()
 coordinator_factory = partial(RedisUpdateCoordinator, redis)
 coordinated = MessageCoordinated(coordinator_factory)
 client.register_coordinated(coordinated)
 
 client.run()
 ```
+
+مرّر client لـ Redis يصل إلى الخادم. المنسق لا يفتحه ولا يغلقه، فأغلقه بنفسك بعد إيقاف الـ client.
+
+كل الـ sessions تستخدم نفس مفاتيح Redis، وبهذا يتم التنسيق بينها. ويكتب كل منسق `fingerprint` خاصاً به في قيمة كل قفل يأخذه:
+- عند الإيقاف يحذف الأقفال التي ما زال يحملها، ولا يلمس أقفال الـ sessions الأخرى.
+- علامات المعالجة تبقى حتى ينتهي `handled_ttl`، لأن الـ sessions الأخرى تعتمد عليها.
 
 **الـ backends المدعومة:**
 

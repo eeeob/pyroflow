@@ -56,6 +56,14 @@ def test_init_stores_the_client_and_defaults(redis: fake_aioredis.FakeRedis) -> 
     assert coord.sleep == 0.1
 
 
+def test_init_gives_each_coordinator_its_own_fingerprint(redis: fake_aioredis.FakeRedis) -> None:
+    first, second = _coord(redis), _coord(redis)
+
+    assert len(first.fingerprint) == 32
+    int(first.fingerprint, 16)
+    assert first.fingerprint != second.fingerprint
+
+
 # --- build_key --------------------------------------------------------------
 
 
@@ -229,7 +237,107 @@ async def test_marking_handled_does_not_lock(redis: fake_aioredis.FakeRedis) -> 
 # --- lifecycle and exports ----------------------------------------------------
 
 
-async def test_start_and_stop_leave_redis_untouched(redis: fake_aioredis.FakeRedis) -> None:
+async def test_lock_value_starts_with_the_fingerprint(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+
+    assert await coord.lock((1,)).acquire() is True
+
+    value = (await redis.get(coord.build_key((1,)))).decode()
+    assert value.startswith(f"{coord.fingerprint}:")
+    assert len(value) > len(coord.fingerprint) + 1
+
+
+async def test_async_with_also_stamps_the_fingerprint(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+
+    async with coord.lock((1,)):
+        value = (await redis.get(coord.build_key((1,)))).decode()
+
+    assert value.startswith(f"{coord.fingerprint}:")
+
+
+async def test_each_lock_gets_its_own_value(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+    await coord.lock((1,)).acquire()
+    await coord.lock((2,)).acquire()
+
+    assert await redis.get(coord.build_key((1,))) != await redis.get(coord.build_key((2,)))
+
+
+async def test_an_expired_lock_does_not_release_a_newer_one_of_its_coordinator(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord = _coord(redis, lock_ttl=0.05)
+    stale = coord.lock((1,))
+    await stale.acquire()
+    await asyncio.sleep(0.1)
+    await coord.lock((1,)).acquire()
+
+    with pytest.raises(LockError):
+        await stale.release()
+
+    assert await redis.exists(coord.build_key((1,))) == 1
+
+
+async def test_start_keeps_a_fingerprint_no_lock_carries(redis: fake_aioredis.FakeRedis) -> None:
+    other = _coord(redis)
+    await other.lock((1,)).acquire()
+    coord = _coord(redis)
+    fingerprint = coord.fingerprint
+
+    await coord.start()
+
+    assert coord.fingerprint == fingerprint
+
+
+@pytest.mark.parametrize("decode_responses", [False, True])
+async def test_start_replaces_a_fingerprint_a_lock_already_carries(
+    decode_responses: bool,  # noqa: FBT001  # pytest passes parameters positionally
+) -> None:
+    redis = fake_aioredis.FakeRedis(decode_responses=decode_responses)
+    try:
+        coord = _coord(redis)
+        taken = coord.fingerprint
+        await redis.set(coord.build_key((1,)), f"{taken}:other-session")
+
+        await coord.start()
+
+        assert coord.fingerprint != taken
+        assert len(coord.fingerprint) == 32
+    finally:
+        await redis.aclose()
+
+
+async def test_stop_deletes_only_the_locks_this_coordinator_holds(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord, other = _coord(redis), _coord(redis)
+    await coord.lock((1,)).acquire()
+    await coord.lock((2,)).acquire()
+    await other.lock((3,)).acquire()
+    await coord.mark_handled((1,))
+
+    await coord.stop()
+
+    assert await redis.exists(coord.build_key((1,)), coord.build_key((2,))) == 0
+    assert await redis.exists(other.build_key((3,))) == 1
+    assert await coord.is_handled((1,)) is True
+
+
+async def test_stop_leaves_other_update_types_alone(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+    query_coord = RedisUpdateCoordinator(redis, CallbackQuery, blocking_timeout=0.05)
+    query_coord.fingerprint = coord.fingerprint
+    await query_coord.lock((1,)).acquire()
+
+    await coord.stop()
+
+    assert await redis.exists(query_coord.build_key((1,))) == 1
+
+
+async def test_start_and_stop_with_no_locks_keep_handled_keys(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
     coord = _coord(redis)
     await coord.mark_handled((1, 2))
 

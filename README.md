@@ -200,13 +200,17 @@ from pyroflow import Client, MessageCoordinated, RedisUpdateCoordinator
 
 
 client = Client("my_session")
-redis = Redis(db=client.name)
+redis = Redis()
 coordinator_factory = partial(RedisUpdateCoordinator, redis)
 coordinated = MessageCoordinated(coordinator_factory)
 client.register_coordinated(coordinated)
 
 client.run()
 ```
+
+Pass a Redis client that can reach the server. The coordinator never opens or closes it, so close it yourself once the client stops.
+
+Every session shares the same Redis keys, which is what coordinates them. Each coordinator also writes its own `fingerprint` into the value of every lock it takes. On stop it deletes the locks it still holds, and leaves other sessions' locks alone. The handled marks stay until `handled_ttl` expires, since the other sessions still rely on them.
 
 **Supported backends:**
 

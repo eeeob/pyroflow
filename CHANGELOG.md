@@ -30,6 +30,11 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `PyroflowError`, the root of every pyroflow error, and `CoordinationError`,
   the family of coordination errors.
 - `UpdateCoordinator.update_type`: the update class a coordinator handles.
+- `RedisUpdateCoordinator.fingerprint`: a per-coordinator id that prefixes the
+  value of every lock it takes. `start()` replaces it if a lock in Redis
+  already carries it, and `stop()` deletes the locks the coordinator still
+  holds. Other sessions' locks and every handled key are left alone. The Redis
+  client stays owned by the caller, who closes it after `stop()`.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
