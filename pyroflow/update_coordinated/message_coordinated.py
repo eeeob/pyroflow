@@ -5,7 +5,6 @@ from __future__ import annotations as _annotations
 from typing import Any, TYPE_CHECKING
 
 from ..types import Message
-from ..utils import get_message_identity
 from .update_coordinated import UpdateCoordinated
 
 if TYPE_CHECKING:
@@ -51,13 +50,25 @@ class MessageCoordinated(UpdateCoordinated[Message]):
     async def _extract_update_id(self, update: Message) -> CoordinatedUpdateIdT:
         """Identify the message as `(business_connection_id, scheduled, chat_id, message_id, edited)`.
 
-        The first four come from `get_message_identity`. An edit keeps the
-        message id, so the edit time (`0` before any edit) tells an edit apart
-        from the original.
+        Business, scheduled and regular messages have separate id sequences,
+        so the business connection (`""` outside one) and the scheduled flag
+        keep them apart. An ephemeral message has id `0` and an id that is
+        reused once it expires, so it is identified by that id and its send
+        time instead. An edit keeps the message id, so the edit time (`0`
+        before any edit) tells an edit apart from the original.
         """
+        message_id = update.id or (
+            f"e{update.ephemeral_message_id}:{int(update.date.timestamp()) if update.date else 0}"
+        )
         edited = int(update.edit_date.timestamp()) if update.edit_date else 0
 
-        return (*get_message_identity(update), edited)
+        return (  # ty: ignore[invalid-return-type]  # `pyrogram` types `Chat.id` as `Optional`; a parsed chat always carries it
+            update.business_connection_id or "",
+            int(bool(update.scheduled)),
+            update.chat.id,  # ty: ignore[unresolved-attribute]  # only reached once `_extract_key` found a chat
+            message_id,
+            edited,
+        )
 
 
 __all__ = ("MessageCoordinated",)
