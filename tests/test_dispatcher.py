@@ -37,6 +37,7 @@ from pyroflow.dispatcher import (
 )
 from pyroflow.errors import UnresolvedUpdate, UpdateAlreadyHandled
 from pyroflow.update_coordinated import MessageCoordinated
+from pyroflow.update_listener import MessageListener
 from pyroflow.update_coordinator import RedisUpdateCoordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
     MemoryUpdateCoordinator,
@@ -823,6 +824,20 @@ async def test_handle_listen_unresolved_update_propagates_on(
 
     assert listener.resolved == [msg]
     assert "Unexpected error in handle_listen" not in caplog.text
+
+
+async def test_handle_listen_lets_an_update_through_an_idle_listener() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.register_listener(MessageListener())
+    release, _, _ = make_release()
+    token = _SETTLEMENT.set(release)
+
+    try:
+        assert await dispatcher.handle_listen(make_message()) is None
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert release._settled is False
 
 
 async def test_handle_listen_logs_a_listener_error(caplog: pytest.LogCaptureFixture) -> None:

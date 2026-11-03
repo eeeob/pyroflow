@@ -331,8 +331,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Candidates are tried in the order of `ListenerKey.sub_keys`, from
         `(chat_id, user_id, message_id)` down to `(chat_id)`. A listener whose
         registration another session has taken over is cancelled and the next
-        candidate is tried. When this process holds no listeners, the method
-        returns without calling `on_unresolved`.
+        candidate is tried. When none matches, including when this process
+        holds no listeners, `on_unresolved` decides.
 
         Args:
             update: The incoming Pyrogram update.
@@ -378,7 +378,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                         listener.resolve(update)
                         return
 
-            await self.on_unresolved(key, update)
+        await self.on_unresolved(key, update)
 
     async def on_unresolved(self, key: ListenerKey, update: UpdateType) -> None:
         """Handle an update that matched no listener; override to queue or log it.

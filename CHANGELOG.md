@@ -187,6 +187,13 @@ Every breaking change lists what changed, who is affected and how to migrate.
   instead of swallowing it.
 - `MessageListener` no longer raises `AttributeError` for messages without
   `from_user` (anonymous admins, channel posts); the listener key's user is `None`.
+- A registered listener with no pending `listen` no longer swallows every
+  update of its type: `UpdateListener.resolve` used to return as resolved when
+  this process held no listeners, so handlers were skipped (and, under
+  coordination, the update was marked as handled for every session). It now
+  calls `on_unresolved`, so `CallbackQueryListener` also cancels the message
+  listener waiting on a pressed button's message when no callback listener is
+  pending.
 
 ## [0.2.1] - 2026-07-26
 

@@ -472,7 +472,7 @@ async def test_resolve_raises_for_unlistenable_update() -> None:
     assert exc.value.value is update
 
 
-async def test_resolve_without_listeners_skips_on_unresolved() -> None:
+async def test_resolve_without_listeners_calls_on_unresolved() -> None:
     calls: list[ListenerKey] = []
 
     class Recording(_Listener):
@@ -480,8 +480,17 @@ async def test_resolve_without_listeners_skips_on_unresolved() -> None:
             calls.append(key)
 
     lis = Recording(is_listenable_func=lambda update: True, extract_key_func=_key_of)
-    assert await lis.resolve(make_message()) is None
-    assert calls == []
+    assert await lis.resolve(make_message(100, 7, 5)) is None
+    assert calls == [ListenerKey(100, 7, 5)]
+
+
+async def test_resolve_without_listeners_raises_by_default() -> None:
+    lis = _make(is_listenable_func=lambda update: True, extract_key_func=_key_of)
+    update = make_message()
+
+    with pytest.raises(UnresolvedUpdate) as exc:
+        await lis.resolve(update)
+    assert exc.value.value is update
 
 
 async def test_resolve_without_match_calls_on_unresolved() -> None:
