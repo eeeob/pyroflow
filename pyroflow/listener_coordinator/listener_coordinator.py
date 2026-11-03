@@ -39,7 +39,7 @@ class ListenerCoordinator(ABC):
         """Return the async lock that serialises coordinator operations for `key`.
 
         Args:
-            key: A chat id, a tuple of ids or a `ListenerKey` naming the scope.
+            key: The listener key naming the scope.
 
         Returns:
             An async lock usable with `async with`.

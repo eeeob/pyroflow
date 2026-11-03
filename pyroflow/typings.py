@@ -31,7 +31,6 @@ UpdateHistoryKeyT: TypeAlias = UpdateCoordinatorKeyT
 ListenerCoordinatorIdT: TypeAlias = StrInt
 """Ownership token a listener coordinator hands out at registration time."""
 
-
 BotCommandEntryT: TypeAlias = (
     MaybeList[BotCommand]
     | tuple[BotCommandScope, MaybeList[BotCommand]]
