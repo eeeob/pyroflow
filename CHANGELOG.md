@@ -37,11 +37,21 @@ Every breaking change lists what changed, who is affected and how to migrate.
   client stays owned by the caller, who closes it after `stop()`.
 - `pyroflow.utils.redis_token_lock`: a redis-py async lock that takes its value
   as `token` instead of a random UUID.
+- `pyroflow.utils.get_message_identity`: a message's
+  `(business_connection_id, scheduled, chat_id, message_id)`, shared by
+  `MessageCoordinated` and `MessageHistory`.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
 ### Changed
 
+- **BREAKING:** `MessageHistory` keys messages by
+  `(business_connection_id, scheduled, chat_id, message_id, user_id)` instead
+  of `(chat_id, user_id, message_id)`, so business, scheduled and ephemeral
+  messages (which all have id `0`) no longer share a history with other
+  messages. Edits still share the message's history. Affects code reading
+  `MessageHistory` records by a hand-built key.
+  Migration: build the key with `await history.extract_key(message)`.
 - **BREAKING:** `UpdateHistory` only extracts, like `UpdateCoordinated`:
   `extract_key` (returning `None` leaves the update unrecorded) and
   `extract_data`, with the backend in `store`. `is_recordable`,

@@ -1,4 +1,4 @@
-"""Internal helpers: an awaitable-release lock, a Redis lock with a chosen value, the `UpdateBound` base and `ask` error dispatch."""
+"""Internal helpers: an awaitable-release lock, a Redis lock with a chosen value, the `UpdateBound` base, message identity and `ask` error dispatch."""
 
 from __future__ import annotations as _annotations
 
@@ -198,6 +198,38 @@ def get_update_executor(update: object) -> ThreadPoolExecutor | None:
     return getattr(getattr(update, "_client", None), "executor", None)
 
 
+def get_message_identity(message: Message) -> tuple[str, int, int, int | str]:
+    """Return what identifies `message` across Telegram's message id spaces.
+
+    The result is `(business_connection_id, scheduled, chat_id, message_id)`.
+    Business, scheduled and regular messages have separate id sequences, so
+    the business connection (`""` outside one) and the scheduled flag keep
+    them apart. An ephemeral message has id `0` and an id that is reused once
+    it expires, so its `message_id` is `e<ephemeral id>:<send time>` instead.
+
+    Args:
+        message: A message in a chat; callers check `message.chat` first.
+
+    Returns:
+        The identity tuple.
+
+    Example:
+        >>> from pyrogram.types import Chat, Message
+        >>> get_message_identity(Message(id=42, chat=Chat(id=-100)))
+        ('', 0, -100, 42)
+    """
+    message_id = message.id or (
+        f"e{message.ephemeral_message_id}:{int(message.date.timestamp()) if message.date else 0}"
+    )
+
+    return (  # ty: ignore[invalid-return-type]  # `pyrogram` types `Chat.id` as `Optional`; a parsed chat always carries it
+        message.business_connection_id or "",
+        int(bool(message.scheduled)),
+        message.chat.id,  # ty: ignore[unresolved-attribute]  # callers pass only a message in a chat
+        message_id,
+    )
+
+
 @cache
 def _redis_token_lock_class() -> Callable[..., Lock]:
     """Build, once, redis-py's async `Lock` extended to take its value in `__init__`.
@@ -254,6 +286,7 @@ def redis_token_lock(redis: Redis, name: str, *, token: str, **kw: Any) -> Lock:
 __all__ = (
     "AsyncioLock",
     "UpdateBound",
+    "get_message_identity",
     "get_update_executor",
     "handle_ask_error",
     "redis_token_lock",

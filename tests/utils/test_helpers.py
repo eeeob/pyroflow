@@ -9,6 +9,7 @@ from __future__ import annotations as _annotations
 
 import threading
 from abc import ABC
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
@@ -16,6 +17,7 @@ from typing import Any
 import pytest
 
 from pyroflow.utils import (
+    get_message_identity,
     AsyncioLock,
     UpdateBound,
     get_update_executor,
@@ -23,7 +25,7 @@ from pyroflow.utils import (
     helpers,
     redis_token_lock,
 )
-from pyrogram.types import Message
+from pyrogram.types import Chat, Message
 
 
 class ExcA(Exception):
@@ -354,10 +356,47 @@ def test_redis_token_lock_class_is_built_once() -> None:
     assert issubclass(cls, lock_module.Lock)
 
 
+def _identity_message(**fields: Any) -> Message:
+    message = Message(id=fields.pop("id", 42), chat=Chat(id=-100))
+    for name, value in fields.items():
+        setattr(message, name, value)
+    return message
+
+
+def test_get_message_identity_of_a_regular_message() -> None:
+    assert get_message_identity(_identity_message()) == ("", 0, -100, 42)
+
+
+def test_get_message_identity_keeps_business_and_scheduled_apart() -> None:
+    business = get_message_identity(_identity_message(business_connection_id="conn-1"))
+    scheduled = get_message_identity(_identity_message(scheduled=True))
+
+    assert business == ("conn-1", 0, -100, 42)
+    assert scheduled == ("", 1, -100, 42)
+
+
+def test_get_message_identity_of_an_ephemeral_message_uses_its_id_and_date() -> None:
+    date = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    first = _identity_message(id=0, ephemeral_message_id=1, date=date)
+    reused = _identity_message(
+        id=0, ephemeral_message_id=1, date=datetime(2026, 1, 2, tzinfo=timezone.utc)
+    )
+
+    assert get_message_identity(first)[3] == f"e1:{int(date.timestamp())}"
+    assert get_message_identity(first) != get_message_identity(reused)
+
+
+def test_get_message_identity_of_an_undated_ephemeral_message() -> None:
+    message = _identity_message(id=0, ephemeral_message_id=3, date=None)
+
+    assert get_message_identity(message)[3] == "e3:0"
+
+
 def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == (
         "AsyncioLock",
         "UpdateBound",
+        "get_message_identity",
         "get_update_executor",
         "handle_ask_error",
         "redis_token_lock",
