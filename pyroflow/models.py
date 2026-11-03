@@ -1,8 +1,10 @@
-"""Data models for listeners and handled-update records."""
+"""Data models for listeners, handled-update records and the handler references they keep."""
 
 from __future__ import annotations as _annotations
 
 import asyncio
+import importlib
+import sys
 import time
 import weakref
 from dataclasses import Field, dataclass, field, fields, is_dataclass
@@ -189,6 +191,178 @@ class ListenerModel:
         return self.future.done()
 
 
+def _qualified_name(obj: Any) -> str:
+    """Return `obj`'s import path as `module:qualname`.
+
+    A module run as `python -m pkg` is named `__main__`; its real name comes
+    from its spec. A script run directly has no spec and stays `__main__`.
+
+    Example:
+        >>> _qualified_name(HandlerRef)
+        'pyroflow.models:HandlerRef'
+    """
+    module = obj.__module__
+
+    if module == "__main__":
+        spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+
+        if spec is not None:
+            module = spec.name
+
+    return f"{module}:{obj.__qualname__}"
+
+
+def _resolve(path: str) -> Any:
+    """Return the object at the `module:qualname` import path `path`.
+
+    Only a module whose top-level package is already loaded is imported, so a
+    path read from stored data cannot pull in foreign code. The running
+    `__main__` module is reused under its real name instead of being imported
+    a second time.
+
+    Raises:
+        ValueError: If the top-level package of the module is not loaded.
+        ImportError: If the module cannot be imported.
+        AttributeError: If the qualname does not resolve, such as for a lambda
+            or a nested function.
+
+    Example:
+        >>> _resolve("pyroflow.models:HandlerRef") is HandlerRef
+        True
+    """
+    module_name, _, qualname = path.partition(":")
+
+    if module_name.partition(".")[0] not in sys.modules:
+        msg = f"Refusing to import {module_name!r}: its package is not loaded"
+        raise ValueError(msg)
+
+    main = sys.modules.get("__main__")
+
+    if getattr(getattr(main, "__spec__", None), "name", None) == module_name:
+        obj = main
+    else:
+        obj = importlib.import_module(module_name)
+
+    for part in qualname.split("."):
+        obj = getattr(obj, part)
+
+    return obj
+
+
+@dataclass(frozen=True, slots=True)
+class HandlerRef:
+    """A handler stored as raw data: the import paths of its class and callback.
+
+    It tells which project a record came from and rebuilds the handler from
+    the callback. Filters are not kept, so a rebuilt handler has none. A
+    callback defined in a script run directly belongs to project `__main__`,
+    and two projects with the same top-level package count as one.
+
+    Example:
+        >>> from pyrogram.handlers import MessageHandler
+        >>> from pyroflow.utils import get_update_executor
+        >>> ref = HandlerRef.from_handler(MessageHandler(get_update_executor))
+        >>> ref.callback, ref.project, ref.is_same_project()
+        ('pyroflow.utils.helpers:get_update_executor', 'pyroflow', True)
+    """
+
+    handler_type: str
+    """Import path of the handler class, as `module:qualname`."""
+    callback: str
+    """Import path of the handler's callback, as `module:qualname`."""
+
+    @classmethod
+    def from_handler(cls, handler: PyroHandler) -> HandlerRef:
+        """Return the reference of `handler`.
+
+        Example:
+            >>> from pyrogram.handlers import MessageHandler
+            >>> HandlerRef.from_handler(MessageHandler(print)).handler_type
+            'pyrogram.handlers.message_handler:MessageHandler'
+        """
+        return cls(_qualified_name(type(handler)), _qualified_name(handler.callback))
+
+    def to_raw(self) -> str:
+        """Return the reference as one string, `handler_type|callback`.
+
+        Example:
+            >>> HandlerRef("pkg.handlers:Handler", "bot.handlers:start").to_raw()
+            'pkg.handlers:Handler|bot.handlers:start'
+        """
+        return f"{self.handler_type}|{self.callback}"
+
+    @classmethod
+    def from_raw(cls, raw: str) -> HandlerRef:
+        """Parse a reference written by `to_raw`.
+
+        Raises:
+            ValueError: If `raw` is not two `module:qualname` paths joined by `|`.
+
+        Example:
+            >>> HandlerRef.from_raw("pkg.handlers:Handler|bot.handlers:start").callback
+            'bot.handlers:start'
+        """
+        handler_type, sep, callback = raw.partition("|")
+
+        if not sep or ":" not in handler_type or ":" not in callback:
+            msg = f"Invalid handler reference {raw!r}"
+            raise ValueError(msg)
+
+        return cls(handler_type, callback)
+
+    @property
+    def project(self) -> str:
+        """Return the top-level package of the callback, which names its project.
+
+        Example:
+            >>> HandlerRef("pkg.handlers:Handler", "bot.handlers:start").project
+            'bot'
+        """
+        return self.callback.partition(":")[0].partition(".")[0]
+
+    def is_same_project(self) -> bool:
+        """Return whether the callback's project is loaded in the running process.
+
+        The standard library is never a project, so a reference such as
+        `os:system` read from stored data is refused.
+
+        Example:
+            >>> HandlerRef("pkg.handlers:Handler", "no_such_bot.handlers:start").is_same_project()
+            False
+        """
+        return self.project in sys.modules and self.project not in sys.stdlib_module_names
+
+    def rebuild(self) -> PyroHandler:
+        """Import the handler class and callback, and return a new handler without filters.
+
+        Raises:
+            ValueError: If the reference comes from another project, or the
+                handler class's package is not loaded.
+            ImportError: If a module cannot be imported.
+            AttributeError: If a path does not resolve, such as for a lambda or
+                a nested callback.
+            TypeError: If `handler_type` is not a Pyrogram handler class.
+
+        Example:
+            >>> from pyrogram.handlers import MessageHandler
+            >>> from pyroflow.utils import get_update_executor
+            >>> handler = HandlerRef.from_handler(MessageHandler(get_update_executor)).rebuild()
+            >>> type(handler).__name__, handler.callback is get_update_executor, handler.filters
+            ('MessageHandler', True, None)
+        """
+        if not self.is_same_project():
+            msg = f"Handler {self.callback!r} belongs to project {self.project!r}, which is not running"
+            raise ValueError(msg)
+
+        handler_type = _resolve(self.handler_type)
+
+        if not (isinstance(handler_type, type) and issubclass(handler_type, PyroHandler)):
+            msg = f"{self.handler_type!r} is not a Pyrogram handler class"
+            raise TypeError(msg)
+
+        return handler_type(_resolve(self.callback))
+
+
 class _WeakSlots:
     """Base that gives a slotted dataclass a `__weakref__` slot."""
 
@@ -204,7 +378,7 @@ class UpdateRecord(_WeakSlots):
     created in.
 
     Example:
-        >>> handler = PyroHandler(lambda client, update: None)
+        >>> handler = HandlerRef("pkg.handlers:Handler", "bot.handlers:start")
         >>> first = UpdateRecord(handler, created_at=1.0)
         >>> second = UpdateRecord(handler, created_at=1.0)
         >>> first < second, second > first
@@ -216,8 +390,8 @@ class UpdateRecord(_WeakSlots):
     _SEQ_IDS: ClassVar[dict[int, int]] = {}
     """Sequence number of each live record, keyed by the record's `id()`."""
 
-    handler: PyroHandler
-    """The handler that handled the update."""
+    handler: HandlerRef
+    """Reference to the handler that handled the update."""
     data: Any | None = None
     """Optional data stored alongside the record."""
     created_at: Number = field(default_factory=time.time)
@@ -247,5 +421,6 @@ class UpdateRecord(_WeakSlots):
 __all__ = (
     "ListenerKey",
     "ListenerModel",
+    "HandlerRef",
     "UpdateRecord",
 )

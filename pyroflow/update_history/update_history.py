@@ -48,7 +48,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
     Example:
         >>> import asyncio
         >>> from pyrogram.types import Chat, Message
-        >>> from pyroflow.models import UpdateRecord
+        >>> from pyroflow.models import HandlerRef, UpdateRecord
         >>> class TextHistory(UpdateHistory[Message]):
         ...     __update_type__ = Message
         >>> history = TextHistory(
@@ -59,10 +59,11 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         ...     message = Message(id=1, chat=Chat(id=5), text="hi")
         ...     key = await history.extract_key(message)
         ...     data = await history.extract_data(message)
-        ...     await history.store.update(key, UpdateRecord(handler="start", data=data))
-        ...     return key, [(r.handler, r.data) for r in await history.store.get(key)]
+        ...     handler = HandlerRef("pkg.handlers:Handler", "bot.handlers:start")
+        ...     await history.store.update(key, UpdateRecord(handler=handler, data=data))
+        ...     return key, [(r.handler.callback, r.data) for r in await history.store.get(key)]
         >>> asyncio.run(main())
-        ((5,), [('start', 'hi')])
+        ((5,), [('bot.handlers:start', 'hi')])
     """
 
     def __init__(

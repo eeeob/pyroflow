@@ -13,7 +13,7 @@ from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHan
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
 from .errors import UnresolvedUpdate, UpdateAlreadyHandled
-from .models import UpdateRecord
+from .models import HandlerRef, UpdateRecord
 from .utils import patch_cls
 
 if TYPE_CHECKING:
@@ -442,7 +442,12 @@ class Dispatcher(PyroDispatcher):
                     now = time.time()
                     await history.store.update(
                         key,
-                        *(UpdateRecord(handler=h, data=data, created_at=now) for h in succeeded),
+                        *(
+                            UpdateRecord(
+                                handler=HandlerRef.from_handler(h), data=data, created_at=now
+                            )
+                            for h in succeeded
+                        ),
                     )
             except Exception:
                 log.exception("Unexpected error recording handlers for %r", parsed_update)

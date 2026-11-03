@@ -37,11 +37,21 @@ Every breaking change lists what changed, who is affected and how to migrate.
   client stays owned by the caller, who closes it after `stop()`.
 - `pyroflow.utils.redis_token_lock`: a redis-py async lock that takes its value
   as `token` instead of a random UUID.
+- `HandlerRef`: a handler stored as the import paths of its class and
+  callback. `to_raw()`/`from_raw()` turn it into one string and back,
+  `project` and `is_same_project()` tell whether it comes from the running
+  project, and `rebuild()` imports a new handler, without filters.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
 ### Changed
 
+- **BREAKING:** `UpdateRecord.handler` is a `HandlerRef` instead of the live
+  handler, so a record can be stored as raw data. Affects code reading
+  `record.handler`.
+  Migration: compare with `record.handler == HandlerRef.from_handler(handler)`,
+  or call `record.handler.rebuild()` for a handler with the same class and
+  callback and no filters.
 - **BREAKING:** `MessageHistory` keys messages by `(chat_id, message_id)`
   instead of `(chat_id, user_id, message_id)`: the history follows the
   message, whoever sent it. Affects code reading `MessageHistory` records by a

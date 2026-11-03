@@ -260,6 +260,8 @@ key = await history.extract_key(query)
 records = await history.store.get(key) if key is not None else []
 ```
 
+Each record keeps a `HandlerRef`, the import paths of the handler's class and callback, so it can be stored as raw data with `to_raw()`. `is_same_project()` tells whether it comes from the running project, and `rebuild()` imports a new handler from it, without filters.
+
 ---
 
 They can also be removed at runtime:

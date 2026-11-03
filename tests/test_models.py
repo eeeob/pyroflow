@@ -4,14 +4,26 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import gc
+import sys
 import time
 import weakref
 from dataclasses import Field
+from types import SimpleNamespace
 
 import pytest
+from pyrogram.handlers import MessageHandler
 
 import pyroflow.models
-from pyroflow.models import ListenerKey, ListenerModel, UpdateRecord, _get_plan, _WeakSlots
+from pyroflow.models import (
+    HandlerRef,
+    ListenerKey,
+    ListenerModel,
+    UpdateRecord,
+    _get_plan,
+    _qualified_name,
+    _resolve,
+    _WeakSlots,
+)
 
 
 def test_listener_key_to_tuple() -> None:
@@ -217,5 +229,133 @@ def test_update_record_time_outranks_creation_order() -> None:
     assert sorted([later, earlier]) == [earlier, later]
 
 
+# --- HandlerRef ------------------------------------------------------------
+
+
+async def _start(client: object, update: object) -> None:
+    pass
+
+
+class _Handlers:
+    @staticmethod
+    async def menu(client: object, update: object) -> None:
+        pass
+
+
+THIS = "tests.test_models"
+
+
+def test_qualified_name_of_a_module_function() -> None:
+    assert _qualified_name(_start) == f"{THIS}:_start"
+
+
+def test_qualified_name_of_a_main_module_uses_its_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    def start() -> None:
+        pass
+
+    start.__module__ = "__main__"
+    monkeypatch.setitem(
+        sys.modules, "__main__", SimpleNamespace(__spec__=SimpleNamespace(name="bot.__main__"))
+    )
+    assert _qualified_name(start).startswith("bot.__main__:")
+
+    monkeypatch.setitem(sys.modules, "__main__", SimpleNamespace(__spec__=None))
+    assert _qualified_name(start).startswith("__main__:")
+
+
+def test_resolve_walks_the_qualname() -> None:
+    assert _resolve(f"{THIS}:_Handlers.menu") is _Handlers.menu
+
+
+def test_resolve_refuses_a_package_that_is_not_loaded() -> None:
+    with pytest.raises(ValueError, match="not loaded"):
+        _resolve("no_such_bot.handlers:start")
+
+
+def test_resolve_reuses_the_running_main_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    main = SimpleNamespace(__spec__=SimpleNamespace(name="bot.__main__"), start=_start)
+    monkeypatch.setitem(sys.modules, "__main__", main)
+    monkeypatch.setitem(sys.modules, "bot", SimpleNamespace())
+
+    assert _resolve("bot.__main__:start") is _start
+
+
+def test_resolve_cannot_reach_a_lambda() -> None:
+    with pytest.raises(AttributeError):
+        _resolve(f"{THIS}:<lambda>")
+
+
+def test_handler_ref_from_handler() -> None:
+    ref = HandlerRef.from_handler(MessageHandler(_start))
+
+    assert ref == HandlerRef("pyrogram.handlers.message_handler:MessageHandler", f"{THIS}:_start")
+
+
+def test_handler_ref_is_frozen_and_hashable() -> None:
+    ref = HandlerRef("a:H", "b:f")
+
+    with pytest.raises(AttributeError):
+        ref.callback = "c:g"  # ty: ignore[invalid-assignment]
+    assert {ref, HandlerRef("a:H", "b:f")} == {ref}
+
+
+def test_handler_ref_to_raw_and_from_raw_round_trip() -> None:
+    ref = HandlerRef.from_handler(MessageHandler(_Handlers.menu))
+
+    assert ref.to_raw() == f"{ref.handler_type}|{ref.callback}"
+    assert HandlerRef.from_raw(ref.to_raw()) == ref
+
+
+@pytest.mark.parametrize("raw", ["", "a:H", "a:H|", "|b:f", "aH|b:f", "a:H|bf"])
+def test_handler_ref_from_raw_rejects_a_malformed_string(raw: str) -> None:
+    with pytest.raises(ValueError, match="Invalid handler reference"):
+        HandlerRef.from_raw(raw)
+
+
+def test_handler_ref_project_is_the_callback_top_level_package() -> None:
+    assert HandlerRef("a:H", "bot.handlers.menu:start").project == "bot"
+    assert HandlerRef("a:H", "bot:start").project == "bot"
+
+
+def test_handler_ref_is_same_project() -> None:
+    assert HandlerRef("a:H", f"{THIS}:_start").is_same_project() is True
+    assert HandlerRef("a:H", "no_such_bot.handlers:start").is_same_project() is False
+
+
+def test_handler_ref_standard_library_is_never_the_same_project() -> None:
+    assert "os" in sys.modules
+    assert HandlerRef("a:H", "os:system").is_same_project() is False
+
+
+def test_handler_ref_rebuild_returns_a_new_handler_without_filters() -> None:
+    original = MessageHandler(_Handlers.menu, filters=object())  # ty: ignore[invalid-argument-type]
+    rebuilt = HandlerRef.from_handler(original).rebuild()
+
+    assert type(rebuilt) is MessageHandler
+    assert rebuilt is not original
+    assert rebuilt.callback is _Handlers.menu
+    assert rebuilt.filters is None
+
+
+def test_handler_ref_rebuild_refuses_another_project() -> None:
+    ref = HandlerRef("pyrogram.handlers.message_handler:MessageHandler", "no_such_bot:start")
+
+    with pytest.raises(ValueError, match="not running"):
+        ref.rebuild()
+
+
+def test_handler_ref_rebuild_rejects_a_non_handler_class() -> None:
+    with pytest.raises(TypeError, match="not a Pyrogram handler class"):
+        HandlerRef(f"{THIS}:_Handlers", f"{THIS}:_start").rebuild()
+
+
+def test_handler_ref_rebuild_cannot_reach_a_nested_callback() -> None:
+    def nested(client: object, update: object) -> None:
+        pass
+
+    with pytest.raises(AttributeError):
+        HandlerRef.from_handler(MessageHandler(nested)).rebuild()
+
+
 def test_models_all() -> None:
-    assert pyroflow.models.__all__ == ("ListenerKey", "ListenerModel", "UpdateRecord")
+    assert pyroflow.models.__all__ == ("ListenerKey", "ListenerModel", "HandlerRef", "UpdateRecord")

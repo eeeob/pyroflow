@@ -288,6 +288,11 @@ key = await history.extract_key(query)
 records = await history.store.get(key) if key is not None else []
 ```
 
+كل record يحمل `HandlerRef`، وهو مسارا استيراد كلاس الـ handler والـ callback:
+- `to_raw()` يحوّله إلى نص يُخزَّن كبيانات خام، و`from_raw()` يعيده.
+- `is_same_project()` يخبرك هل جاء من المشروع الذي يعمل الآن.
+- `rebuild()` يستورد منه handler جديداً بلا filters.
+
 ---
 
 ويمكن أيضًا إزالتها أثناء التشغيل:

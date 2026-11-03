@@ -36,6 +36,7 @@ from pyroflow.dispatcher import (
     _settle_handled,
 )
 from pyroflow.errors import UnresolvedUpdate, UpdateAlreadyHandled
+from pyroflow.models import HandlerRef
 from pyroflow.update_coordinated import MessageCoordinated
 from pyroflow.update_coordinator import RedisUpdateCoordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
@@ -1202,7 +1203,8 @@ async def test_succeeded_handlers_are_written_with_one_timestamp() -> None:
     dispatcher, handlers = history_dispatcher(history)
 
     assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (2, 1)
-    assert history.written == [(("k",), [handlers[0], handlers[2]], {"data"}, 1)]
+    refs = [HandlerRef.from_handler(handlers[0]), HandlerRef.from_handler(handlers[2])]
+    assert history.written == [(("k",), refs, {"data"}, 1)]
 
 
 async def test_update_with_a_none_history_key_records_nothing() -> None:

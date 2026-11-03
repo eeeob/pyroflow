@@ -33,14 +33,15 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
     Example:
         >>> import asyncio
-        >>> from pyroflow.models import UpdateRecord
+        >>> from pyroflow.models import HandlerRef, UpdateRecord
         >>> from pyroflow.types import Message
         >>> store = MemoryUpdateHistoryStore(Message, max_history_len=2)
         >>> async def demo():
-        ...     await store.update("key", *(UpdateRecord(handler=h) for h in "abc"))
-        ...     return [record.handler for record in await store.get("key")]
+        ...     handlers = (HandlerRef("pkg:Handler", f"bot:{name}") for name in "abc")
+        ...     await store.update(("key",), *(UpdateRecord(handler=h) for h in handlers))
+        ...     return [record.handler.callback for record in await store.get(("key",))]
         >>> asyncio.run(demo())
-        ['b', 'c']
+        ['bot:b', 'bot:c']
     """
 
     def __init__(
