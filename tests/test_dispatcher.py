@@ -35,7 +35,7 @@ from pyroflow.dispatcher import (
     _CoordinatedRelease,
     _settle_handled,
 )
-from pyroflow.errors import UnresolvedUpdate
+from pyroflow.errors import UnresolvedUpdate, UpdateAlreadyHandled
 from pyroflow.update_coordinated import MessageCoordinated
 from pyroflow.update_coordinator import RedisUpdateCoordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
@@ -509,13 +509,37 @@ async def test_settle_is_a_one_shot() -> None:
     assert lock.releases == 1
 
 
-async def test_settle_swallows_a_failing_registration_and_still_releases() -> None:
+async def test_settle_swallows_a_failing_registration_and_still_releases(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     release, coordinator, lock = make_release(coordinator=FakeCoordinator(RuntimeError("down")))
 
-    await release.settle(True)
+    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
+        assert await release.settle(True) is True
 
     assert coordinator.marked == [("id",)]
     assert lock.releases == 1
+    assert "Error marking update ('id',) as handled" in caplog.text
+
+
+async def test_settle_reports_an_update_a_peer_marked_first(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    release, _, lock = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
+
+    with caplog.at_level(logging.WARNING, logger="pyroflow.dispatcher"):
+        assert await release.settle(True) is False
+
+    assert lock.releases == 1
+    assert release._settled is True
+    assert "already handled by a peer" in caplog.text
+
+
+async def test_settle_returns_true_once_settled() -> None:
+    release, _, _ = make_release()
+
+    assert await release.settle(True) is True
+    assert await release.settle(True) is True
 
 
 async def test_settle_swallows_a_failing_release() -> None:
@@ -528,9 +552,19 @@ async def test_settle_swallows_a_failing_release() -> None:
 
 
 async def test_settle_handled_outside_a_coordinated_update_is_a_noop() -> None:
-    await _settle_handled()
+    assert await _settle_handled() is True
 
     assert _SETTLEMENT.get() is None
+
+
+async def test_settle_handled_returns_false_for_an_update_a_peer_marked_first() -> None:
+    release, _, _ = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
+    token = _SETTLEMENT.set(release)
+
+    try:
+        assert await _settle_handled() is False
+    finally:
+        _SETTLEMENT.reset(token)
 
 
 async def test_settle_handled_settles_the_current_update_as_handled() -> None:
@@ -831,6 +865,21 @@ async def test_handle_listen_settles_a_resolved_update_before_stopping() -> None
     assert lock.releases == 1
 
 
+async def test_handle_listen_still_stops_an_update_a_peer_marked_first() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.listeners[Message] = FakeListener()  # ty: ignore[invalid-assignment]
+    release, _, lock = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
+    token = _SETTLEMENT.set(release)
+
+    try:
+        with pytest.raises(StopPropagation):
+            await dispatcher.handle_listen(make_message())
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert lock.releases == 1
+
+
 async def test_handle_listen_leaves_an_unresolved_update_unsettled() -> None:
     dispatcher = make_real_dispatcher()
     dispatcher.listeners[Message] = FakeListener(UnresolvedUpdate("x"))  # ty: ignore[invalid-assignment]
@@ -1041,6 +1090,26 @@ async def test_passing_filter_settles_the_update_before_its_handler_runs() -> No
 
     assert settled_in_handler == [True, True]
     assert coordinator.marked == [("id",)]
+    assert lock.releases == 1
+
+
+async def test_update_a_peer_marked_first_runs_no_handler() -> None:
+    dispatcher = make_real_dispatcher()
+    calls: list[tuple[object, ...]] = []
+    release, _, lock = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
+    dispatcher.groups[0] = [MessageHandler(recording(calls, "a"))]
+    dispatcher.groups[1] = [MessageHandler(recording(calls, "b"))]
+    token = _SETTLEMENT.set(release)
+
+    try:
+        assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (
+            0,
+            0,
+        )
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert calls == []
     assert lock.releases == 1
 
 

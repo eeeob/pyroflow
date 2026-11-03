@@ -225,6 +225,8 @@ Every session shares the same Redis keys, which is what coordinates them. Each c
 3. Process it. The update counts as **handled** as soon as a listener resolves it or one handler's filter passes it: it is marked as handled and the lock is released right away, while the handler keeps running.
 4. If no listener and no filter took it, the lock is released unmarked, so another session with other handlers may take it.
 
+Marking only succeeds if no session marked the update before. If one did, for example after the lock expired, the update is logged and dropped before its handler runs.
+
 A session that cannot handle an update should say so in its handler's filter: a rejecting filter leaves the update to another session.
 
 ```python

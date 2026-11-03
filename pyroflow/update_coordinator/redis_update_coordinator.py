@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pytrove.enums import TimeUnit
 
+from ..errors import UpdateAlreadyHandled
 from ..utils import redis_token_lock
 from .update_coordinator import UpdateCoordinator
 
@@ -112,7 +113,7 @@ class RedisUpdateCoordinator(UpdateCoordinator):
 
     async def _lock_keys(self) -> list[bytes | str]:
         """Return every lock key of this update type, whoever holds it."""
-        pattern = self._key_formats["lock"].format_map({"key": "*"})
+        pattern = self.build_key(("*",), section="lock")
         return [key async for key in self.redis.scan_iter(match=pattern)]
 
     def lock(self, key: CoordinatedUpdateKeyT) -> Lock:
@@ -138,13 +139,21 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         return bool(await self.redis.exists(self.build_key(key, "handled")))
 
     async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
-        """Set the handled key for `key` in Redis, expiring after `handled_ttl`."""
+        """Set the handled key for `key` in Redis, expiring after `handled_ttl`, unless it exists.
+
+        Raises:
+            UpdateAlreadyHandled: If the handled key already exists.
+        """
         # `px` rather than `ex`, so a sub-second `handled_ttl` is not truncated to zero.
-        await self.redis.set(
+        is_set = await self.redis.set(
             self.build_key(key, "handled"),
             1,
             px=int(self.handled_ttl * 1000),
+            nx=True,
         )
+
+        if not is_set:
+            raise UpdateAlreadyHandled(key)
 
     async def start(self) -> None:
         """Pick a fingerprint no lock in Redis carries yet."""

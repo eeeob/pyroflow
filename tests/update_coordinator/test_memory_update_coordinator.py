@@ -20,6 +20,7 @@ from cachetools import TTLCache
 
 from pyrogram.types import Message
 
+from pyroflow.errors import UpdateAlreadyHandled
 from pyroflow.update_coordinator import memory_update_coordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
     MemoryUpdateCoordinator,
@@ -119,9 +120,22 @@ async def test_mark_handled_then_is_handled() -> None:
     assert await coord.is_handled((1, 2)) is True
 
 
-async def test_mark_handled_is_idempotent() -> None:
+async def test_mark_handled_twice_raises_and_keeps_the_entry() -> None:
     coord = _coord()
     await coord.mark_handled((1, 2))
+
+    with pytest.raises(UpdateAlreadyHandled) as excinfo:
+        await coord.mark_handled((1, 2))
+
+    assert excinfo.value.value == (1, 2)
+    assert await coord.is_handled((1, 2)) is True
+
+
+async def test_mark_handled_again_after_expiry_succeeds() -> None:
+    coord = _coord(handled_ttl=0.05)
+    await coord.mark_handled((1, 2))
+    await asyncio.sleep(0.1)
+
     await coord.mark_handled((1, 2))
     assert await coord.is_handled((1, 2)) is True
 

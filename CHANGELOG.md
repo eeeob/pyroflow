@@ -42,6 +42,15 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** `UpdateCoordinator.mark_handled` raises the new
+  `UpdateAlreadyHandled` (a `CoordinationError`) when the id is already
+  registered, instead of refreshing its expiry. The dispatcher logs it and
+  drops the update before any handler runs; a listener that already resolved
+  it still stops propagation. Affects custom `UpdateCoordinator` backends and
+  code that marked an id twice.
+  Migration: in a custom backend, set the id only if absent (Redis `SET NX`)
+  and raise `UpdateAlreadyHandled(key)` otherwise.
+
 - **BREAKING:** `ListenerKey.to_tuple` is a method. Affects code reading
   `key.to_tuple` as a property.
   Migration: call `key.to_tuple()`.

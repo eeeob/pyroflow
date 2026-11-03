@@ -82,12 +82,17 @@ class UpdateCoordinator(ABC):
 
     @abstractmethod
     async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
-        """Register `key` as handled for `handled_ttl` seconds.
+        """Register `key` as handled for `handled_ttl` seconds, unless it already is.
 
-        Marking a key again only refreshes its expiry.
+        The caller holds the update's lock and found `key` unhandled, so an
+        existing entry means a peer handled the same update meanwhile.
 
         Args:
             key: The update's identity, not its lock scope.
+
+        Raises:
+            UpdateAlreadyHandled: If `key` is already registered; its entry
+                and expiry are left unchanged.
         """
         raise NotImplementedError
 

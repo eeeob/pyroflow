@@ -9,6 +9,7 @@ from typing import Any, TYPE_CHECKING
 from cachetools import TTLCache
 from pytrove import DefaultWeakValueDict
 
+from ..errors import UpdateAlreadyHandled
 from ..utils import AsyncioLock
 from .update_coordinator import UpdateCoordinator
 
@@ -110,7 +111,10 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         return key in self.handled
 
     async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
-        """Add `key` to the in-memory handled registry."""
+        """Add `key` to the in-memory handled registry, raising `UpdateAlreadyHandled` if it is there."""
+        if key in self.handled:
+            raise UpdateAlreadyHandled(key)
+
         self.handled[key] = None
 
     async def stop(self) -> None:

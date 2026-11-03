@@ -11,7 +11,7 @@ from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
-from .errors import UnresolvedUpdate
+from .errors import UnresolvedUpdate, UpdateAlreadyHandled
 from .utils import patch_cls
 
 if TYPE_CHECKING:
@@ -63,32 +63,50 @@ class _CoordinatedRelease:
         self._settled: bool = False
         """Whether the settlement already ran."""
 
-    async def settle(self, handled: bool) -> None:
+    async def settle(self, handled: bool) -> bool:
         """Mark the update as handled if `handled`, then release the lock; later calls do nothing.
 
         Backend errors are logged, not raised, so the lock is always released.
 
         Args:
             handled: Whether to mark the update as handled.
+
+        Returns:
+            `False` if a peer had already marked the update, so this session
+            must drop it; `True` otherwise, including on later calls.
         """
         if self._settled:
-            return
+            return True
 
         self._settled = True
 
         try:
             if handled:
-                await safe_await(self._coordinator.mark_handled(self._update_id))
+                await self._coordinator.mark_handled(self._update_id)
+        except UpdateAlreadyHandled:
+            log.warning("Update %r was already handled by a peer; dropping it", self._update_id)
+            return False
+        except Exception:
+            log.exception("Error marking update %r as handled", self._update_id)
         finally:
             await safe_await(self._lock.release())
 
+        return True
 
-async def _settle_handled() -> None:
-    """Mark the update being processed as handled and release its lock, if it is coordinated."""
+
+async def _settle_handled() -> bool:
+    """Mark the update being processed as handled and release its lock, if it is coordinated.
+
+    Returns:
+        `False` if a peer had already marked the update, so it must be
+        dropped; `True` otherwise, including when it is not coordinated.
+    """
     release = _SETTLEMENT.get()
 
-    if release is not None:
-        await release.settle(True)
+    if release is None:
+        return True
+
+    return await release.settle(True)
 
 
 @patch_cls(setter=setattr)
@@ -330,6 +348,8 @@ class Dispatcher(PyroDispatcher):
         Handlers that succeed are recorded in the update type's history when it
         is recordable. A handler error is passed to
         `handle_update_handler_exception` and does not stop the other groups.
+        A coordinated update a peer marked first is dropped before any handler
+        runs.
 
         Args:
             packet: The raw `(update, users, chats)` tuple from Pyrogram.
@@ -392,7 +412,9 @@ class Dispatcher(PyroDispatcher):
 
                 # A passing filter makes a coordinated update handled; the
                 # handler then runs without its lock.
-                await _settle_handled()
+                if not await _settle_handled():
+                    # A peer handled it while this session held the lock.
+                    return handled_count, exc_count
 
                 try:
                     await maybe_awaitable(

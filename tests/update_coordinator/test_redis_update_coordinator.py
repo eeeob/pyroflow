@@ -21,6 +21,7 @@ from pytrove.enums import TimeUnit  # noqa: E402
 from redis.asyncio.lock import Lock  # noqa: E402
 from redis.exceptions import LockError  # noqa: E402
 
+from pyroflow.errors import UpdateAlreadyHandled  # noqa: E402
 from pyroflow.update_coordinator import redis_update_coordinator  # noqa: E402
 from pyroflow.update_coordinator.redis_update_coordinator import (  # noqa: E402
     RedisUpdateCoordinator,
@@ -199,14 +200,19 @@ async def test_mark_handled_keeps_a_sub_second_ttl(redis: fake_aioredis.FakeRedi
     assert 0 < await redis.pttl(coord.build_key((1, 2), "handled")) <= 500
 
 
-async def test_mark_handled_again_refreshes_the_expiry(redis: fake_aioredis.FakeRedis) -> None:
+async def test_mark_handled_twice_raises_and_keeps_the_expiry(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
     coord = _coord(redis, handled_ttl=20)
     key = coord.build_key((1, 2), "handled")
     await coord.mark_handled((1, 2))
-    await redis.pexpire(key, 100)
+    await redis.pexpire(key, 5000)
 
-    await coord.mark_handled((1, 2))
-    assert await redis.pttl(key) > 100
+    with pytest.raises(UpdateAlreadyHandled) as excinfo:
+        await _coord(redis).mark_handled((1, 2))
+
+    assert excinfo.value.value == (1, 2)
+    assert 0 < await redis.pttl(key) <= 5000
 
 
 async def test_handled_entries_expire(redis: fake_aioredis.FakeRedis) -> None:
