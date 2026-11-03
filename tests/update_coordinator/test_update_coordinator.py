@@ -35,15 +35,15 @@ class _Stub(UpdateCoordinator):
 def test_init_defaults() -> None:
     coord = _Stub(Message)
 
-    assert coord.lock_ttl == TimeUnit.HOUR == 3600
+    assert coord.update_type is Message
     assert coord.handled_ttl == TimeUnit.HOUR
-    assert coord.blocking_timeout == 5
+    assert coord.blocking_timeout == 10
 
 
 def test_init_stores_explicit_values() -> None:
-    coord = _Stub(Message, lock_ttl=10, handled_ttl=0.5, blocking_timeout=0.1)
+    coord = _Stub(Message, handled_ttl=0.5, blocking_timeout=0.1)
 
-    assert (coord.lock_ttl, coord.handled_ttl, coord.blocking_timeout) == (10, 0.5, 0.1)
+    assert (coord.handled_ttl, coord.blocking_timeout) == (0.5, 0.1)
 
 
 def test_init_forwards_extra_kwargs_along_the_mro() -> None:
@@ -68,11 +68,10 @@ async def test_abstract_bodies_raise_not_implemented(name: str) -> None:
 
 
 async def test_start_and_stop_are_no_ops() -> None:
-    coord = _Stub(Message, lock_ttl=10)
+    coord = _Stub(Message)
 
     assert await coord.start() is None
     assert await coord.stop() is None
-    assert coord.lock_ttl == 10
 
 
 def test_all_exports_only_the_base_class() -> None:

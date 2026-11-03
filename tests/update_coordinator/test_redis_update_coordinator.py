@@ -17,6 +17,7 @@ pytest.importorskip("lupa")  # fakeredis needs lupa to run Lua scripts
 
 from fakeredis import aioredis as fake_aioredis  # noqa: E402
 from pyrogram.types import CallbackQuery, Message  # noqa: E402
+from pytrove.enums import TimeUnit  # noqa: E402
 from redis.asyncio.lock import Lock  # noqa: E402
 from redis.exceptions import LockError  # noqa: E402
 
@@ -47,10 +48,11 @@ def _coord(redis: fake_aioredis.FakeRedis, **kw: Any) -> RedisUpdateCoordinator:
 # --- construction ----------------------------------------------------------
 
 
-def test_init_stores_the_client_and_default_sleep(redis: fake_aioredis.FakeRedis) -> None:
+def test_init_stores_the_client_and_defaults(redis: fake_aioredis.FakeRedis) -> None:
     coord = RedisUpdateCoordinator(redis, Message)
 
     assert coord.redis is redis
+    assert coord.lock_ttl == TimeUnit.HOUR == 3600
     assert coord.sleep == 0.1
 
 

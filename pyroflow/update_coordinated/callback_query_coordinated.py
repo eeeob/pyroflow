@@ -38,19 +38,14 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
             if self.extract_update_id_func is None:
                 self.extract_update_id_func = self._extract_update_id
 
-    async def _extract_key(self, update: CallbackQuery) -> CoordinatedUpdateKeyT:
-        """Lock per chat of the query's message, or per query when it has none.
+    async def _extract_key(self, update: CallbackQuery) -> CoordinatedUpdateKeyT | None:
+        """Lock per chat of the query's message.
 
-        A query from an inline message carries no chat, so it is locked on its
-        own id to stay coordinated. Pass `extract_key_func` to pick another
-        level.
+        A query from an inline message carries no chat, so it is left
+        uncoordinated. Pass `extract_key_func` to pick another level.
         """
         chat = update.message.chat if update.message is not None else None
-
-        if chat is not None and chat.id is not None:
-            return (chat.id,)
-
-        return (update.id,)
+        return (chat.id,) if chat is not None and chat.id is not None else None
 
     async def _extract_update_id(self, update: CallbackQuery) -> CoordinatedUpdateIdT:
         """Identify the query by its id."""

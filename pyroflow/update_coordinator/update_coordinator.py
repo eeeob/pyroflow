@@ -23,11 +23,8 @@ class UpdateCoordinator(ABC):
     tuple can serve both.
 
     Args:
-        update_type: The Pyrogram update class handled; its name namespaces
-            the keys.
-        lock_ttl: Seconds before a held distributed lock expires on its own;
-            a session that dies mid-handler keeps the lock until then. Only
-            `RedisUpdateCoordinator` applies it.
+        update_type: The Pyrogram update class handled; backends that share
+            keys namespace them with its name.
         handled_ttl: Seconds an update id stays registered as handled, which
             is the deduplication window.
         blocking_timeout: Maximum seconds `lock` waits before reporting
@@ -39,21 +36,17 @@ class UpdateCoordinator(ABC):
     def __init__(
         self,
         update_type: type[UpdateType],
-        lock_ttl: Number = TimeUnit.HOUR,
         handled_ttl: Number = TimeUnit.HOUR,
-        blocking_timeout: Number = 5,
+        blocking_timeout: Number = 10,
         **kw: Any,
     ) -> None:
         """Initialise the coordinator; see the class docstring for the parameters."""
-        self.lock_ttl = lock_ttl
-        """Seconds before a held distributed lock expires on its own."""
         self.handled_ttl = handled_ttl
         """Seconds an update id stays registered as handled."""
         self.blocking_timeout = blocking_timeout
         """Maximum seconds `lock` waits before reporting failure."""
-
-        self._update_name = update_type.__name__
-        """Name of the handled update class, for backends that namespace their keys with it."""
+        self.update_type = update_type
+        """The Pyrogram update class this coordinator handles."""
 
         super().__init__(**kw)
 
@@ -63,8 +56,9 @@ class UpdateCoordinator(ABC):
 
         Implementations honour `blocking_timeout`: `acquire()` returns `False`
         instead of waiting forever, and `async with` raises instead of entering
-        unlocked. Distributed backends must also expire the lock after
-        `lock_ttl`; the in-process `TimedLock` never expires.
+        unlocked. Distributed backends must also expire the lock on their own,
+        as `RedisUpdateCoordinator` does after `lock_ttl`; the in-process
+        `TimedLock` never expires.
 
         Args:
             key: The scope to serialise, such as a chat or a single update.

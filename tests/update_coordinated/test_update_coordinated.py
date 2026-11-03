@@ -38,7 +38,7 @@ def test_init_defaults_to_memory_coordinator_and_no_callables() -> None:
     policy = _Coordinated()
 
     assert isinstance(policy.coordinator, MemoryUpdateCoordinator)
-    assert policy.coordinator._update_name == "Message"
+    assert policy.coordinator.update_type is Message
     assert policy.extract_key_func is None
     assert policy.extract_update_id_func is None
 

@@ -4,6 +4,8 @@ from __future__ import annotations as _annotations
 
 from typing import Any, Literal, TYPE_CHECKING
 
+from pytrove.enums import TimeUnit
+
 from .update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
@@ -21,12 +23,21 @@ class RedisUpdateCoordinator(UpdateCoordinator):
     expiring key whose existence is the state.
     """
 
-    def __init__(self, redis: Redis, *args: Any, sleep: Number = 0.1, **kw: Any) -> None:
+    def __init__(
+        self,
+        redis: Redis,
+        *args: Any,
+        lock_ttl: Number = TimeUnit.HOUR,
+        sleep: Number = 0.1,
+        **kw: Any,
+    ) -> None:
         """Initialise the coordinator; other arguments go to `UpdateCoordinator`.
 
         Args:
             redis: The async Redis client holding the locks and the registry.
             *args: Positional arguments for `UpdateCoordinator`.
+            lock_ttl: Seconds before a held lock expires on its own; a session
+                that dies mid-handler keeps the lock until then.
             sleep: Seconds between lock acquisition attempts while waiting.
             **kw: Keyword arguments for `UpdateCoordinator`.
         """
@@ -34,12 +45,14 @@ class RedisUpdateCoordinator(UpdateCoordinator):
 
         self.redis = redis
         """Async Redis client holding the locks and the handled registry."""
+        self.lock_ttl = lock_ttl
+        """Seconds before a held lock expires on its own."""
         self.sleep = sleep
         """Seconds between lock acquisition attempts while waiting."""
         self._sep = "|"
         """Separator joining the parts of a Redis key."""
         self._key_formats = {
-            section: f"update{self._sep}{section}{self._sep}{self._update_name}{self._sep}{{key}}"
+            section: f"update{self._sep}{section}{self._sep}{self.update_type.__name__}{self._sep}{{key}}"
             for section in ("lock", "handled")
         }
         """Redis key template per section, with a `{key}` placeholder."""

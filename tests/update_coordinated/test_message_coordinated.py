@@ -25,7 +25,7 @@ def test_init_defaults_every_callable_to_the_class_hooks() -> None:
     assert mc.extract_key_func == mc._extract_key
     assert mc.extract_update_id_func == mc._extract_update_id
     assert isinstance(mc.coordinator, MemoryUpdateCoordinator)
-    assert mc.coordinator._update_name == "Message"
+    assert mc.coordinator.update_type is PyroMessage
 
 
 def test_init_keeps_the_callables_passed() -> None:

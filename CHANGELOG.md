@@ -29,6 +29,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   update is bound to, or `None`.
 - `PyroflowError`, the root of every pyroflow error, and `CoordinationError`,
   the family of coordination errors.
+- `UpdateCoordinator.update_type`: the update class a coordinator handles.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
@@ -68,8 +69,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - **BREAKING:** the default lock keys are per chat. `MessageCoordinated` locks
   on `(chat_id,)` instead of `(peer_id, message_id)`, and a message without
   a chat is uncoordinated; and
-  `CallbackQueryCoordinated` on the chat of the query's message (the query id
-  for an inline message) instead of the query id. Updates of one chat now wait
+  `CallbackQueryCoordinated` on the chat of the query's message instead of
+  the query id, leaving a query from an inline message uncoordinated. Updates of one chat now wait
   for each other until each is handled. Affects bots relying on concurrent
   processing within a chat.
   Migration: pass `extract_key_func` with the old key, e.g.
@@ -80,6 +81,14 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `lock` with an int or a tuple, or imports `LockKeyT`.
   Migration: pass `ListenerKey(chat_id)` (or the full key) and annotate with
   `ListenerKey`.
+- **BREAKING:** `lock_ttl` moved from `UpdateCoordinator` to
+  `RedisUpdateCoordinator`, the only backend whose lock expires, and the
+  default `blocking_timeout` is 10 seconds instead of 5. Affects code passing
+  `lock_ttl` to `MemoryUpdateCoordinator`, or `UpdateCoordinator` arguments
+  positionally (the second positional argument is now `handled_ttl`).
+  Migration: pass `lock_ttl` only to `RedisUpdateCoordinator`, pass the
+  coordinator settings by keyword, and pass `blocking_timeout=5` to keep the
+  old wait.
 - **BREAKING:** `build_key` moved from `UpdateCoordinator` to
   `RedisUpdateCoordinator`; `MemoryUpdateCoordinator` keys its locks and its
   handled registry by the key tuple itself. Affects code that calls

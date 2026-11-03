@@ -25,7 +25,7 @@ def test_init_defaults_every_callable_to_the_class_hooks() -> None:
     assert cc.extract_key_func == cc._extract_key
     assert cc.extract_update_id_func == cc._extract_update_id
     assert isinstance(cc.coordinator, MemoryUpdateCoordinator)
-    assert cc.coordinator._update_name == "CallbackQuery"
+    assert cc.coordinator.update_type is CallbackQuery
 
 
 def test_init_keeps_the_callables_passed() -> None:
@@ -72,10 +72,10 @@ async def test_private_extract_key_is_the_message_chat() -> None:
     assert await cc._extract_key(make_callback_query(chat_id=-100, id="q-42")) == (-100,)
 
 
-async def test_private_extract_key_falls_back_to_the_query_id_without_a_message() -> None:
+async def test_private_extract_key_leaves_a_query_without_a_message_uncoordinated() -> None:
     cc = CallbackQueryCoordinated()
 
-    assert await cc._extract_key(make_callback_query(id="q-42", message=None)) == ("q-42",)
+    assert await cc._extract_key(make_callback_query(id="q-42", message=None)) is None
 
 
 async def test_private_extract_update_id_is_the_query_id() -> None:
