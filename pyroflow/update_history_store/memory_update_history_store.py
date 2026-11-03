@@ -26,7 +26,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
     Args:
         update_type: The Pyrogram update class this store handles.
         ttl: Seconds a record stays valid; a key, with all its records, is also
-            evicted `ttl` seconds after it was created.
+            evicted `ttl` seconds after its last write.
         max_history_len: Most records kept per key; the oldest are dropped first.
         max_keys: Most keys kept; past it, the least recently used keys are evicted.
         **kw: Passed to the next class in the MRO.
@@ -84,7 +84,7 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
 
     def _update(self, key: UpdateHistoryKeyT, *records: UpdateRecord) -> None:
         """Push `records` under `key`, then drop expired and oldest-past-the-limit ones."""
-        heap = self.histories.setdefault(key, [])
+        heap = self.histories.get(key, [])
 
         for record in records:
             heapq.heappush(heap, record)
@@ -94,7 +94,10 @@ class MemoryUpdateHistoryStore(UpdateHistoryStore):
         while len(heap) > self.max_history_len:
             heapq.heappop(heap)
 
-        if not heap:
+        if heap:
+            # Setting the key again restarts its TTL; `setdefault` keeps the creation time.
+            self.histories[key] = heap
+        else:
             self._delete(key)
 
     def _get(self, key: UpdateHistoryKeyT) -> list[UpdateRecord]:

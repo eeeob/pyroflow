@@ -177,6 +177,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   instead of swallowing it.
 - `MessageListener` no longer raises `AttributeError` for messages without
   `from_user` (anonymous admins, channel posts); the listener key's user is `None`.
+- `MemoryUpdateHistoryStore` restarts a key's TTL on every write. It used to
+  evict the key `ttl` seconds after its creation, losing records added later
+  before their own `ttl` ran out.
 
 ## [0.2.1] - 2026-07-26
 

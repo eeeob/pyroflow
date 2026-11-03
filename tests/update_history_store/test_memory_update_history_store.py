@@ -5,6 +5,7 @@ from __future__ import annotations as _annotations
 
 import time
 
+from cachetools import TTLCache
 from pyrogram.types import Message
 from pytrove.enums import TimeUnit
 
@@ -117,6 +118,20 @@ async def test_update_expired_records_free_room_for_new_ones() -> None:
         UpdateRecord(handler="new", created_at=now),
     )
     assert [r.handler for r in store.histories["k"]] == ["new"]
+
+
+async def test_update_restarts_the_key_ttl() -> None:
+    store = _store(ttl=100)
+    clock = [0.0]
+    store.histories = TTLCache(maxsize=10, ttl=100, timer=lambda: clock[0])
+    first, second = UpdateRecord(handler="a"), UpdateRecord(handler="b")
+
+    await store.update(("k",), first)
+    clock[0] = 90
+    await store.update(("k",), second)
+    clock[0] = 150
+
+    assert await store.get(("k",)) == [first, second]
 
 
 async def test_update_without_records_leaves_no_key() -> None:
