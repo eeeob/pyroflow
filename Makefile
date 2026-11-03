@@ -88,4 +88,4 @@ tag:
 
 # Leaves `.venv` alone: it is the project environment the other recipes use.
 clean:
-	rm -rf .venv-minimal .venv-floor .venv-ceil dist build *.egg-info
+	rm -rf .venv .venv-minimal .venv-floor .venv-ceil dist build *.egg-info
