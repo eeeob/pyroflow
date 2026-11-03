@@ -396,7 +396,11 @@ class Dispatcher(PyroDispatcher):
 
                 try:
                     await maybe_awaitable(
-                        handler.callback, self.client, *args, executor=self.client.executor
+                        handler.callback,
+                        self.client,
+                        *args,
+                        executor=self.client.executor,
+                        log_exc=False,
                     )
                 except StopPropagation as e:
                     raise e

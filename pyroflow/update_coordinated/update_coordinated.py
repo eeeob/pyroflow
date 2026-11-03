@@ -113,6 +113,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             self.extract_key_func,
             update,
             executor=get_update_executor(update),
+            log_exc=False,
         )
 
     async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
@@ -147,6 +148,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             self.extract_update_id_func,
             update,
             executor=get_update_executor(update),
+            log_exc=False,
         )
 
         if update_id is None:

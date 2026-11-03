@@ -107,7 +107,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.is_recordable_func, update, executor=get_update_executor(update)
+            self.is_recordable_func, update, executor=get_update_executor(update), log_exc=False
         )
 
     async def extract_key(self, update: UpdateType) -> UpdateHistoryKeyT:
@@ -134,7 +134,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.extract_key_func, update, executor=get_update_executor(update)
+            self.extract_key_func, update, executor=get_update_executor(update), log_exc=False
         )
 
     async def extract_data(self, update: UpdateType) -> Any:
@@ -161,7 +161,7 @@ class UpdateHistory(ABC, UpdateBound[UpdateType]):
         self.validate_update(update)
 
         return await maybe_awaitable(
-            self.extract_data_func, update, executor=get_update_executor(update)
+            self.extract_data_func, update, executor=get_update_executor(update), log_exc=False
         )
 
     async def record(self, update: UpdateType, handler: PyroHandler, check: bool = True) -> None:

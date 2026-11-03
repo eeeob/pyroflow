@@ -431,6 +431,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             self.is_listenable_func,
             update,
             executor=get_update_executor(update),
+            log_exc=False,
         )
 
     async def extract_key(self, update: UpdateType) -> ListenerKey:
@@ -469,6 +470,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             self.extract_key_func,
             update,
             executor=get_update_executor(update),
+            log_exc=False,
         )
 
     async def is_bypass(self, update: UpdateType) -> bool:
@@ -501,6 +503,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             self.bypass_func,
             update,
             executor=get_update_executor(update),
+            log_exc=False,
         )
 
 
