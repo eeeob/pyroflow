@@ -38,7 +38,6 @@ pip install pyroflow[redis]
 |---|---|
 | انتظار رد محدد | `UpdateListener`: انتظر بـ `await` الـ update التالية من مستخدم |
 | معالجة مكررة عبر عدة sessions للبوت | `UpdateCoordinated`: قفل موزّع (distributed lock) لكل مفتاح (المحادثة افتراضيًا) |
-| إعادة تشغيل خطوات الـ handlers السابقة أو فحصها | `UpdateHistory`: سجل للـ handlers لكل نوع update |
 
 ---
 
@@ -265,42 +264,11 @@ coordinated = MessageCoordinated(
 
 ---
 
-### Histories
-
-يسجّل `UpdateHistory` الـ handlers التي نجح تشغيلها لكل update.
-
-هذا يتيح ميزات مثل أزرار `back` التي تعيد تشغيل خطوات المعالجة السابقة أو تفحصها.
-
-```python
-from pyroflow import Client, CallbackQueryHistory
-
-client = Client("my_session")
-history = CallbackQueryHistory()
-client.register_history(history)
-
-client.run()
-```
-
-الـ dispatcher يكتب الـ handlers الناجحة في `history.store` تحت المفتاح الذي يرجعه `extract_key`. إن رجع `None` لا يُسجَّل الـ update. القراءة تكون من المخزن:
-
-```python
-key = await history.extract_key(query)
-records = await history.store.get(key) if key is not None else []
-```
-
-كل record يحمل `HandlerRef`، وهو مسارا استيراد كلاس الـ handler والـ callback:
-- `to_raw()` يحوّله إلى نص يُخزَّن كبيانات خام، و`from_raw()` يعيده.
-- `is_same_project()` يخبرك هل جاء من المشروع الذي يعمل الآن.
-- `rebuild()` يستورد منه handler جديداً بلا filters.
-
----
-
 ويمكن أيضًا إزالتها أثناء التشغيل:
 
 ```python
 await client.unregister_listener(Message)
 await client.unregister_coordinated(Message)
-await client.unregister_history(CallbackQueryHistory)
 ```
 
 ---

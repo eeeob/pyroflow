@@ -49,13 +49,6 @@ MODULES = [
     "pyroflow.update_coordinator.update_coordinator",
     "pyroflow.update_coordinator.memory_update_coordinator",
     "pyroflow.update_coordinator.redis_update_coordinator",
-    "pyroflow.update_history",
-    "pyroflow.update_history.update_history",
-    "pyroflow.update_history.message_history",
-    "pyroflow.update_history.callback_query_history",
-    "pyroflow.update_history_store",
-    "pyroflow.update_history_store.update_history_store",
-    "pyroflow.update_history_store.memory_update_history_store",
     "pyroflow.update_listener",
     "pyroflow.update_listener.update_listener",
     "pyroflow.update_listener.message_listener",
@@ -83,8 +76,6 @@ def test_public_exports_present() -> None:
         "CallbackQueryListener",
         "MessageCoordinated",
         "CallbackQueryCoordinated",
-        "MessageHistory",
-        "CallbackQueryHistory",
     ):
         assert hasattr(pyroflow, name), f"pyroflow.{name} is not exported"
 

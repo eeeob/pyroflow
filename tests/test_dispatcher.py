@@ -36,7 +36,6 @@ from pyroflow.dispatcher import (
     _settle_handled,
 )
 from pyroflow.errors import UnresolvedUpdate, UpdateAlreadyHandled
-from pyroflow.models import HandlerRef
 from pyroflow.update_coordinated import MessageCoordinated
 from pyroflow.update_coordinator import RedisUpdateCoordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
@@ -46,7 +45,6 @@ from pyroflow.update_coordinator.memory_update_coordinator import (
 from .conftest import make_callback_query, make_message
 
 if TYPE_CHECKING:
-    from pyroflow.models import UpdateRecord
     from collections.abc import Awaitable, Callable
 
 
@@ -586,7 +584,7 @@ async def test_settle_handled_settles_the_current_update_as_handled() -> None:
 
 
 class FakeComponent:
-    """A listener, coordinated or history stand-in bound to `Message`."""
+    """A listener or coordinated stand-in bound to `Message`."""
 
     __update_type__ = Message
 
@@ -631,7 +629,6 @@ async def test_init_runs_the_original_and_sets_empty_registries() -> None:
     assert isinstance(dispatcher.updates_queue, asyncio.Queue)
     assert dispatcher.listeners == {}
     assert dispatcher.coordinateds == {}
-    assert dispatcher.histories == {}
     assert dispatcher.is_started is False
 
 
@@ -657,25 +654,24 @@ async def test_start_runs_the_original_first_then_every_component() -> None:
     dispatcher.oldstart = oldstart
     dispatcher.listeners[Message] = FakeComponent(order, "listener")  # ty: ignore[invalid-assignment]
     dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
-    dispatcher.histories[Message] = FakeComponent(order, "history")  # ty: ignore[invalid-assignment]
 
     assert await dispatcher.start(1, flag=True) == "result"
 
     assert dispatcher.is_started is True
     assert order[0] == "oldstart (1,) {'flag': True}"
-    assert sorted(order[1:]) == ["start coordinated", "start history", "start listener"]
+    assert sorted(order[1:]) == ["start coordinated", "start listener"]
 
 
 async def test_start_survives_a_failing_component() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
     dispatcher.listeners[Message] = FakeComponent(order, "listener", RuntimeError("x"))  # ty: ignore[invalid-assignment]
-    dispatcher.histories[Message] = FakeComponent(order, "history")  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
 
     await dispatcher.start()
 
     assert dispatcher.is_started is True
-    assert sorted(order) == ["start history", "start listener"]
+    assert sorted(order) == ["start coordinated", "start listener"]
 
 
 async def test_start_leaves_the_dispatcher_stopped_if_the_original_fails() -> None:
@@ -706,13 +702,12 @@ async def test_stop_stops_every_component_before_the_original() -> None:
     dispatcher.oldstop = oldstop
     dispatcher.listeners[Message] = FakeComponent(order, "listener", RuntimeError("x"))  # ty: ignore[invalid-assignment]
     dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
-    dispatcher.histories[Message] = FakeComponent(order, "history")  # ty: ignore[invalid-assignment]
 
     assert await dispatcher.stop(clear_handlers=False) == "result"
 
     assert dispatcher.is_started is False
-    assert sorted(order[:3]) == ["stop coordinated", "stop history", "stop listener"]
-    assert order[3] == "oldstop () {'clear_handlers': False}"
+    assert sorted(order[:2]) == ["stop coordinated", "stop listener"]
+    assert order[2] == "oldstop () {'clear_handlers': False}"
 
 
 # --- Dispatcher: registration -----------------------------------------------
@@ -722,7 +717,6 @@ REGISTRIES = pytest.mark.parametrize(
     [
         ("listener", "listeners", "UpdateListener"),
         ("coordinated", "coordinateds", "UpdateCoordinated"),
-        ("history", "histories", "UpdateHistory"),
     ],
 )
 
@@ -1134,110 +1128,6 @@ async def test_rejecting_filters_leave_the_update_unsettled() -> None:
         _SETTLEMENT.reset(token)
 
     assert release._settled is False
-
-
-class FakeHistoryStore:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.error = error
-        self.written: list[tuple[object, tuple[UpdateRecord, ...]]] = []
-
-    async def update(self, key: object, *records: UpdateRecord) -> None:
-        self.written.append((key, records))
-        if self.error is not None:
-            raise self.error
-
-
-class FakeHistory:
-    __update_type__ = Message
-
-    def __init__(
-        self,
-        key: object = ("k",),
-        key_error: Exception | None = None,
-        store_error: Exception | None = None,
-    ) -> None:
-        self.key = key
-        self.key_error = key_error
-        self.store = FakeHistoryStore(store_error)
-
-    async def extract_key(self, update: object) -> object:
-        if self.key_error is not None:
-            raise self.key_error
-        return self.key
-
-    async def extract_data(self, update: object) -> object:
-        return "data"
-
-    @property
-    def written(self) -> list[tuple[object, list[object], set[object], int]]:
-        return [
-            (
-                key,
-                [r.handler for r in records],
-                {r.data for r in records},
-                len({r.created_at for r in records}),
-            )
-            for key, records in self.store.written
-        ]
-
-
-def history_dispatcher(
-    history: FakeHistory,
-) -> tuple[Dispatcher, list[MessageHandler]]:
-    dispatcher = make_real_dispatcher()
-    capture_handler_exceptions(dispatcher)
-    calls: list[tuple[object, ...]] = []
-    handlers = [
-        MessageHandler(recording(calls, "ok")),
-        MessageHandler(recording(calls, "broken", RuntimeError("boom"))),
-        MessageHandler(recording(calls, "ok2")),
-    ]
-    for group, handler in enumerate(handlers):
-        dispatcher.groups[group] = [handler]
-    dispatcher.histories[Message] = history  # ty: ignore[invalid-assignment]
-    return dispatcher, handlers
-
-
-async def test_succeeded_handlers_are_written_with_one_timestamp() -> None:
-    history = FakeHistory()
-    dispatcher, handlers = history_dispatcher(history)
-
-    assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (2, 1)
-    refs = [HandlerRef.from_handler(handlers[0]), HandlerRef.from_handler(handlers[2])]
-    assert history.written == [(("k",), refs, {"data"}, 1)]
-
-
-async def test_update_with_a_none_history_key_records_nothing() -> None:
-    history = FakeHistory(key=None)
-    dispatcher, _ = history_dispatcher(history)
-
-    assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (2, 1)
-    assert history.written == []
-
-
-@pytest.mark.parametrize("failing", ["key_error", "store_error"])
-async def test_failing_history_is_logged_and_handlers_still_count(
-    failing: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    history = FakeHistory(**{failing: RuntimeError("down")})
-    dispatcher, _ = history_dispatcher(history)
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        result = await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
-
-    assert result == (2, 1)
-    assert "Unexpected error recording handlers" in caplog.text
-
-
-async def test_nothing_succeeded_records_nothing() -> None:
-    history = FakeHistory()
-    dispatcher = make_real_dispatcher()
-    capture_handler_exceptions(dispatcher)
-    dispatcher.groups[0] = [MessageHandler(recording([], "broken", RuntimeError("boom")))]
-    dispatcher.histories[Message] = history  # ty: ignore[invalid-assignment]
-
-    assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (0, 1)
-    assert history.written == []
 
 
 # --- Dispatcher.handler_worker ----------------------------------------------

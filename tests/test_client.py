@@ -275,7 +275,6 @@ class _Stoppable:
     [
         ("register_listener", "unregister_listener", "listeners"),
         ("register_coordinated", "unregister_coordinated", "coordinateds"),
-        ("register_history", "unregister_history", "histories"),
     ],
 )
 async def test_register_and_unregister_forward_to_the_dispatcher(
@@ -754,7 +753,6 @@ def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:
         "ask_rich",
         "unregister_listener",
         "unregister_coordinated",
-        "unregister_history",
     ):
         method = getattr(pyroflow.Client, name)
         assert inspect.iscoroutinefunction(method.__wrapped__), name

@@ -20,7 +20,6 @@ from pyroflow.typings import (
     ListenerCoordinatorIdT,
     CoordinatedUpdateIdT,
     CoordinatedUpdateKeyT,
-    UpdateHistoryKeyT,
     UpdateType,
 )
 
@@ -29,7 +28,7 @@ def test_update_type_is_bound_to_pyrogram_update() -> None:
     assert UpdateType.__bound__ is PyroUpdate
 
 
-@pytest.mark.parametrize("alias", [CoordinatedUpdateKeyT, CoordinatedUpdateIdT, UpdateHistoryKeyT])
+@pytest.mark.parametrize("alias", [CoordinatedUpdateKeyT, CoordinatedUpdateIdT])
 def test_key_and_id_aliases_are_variadic_tuples_of_ids(alias: object) -> None:
     assert get_origin(alias) is tuple
     assert get_args(alias) == (int | str, ...)
@@ -81,7 +80,6 @@ def test_typings_all() -> None:
         "AsyncLockProto",
         "CoordinatedUpdateKeyT",
         "CoordinatedUpdateIdT",
-        "UpdateHistoryKeyT",
         "ListenerCoordinatorIdT",
         "BotCommandEntryT",
         "BotCommandPartsT",

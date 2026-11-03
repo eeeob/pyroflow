@@ -21,15 +21,12 @@ if TYPE_CHECKING:
 
 
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
-"""The Pyrogram update class a generic listener, coordinated policy or history is bound to."""
+"""The Pyrogram update class a generic listener or coordinated policy is bound to."""
 
 CoordinatedUpdateKeyT: TypeAlias = tuple[StrInt, ...]
 """An update's lock key, as extracted by a coordinated policy."""
 CoordinatedUpdateIdT: TypeAlias = tuple[StrInt, ...]
 """An update's unique identity, used to mark it as handled."""
-
-UpdateHistoryKeyT: TypeAlias = tuple[StrInt, ...]
-"""The key an update history files its records under."""
 
 ListenerCoordinatorIdT: TypeAlias = StrInt
 """Ownership token a listener coordinator hands out at registration time."""
@@ -89,7 +86,6 @@ __all__ = (
     "AsyncLockProto",
     "CoordinatedUpdateKeyT",
     "CoordinatedUpdateIdT",
-    "UpdateHistoryKeyT",
     "ListenerCoordinatorIdT",
     "BotCommandEntryT",
     "BotCommandPartsT",

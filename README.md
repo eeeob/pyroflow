@@ -34,7 +34,6 @@ pyroflow solves all three problems:
 |---|---|
 | Waiting for a specific reply | `UpdateListener` — `await` the next update from a user |
 | Duplicate processing across multiple bot sessions | `UpdateCoordinated` — distributed lock per key (the chat by default) |
-| Replaying or inspecting previous handler steps | `UpdateHistory` — per-update-type handler record |
 
 ---
 
@@ -239,37 +238,11 @@ coordinated = MessageCoordinated(
 
 ---
 
-### Histories
-
-A `UpdateHistory` records which handlers ran successfully for each update. This enables features like `back` buttons that replay or inspect previous processing steps.
-
-```python
-from pyroflow import Client, CallbackQueryHistory
-
-client = Client("my_session")
-history = CallbackQueryHistory()
-client.register_history(history)
-
-client.run()
-```
-
-The dispatcher writes the handlers that succeeded to `history.store`, under the key `extract_key` returns; `None` leaves the update unrecorded. Read them back from the store:
-
-```python
-key = await history.extract_key(query)
-records = await history.store.get(key) if key is not None else []
-```
-
-Each record keeps a `HandlerRef`, the import paths of the handler's class and callback, so it can be stored as raw data with `to_raw()`. `is_same_project()` tells whether it comes from the running project, and `rebuild()` imports a new handler from it, without filters.
-
----
-
 They can also be removed at runtime:
 
 ```python
 await client.unregister_listener(Message)
 await client.unregister_coordinated(Message)
-await client.unregister_history(CallbackQueryHistory)
 ```
 
 ---

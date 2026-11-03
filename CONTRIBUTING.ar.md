@@ -33,7 +33,7 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 | ما تضيفه | مكانه | القاعدة |
 |---|---|---|
 | `method` أو `property` على نوع من Pyrogram | داخل الكلاس المعلَّم بـ `@patch_cls` الذي يرقّع ذلك النوع | 2.1، 2.2 |
-| دعم نوع `update` جديد | `listener` و`coordinated policy` و`history`، كلٌّ في حزمة نوعه | 2.3 |
+| دعم نوع `update` جديد | `listener` و`coordinated policy`، كلٌّ في حزمة نوعه | 2.3 |
 | `backend` جديد أو تعديل عليه | نسختا Memory وRedis معًا | 2.4–2.6 |
 | `enum` أو `type alias` أو `model` أو خطأ أو ثابت عام | `pyroflow.enums`، `pyroflow.typings`، `pyroflow.models`، `pyroflow.errors`، `pyroflow.constants` | 1.4، 2.7 |
 | أداة مساعدة (`helper`) | `pyroflow.utils` إن تشاركتها الأقسام، و`_internal.py` الخاص بالقسم إن استخدمها قسم واحد؛ وابحث في `pytrove` أولًا | 1.5 |
@@ -141,7 +141,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **2.2 تواقيع الـ overrides.** تحتفظ الـ `overrides` على Pyrogram (`Dispatcher.handler_worker(self, lock)`، `start`، `stop`) بتواقيع kurigram. لا تغيّر أحدها إلا بعد مطابقته مع `kurigram` المثبّت.
 
-**2.3 نوع الـ update الجديد يُدعم كاملًا.** يحصل على `listener` و`coordinated policy` و`history` معًا (`XListener`، `XCoordinated`، `XHistory`)، وكلٌّ منها مربوط بالنوع عبر `__update_type__`.
+**2.3 نوع الـ update الجديد يُدعم كاملًا.** يحصل على `listener` و`coordinated policy` معًا (`XListener`، `XCoordinated`)، وكلٌّ منها مربوط بالنوع عبر `__update_type__`.
 
 **2.4 الـ backends تتغير معًا.** أي تغيير في `backend` الـ Memory يقابله تغيير في `backend` الـ Redis في التغيير نفسه، والعكس.
 

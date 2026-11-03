@@ -37,37 +37,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
   client stays owned by the caller, who closes it after `stop()`.
 - `pyroflow.utils.redis_token_lock`: a redis-py async lock that takes its value
   as `token` instead of a random UUID.
-- `HandlerRef`: a handler stored as the import paths of its class and
-  callback. `to_raw()`/`from_raw()` turn it into one string and back,
-  `project` and `is_same_project()` tell whether it comes from the running
-  project, and `rebuild()` imports a new handler, without filters.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
 ### Changed
-
-- **BREAKING:** `UpdateRecord.handler` is a `HandlerRef` instead of the live
-  handler, so a record can be stored as raw data. Affects code reading
-  `record.handler`.
-  Migration: compare with `record.handler == HandlerRef.from_handler(handler)`,
-  or call `record.handler.rebuild()` for a handler with the same class and
-  callback and no filters.
-- **BREAKING:** `MessageHistory` keys messages by `(chat_id, message_id)`
-  instead of `(chat_id, user_id, message_id)`: the history follows the
-  message, whoever sent it. Affects code reading `MessageHistory` records by a
-  hand-built key.
-  Migration: build the key with `await history.extract_key(message)`.
-- **BREAKING:** `UpdateHistory` only extracts, like `UpdateCoordinated`:
-  `extract_key` (returning `None` leaves the update unrecorded) and
-  `extract_data`, with the backend in `store`. `is_recordable`,
-  `is_recordable_func`, `record`, `record_many`, `get`, `pop` and `clear` are
-  removed; the dispatcher writes the handlers that succeeded to `store`
-  directly, extracting the key after they run. Affects code calling those
-  methods or passing `is_recordable_func`.
-  Migration: return `None` from `extract_key_func` instead of passing
-  `is_recordable_func`, and use the store with the extracted key:
-  `key = await history.extract_key(update)`, then
-  `await history.store.get(key)` (or `pop`, `delete`, `update`).
 
 - **BREAKING:** `UpdateCoordinator.mark_handled` raises the new
   `UpdateAlreadyHandled` (a `CoordinationError`) when the id is already
@@ -140,7 +113,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - **BREAKING:** `UpdateCoordinatorKeyT` is renamed `CoordinatedUpdateKeyT`
   (the lock key), and update ids have their own alias, `CoordinatedUpdateIdT`,
   used by `extract_update_id` and the coordinators' `is_handled` and
-  `mark_handled`. `UpdateHistoryKeyT` no longer aliases the coordinator key.
+  `mark_handled`.
   Affects code that imports `UpdateCoordinatorKeyT`.
   Migration: import `CoordinatedUpdateKeyT`, or `CoordinatedUpdateIdT` for
   update ids, from `pyroflow.typings`.
@@ -161,15 +134,25 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - Every module defines `__all__`; `pyroflow.typings`, `pyroflow.errors`,
   `pyroflow.models`, `pyroflow.enums` and `pyroflow.constants` are the entry
   points for each kind of name.
-- `MemoryListenerCoordinator.register`/`unregister`/`cancel`/`registered` and
-  `MemoryUpdateHistoryStore.update`/`get`/`pop`/`delete` take explicit
-  parameters instead of `*args, **kwargs`.
+- `MemoryListenerCoordinator.register`/`unregister`/`cancel`/`registered` take
+  explicit parameters instead of `*args, **kwargs`.
   Migration: none for calls that use the documented arguments.
 - Contributors: development runs through `uv` and the `Makefile`, with `ruff`
   and `ty` enforced; see `CONTRIBUTING.md`.
 
 ### Removed
 
+- **BREAKING:** handler histories are gone: `UpdateHistory`, `MessageHistory`,
+  `CallbackQueryHistory`, `UpdateHistoryStore`, `MemoryUpdateHistoryStore`,
+  `UpdateRecord`, `UpdateHistoryKeyT`, `Client`/`Dispatcher.register_history`
+  and `unregister_history`, and `Dispatcher.histories`, with the packages
+  `pyroflow.update_history` and `pyroflow.update_history_store`. Nothing in
+  pyroflow read the records, they lived in one process only, and a handler
+  cannot be stored and rebuilt with its filters. Affects code that registered
+  a history or read its records.
+  Migration: carry the step a button leads back to in its `callback_data`
+  (such as `back:menu`), which survives restarts and works across sessions,
+  or keep a conversation's state in one `ask()` flow.
 - **BREAKING:** the general-purpose helpers in `pyroflow.utils` are gone,
   together with the modules `pyroflow.utils.async_tools`,
   `pyroflow.utils.iter_tools`, `pyroflow.utils.validate_tools` and
@@ -204,9 +187,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   instead of swallowing it.
 - `MessageListener` no longer raises `AttributeError` for messages without
   `from_user` (anonymous admins, channel posts); the listener key's user is `None`.
-- `MemoryUpdateHistoryStore` restarts a key's TTL on every write. It used to
-  evict the key `ttl` seconds after its creation, losing records added later
-  before their own `ttl` ran out.
 
 ## [0.2.1] - 2026-07-26
 

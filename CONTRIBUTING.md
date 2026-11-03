@@ -24,7 +24,7 @@ Branch from `main`, one cohesive change per branch, ending in its own pull reque
 | What you are adding | Where it goes | Rule |
 |---|---|---|
 | A method or property on a Pyrogram type | inside the `@patch_cls` class that patches that type | 2.1, 2.2 |
-| Support for a new update type | a listener, a coordinated policy and a history, each in the package of its kind | 2.3 |
+| Support for a new update type | a listener and a coordinated policy, each in the package of its kind | 2.3 |
 | A backend, or a change to one | its Memory and Redis versions together | 2.4–2.6 |
 | An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` | 1.4, 2.7 |
 | A helper | `pyroflow.utils` when sections share it, the section's `_internal.py` when one section uses it; `pytrove` first | 1.5 |
@@ -115,7 +115,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **2.2 Override signatures.** Pyrogram overrides (`Dispatcher.handler_worker(self, lock)`, `start`, `stop`) keep kurigram's signatures. Change one only after checking it against the installed `kurigram`.
 
-**2.3 A new update type is supported whole.** It gets its listener, its coordinated policy and its history together (`XListener`, `XCoordinated`, `XHistory`), each bound to the type with `__update_type__`.
+**2.3 A new update type is supported whole.** It gets its listener and its coordinated policy together (`XListener`, `XCoordinated`), each bound to the type with `__update_type__`.
 
 **2.4 Backends move together.** A change to a Memory backend is matched in its Redis backend in the same change, and the other way round.
 

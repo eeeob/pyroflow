@@ -1,9 +1,8 @@
-"""Patched Pyrogram dispatcher that routes updates through listeners, coordinators and histories."""
+"""Patched Pyrogram dispatcher that routes updates through listeners and coordinators."""
 
 from __future__ import annotations as _annotations
 
 import logging
-import time
 from contextvars import ContextVar
 from typing import Any, Final, TYPE_CHECKING
 
@@ -13,7 +12,6 @@ from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHan
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
 from .errors import UnresolvedUpdate, UpdateAlreadyHandled
-from .models import HandlerRef, UpdateRecord
 from .utils import patch_cls
 
 if TYPE_CHECKING:
@@ -26,7 +24,6 @@ if TYPE_CHECKING:
     from .update_listener import UpdateListener
     from .update_coordinated import UpdateCoordinated
     from .update_coordinator import UpdateCoordinator
-    from .update_history import UpdateHistory
 
 
 log = logging.getLogger(__name__)
@@ -113,7 +110,7 @@ async def _settle_handled() -> bool:
 
 @patch_cls(setter=setattr)
 class Dispatcher(PyroDispatcher):
-    """Pyrogram dispatcher extended with listeners, coordinators and histories.
+    """Pyrogram dispatcher extended with listeners and coordinators.
 
     Patched onto `pyrogram.dispatcher.Dispatcher` in place, so every client uses
     it. Each update goes through `handle_update`: the coordinator (when one is
@@ -122,8 +119,7 @@ class Dispatcher(PyroDispatcher):
     soon as a listener resolves it or a handler's filter passes it; then a
     registered listener gets the update
     first and, if it resolves it, propagation stops; then the first matching
-    handler of each group runs, and the handlers that succeeded are recorded in
-    the type's history when it is recordable.
+    handler of each group runs.
     """
 
     old__init__: Callable[..., None]
@@ -146,14 +142,12 @@ class Dispatcher(PyroDispatcher):
         """Registered listener per update type."""
         self.coordinateds: dict[type[PyroUpdate], UpdateCoordinated[Any]] = {}
         """Registered coordinated per update type."""
-        self.histories: dict[type[PyroUpdate], UpdateHistory[Any]] = {}
-        """Registered history per update type."""
 
         self.is_started = False
         """Whether the dispatcher is running; registration is refused while it is."""
 
     async def start(self, *args: Any, **kw: Any) -> None:
-        """Start the dispatcher and all registered listeners, coordinators and histories.
+        """Start the dispatcher and all registered listeners and coordinators.
 
         Args:
             *args: Passed directly to the original dispatcher.
@@ -166,14 +160,13 @@ class Dispatcher(PyroDispatcher):
         await gather_helper(
             (listener.start() for listener in self.listeners.values()),
             (coordinated.start() for coordinated in self.coordinateds.values()),
-            (history.start() for history in self.histories.values()),
             return_exc=True,
         )
 
         return r
 
     async def stop(self, *args: Any, **kw: Any) -> None:
-        """Stop the dispatcher and all registered listeners, coordinators and histories.
+        """Stop the dispatcher and all registered listeners and coordinators.
 
         Args:
             *args: Passed directly to the original dispatcher.
@@ -182,7 +175,6 @@ class Dispatcher(PyroDispatcher):
         await gather_helper(
             (listener.stop() for listener in self.listeners.values()),
             (coordinated.stop() for coordinated in self.coordinateds.values()),
-            (history.stop() for history in self.histories.values()),
             return_exc=True,
         )
 
@@ -240,30 +232,6 @@ class Dispatcher(PyroDispatcher):
 
         self.coordinateds[update_type] = coordinated
 
-    def register_history(self, history: UpdateHistory[UpdateType]) -> None:
-        """Register an `UpdateHistory` for its declared update type.
-
-        Only one history per update type, and only before the dispatcher starts.
-
-        Args:
-            history: The history to register.
-
-        Raises:
-            RuntimeError: If the dispatcher is already running.
-            ValueError: If a history is already registered for that update type.
-        """
-        if self.is_started:
-            msg = "Cannot register history while dispatcher is already running"
-            raise RuntimeError(msg)
-
-        update_type = history.__class__.__update_type__
-
-        if update_type in self.histories:
-            msg = f"UpdateHistory for {update_type!r} is already registered"
-            raise ValueError(msg)
-
-        self.histories[update_type] = history
-
     async def unregister_listener(self, update_type: type[PyroUpdate]) -> None:
         """Unregister and stop the listener for the given update type.
 
@@ -293,21 +261,6 @@ class Dispatcher(PyroDispatcher):
             return
 
         await coordinated.stop()
-
-    async def unregister_history(self, update_type: type[PyroUpdate]) -> None:
-        """Unregister and stop the history for the given update type.
-
-        Does nothing if no history is registered for that type.
-
-        Args:
-            update_type: The Pyrogram update class whose history to remove.
-        """
-        history = self.histories.pop(update_type, None)
-
-        if history is None:
-            return
-
-        await history.stop()
 
     async def handle_listen(self, parsed_update: PyroUpdate) -> None:
         """Offer the update to the listener registered for its type.
@@ -347,9 +300,8 @@ class Dispatcher(PyroDispatcher):
     ) -> tuple[int, int]:
         """Run the update through its listener, then the first matching handler of each group.
 
-        Handlers that succeed are written, with one shared timestamp, to the
-        store of the update type's history, unless its key is `None`. A handler error is passed to
-        `handle_update_handler_exception` and does not stop the other groups.
+        A handler error is passed to `handle_update_handler_exception` and does
+        not stop the other groups.
         A coordinated update a peer marked first is dropped before any handler
         runs.
 
@@ -371,13 +323,6 @@ class Dispatcher(PyroDispatcher):
 
         if parsed_update is not None:
             await self.handle_listen(parsed_update)
-
-        history = None
-
-        if parsed_update is not None:
-            history = self.histories.get(type(parsed_update))
-
-        succeeded: list[PyroHandler] = []
 
         for group in self.groups.values():
             for handler in group:
@@ -429,28 +374,8 @@ class Dispatcher(PyroDispatcher):
                     await self.handle_update_handler_exception(exc, handler, update, users, chats)
                 else:
                     handled_count += 1
-                    succeeded.append(handler)
 
                 break
-
-        if history is not None and succeeded:
-            try:
-                key = await history.extract_key(parsed_update)
-
-                if key is not None:
-                    data = await history.extract_data(parsed_update)
-                    now = time.time()
-                    await history.store.update(
-                        key,
-                        *(
-                            UpdateRecord(
-                                handler=HandlerRef.from_handler(h), data=data, created_at=now
-                            )
-                            for h in succeeded
-                        ),
-                    )
-            except Exception:
-                log.exception("Unexpected error recording handlers for %r", parsed_update)
 
         return handled_count, exc_count
 
