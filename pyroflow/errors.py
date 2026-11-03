@@ -65,10 +65,6 @@ class CoordinationError(PyroflowError):
     """Coordination error"""  # noqa: D415  # the docstring is the runtime message template
 
 
-class UnhandledUpdate(CoordinationError):
-    """Update {value} was not handled"""  # noqa: D415  # the docstring is the runtime message template
-
-
 __all__ = (
     "PyroflowError",
     "ListenerError",
@@ -77,5 +73,4 @@ __all__ = (
     "ListenerAlreadyExists",
     "UnresolvedUpdate",
     "CoordinationError",
-    "UnhandledUpdate",
 )

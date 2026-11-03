@@ -12,7 +12,6 @@ from pyroflow.errors import (
     ListenerError,
     ListenerTimeout,
     PyroflowError,
-    UnhandledUpdate,
     UnresolvedUpdate,
 )
 
@@ -73,7 +72,6 @@ def test_listener_cancelled_defaults() -> None:
         (ListenerTimeout, ListenerError, "Listener for 5 timed out"),
         (ListenerAlreadyExists, ListenerError, "A listener already exists for 5"),
         (UnresolvedUpdate, ListenerError, "No listener resolved update 5"),
-        (UnhandledUpdate, CoordinationError, "Update 5 was not handled"),
     ],
 )
 def test_error_subclass_messages(
@@ -85,11 +83,6 @@ def test_error_subclass_messages(
     assert err.value == 5
 
 
-def test_unhandled_update_is_not_a_listener_error() -> None:
-    # `except ListenerError` around `ask` must not swallow the coordination signal.
-    assert not isinstance(UnhandledUpdate(5), ListenerError)
-
-
 def test_errors_all() -> None:
     assert pyroflow.errors.__all__ == (
         "PyroflowError",
@@ -99,5 +92,4 @@ def test_errors_all() -> None:
         "ListenerAlreadyExists",
         "UnresolvedUpdate",
         "CoordinationError",
-        "UnhandledUpdate",
     )

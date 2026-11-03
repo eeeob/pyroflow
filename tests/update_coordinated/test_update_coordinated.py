@@ -28,10 +28,6 @@ class _RecordingCoordinator:
         self.update_type = update_type
         self.calls: list[tuple[str, Any]] = []
 
-    def lock(self, key: Any) -> str:
-        self.calls.append(("lock", key))
-        return "the-lock"
-
     async def start(self) -> None:
         self.calls.append(("start", None))
 
@@ -49,7 +45,6 @@ def test_init_defaults_to_memory_coordinator_and_no_callables() -> None:
 
     assert isinstance(policy.coordinator, MemoryUpdateCoordinator)
     assert policy.coordinator._update_name == "Message"
-    assert policy.is_coordinatable_func is None
     assert policy.extract_key_func is None
     assert policy.extract_update_id_func is None
 
@@ -76,7 +71,6 @@ def test_init_passes_extra_keywords_along_the_mro() -> None:
 @pytest.mark.parametrize(
     ("method", "attribute"),
     [
-        ("is_coordinatable", "is_coordinatable_func"),
         ("extract_key", "extract_key_func"),
         ("extract_update_id", "extract_update_id_func"),
     ],
@@ -93,7 +87,6 @@ async def test_hook_without_callable_names_class_and_hook(method: str, attribute
 @pytest.mark.parametrize(
     ("method", "attribute"),
     [
-        ("is_coordinatable", "is_coordinatable_func"),
         ("extract_key", "extract_key_func"),
         ("extract_update_id", "extract_update_id_func"),
     ],
@@ -111,7 +104,6 @@ async def test_hook_rejects_wrong_update_type(method: str, attribute: str) -> No
 @pytest.mark.parametrize(
     ("method", "attribute"),
     [
-        ("is_coordinatable", "is_coordinatable_func"),
         ("extract_key", "extract_key_func"),
         ("extract_update_id", "extract_update_id_func"),
     ],
@@ -126,7 +118,6 @@ async def test_hook_returns_sync_callable_result(method: str, attribute: str) ->
 @pytest.mark.parametrize(
     ("method", "attribute"),
     [
-        ("is_coordinatable", "is_coordinatable_func"),
         ("extract_key", "extract_key_func"),
         ("extract_update_id", "extract_update_id_func"),
     ],
@@ -143,7 +134,6 @@ async def test_hook_awaits_async_callable(method: str, attribute: str) -> None:
 @pytest.mark.parametrize(
     ("method", "attribute"),
     [
-        ("is_coordinatable", "is_coordinatable_func"),
         ("extract_key", "extract_key_func"),
         ("extract_update_id", "extract_update_id_func"),
     ],
@@ -160,25 +150,17 @@ async def test_hook_runs_sync_callable_on_client_executor(method: str, attribute
         executor.shutdown()
 
 
-async def test_lock_asks_coordinator_for_the_extracted_key() -> None:
-    policy = _Coordinated(
-        coordinator_factory=_RecordingCoordinator,
-        extract_key_func=lambda u: ("scope", u.id),
-    )
+async def test_extract_key_may_return_none_to_leave_the_update_uncoordinated() -> None:
+    policy = _Coordinated(extract_key_func=lambda u: None)
 
-    assert await policy.lock(make_message(message_id=4)) == "the-lock"
-    assert policy.coordinator.calls == [("lock", ("scope", 4))]
+    assert await policy.extract_key(make_message()) is None
 
 
-async def test_lock_returns_an_unacquired_memory_lock() -> None:
-    policy = _Coordinated(extract_key_func=lambda u: (u.id,))
-    message = make_message()
+async def test_extract_update_id_rejects_a_none_identity() -> None:
+    policy = _Coordinated(extract_update_id_func=lambda u: None)
 
-    lock = await policy.lock(message)
-
-    assert not lock.locked()
-    assert await lock.acquire() is True
-    await lock.release()
+    with pytest.raises(TypeError, match="_Coordinated extracted no update id from"):
+        await policy.extract_update_id(make_message())
 
 
 async def test_start_and_stop_delegate_to_coordinator() -> None:

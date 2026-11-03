@@ -14,15 +14,16 @@ if TYPE_CHECKING:
 
 
 class MessageCoordinated(UpdateCoordinated[Message]):
-    """Coordinates messages, locked and deduplicated per message by default.
+    """Coordinates messages, locked per chat and identified per message edit by default.
 
     Example:
         >>> import asyncio
         >>> from types import SimpleNamespace
         >>> from pyrogram.raw.types import PeerChannel
         >>> message = Message(id=42, raw=SimpleNamespace(peer_id=PeerChannel(channel_id=123)))
-        >>> asyncio.run(MessageCoordinated().extract_key(message))
-        (-1000000000123, 42)
+        >>> coordinated = MessageCoordinated()
+        >>> asyncio.run(coordinated.extract_key(message)), asyncio.run(coordinated.extract_update_id(message))
+        ((-1000000000123,), (-1000000000123, 42, 0))
     """
 
     __update_type__ = Message
@@ -34,9 +35,6 @@ class MessageCoordinated(UpdateCoordinated[Message]):
             """Initialise the policy, defaulting any callable not passed to this class's own."""
             super().__init__(*args, **kw)
 
-            if self.is_coordinatable_func is None:
-                self.is_coordinatable_func = self._is_coordinatable
-
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
@@ -44,21 +42,21 @@ class MessageCoordinated(UpdateCoordinated[Message]):
                 self.extract_update_id_func = self._extract_update_id
 
     async def _extract_key(self, update: Message) -> UpdateCoordinatorKeyT:
-        """Lock per message, so messages never wait on each other.
+        """Lock per chat, so a chat's messages are coordinated one at a time.
 
-        Pass `extract_key_func=lambda m: (get_peer_id(m.raw.peer_id),)` to
-        serialise a whole chat instead; deduplication still keys on
-        `_extract_update_id`.
+        Pass `extract_key_func` to pick another level, such as
+        `lambda m: (get_peer_id(m.raw.peer_id), m.id)` for one message.
         """
-        return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
+        return (get_peer_id(update.raw.peer_id),)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
 
     async def _extract_update_id(self, update: Message) -> UpdateCoordinatorKeyT:
-        """Identify the message by its chat's peer id and its message id."""
-        return (get_peer_id(update.raw.peer_id), update.id)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
+        """Identify the message by its chat's peer id, its id and its edit time.
 
-    async def _is_coordinatable(self, update: Message) -> bool:
-        """Coordinate every message."""
-        return True
+        An edit keeps the message id, so the edit time (`0` before any edit)
+        tells an edit apart from the original and from other edits.
+        """
+        edited = int(update.edit_date.timestamp()) if update.edit_date else 0
+        return (get_peer_id(update.raw.peer_id), update.id, edited)  # ty: ignore[unresolved-attribute]  # `pyrogram` types `Message.raw` as `Optional`; dispatched messages always carry it
 
 
 __all__ = ("MessageCoordinated",)

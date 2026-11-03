@@ -1,4 +1,4 @@
-"""Tests for ``CallbackQueryCoordinated``: coordinatability, keys and locking."""
+"""Tests for ``CallbackQueryCoordinated``: its default lock key and identity."""
 
 from __future__ import annotations as _annotations
 
@@ -11,27 +11,17 @@ from pyroflow.update_coordinator import MemoryUpdateCoordinator
 from ..conftest import make_callback_query
 
 
-async def test_callback_coordinated_is_coordinatable_returns_true() -> None:
-    """A missing ``return`` once made this yield None, silently disabling
-    CallbackQuery coordination entirely."""
-    cc = CallbackQueryCoordinated()
-    result = await cc.is_coordinatable(make_callback_query())
-
-    assert result is True, "CallbackQueryCoordinated._is_coordinatable must RETURN True"
-
-
 async def test_callback_coordinated_keys() -> None:
     cc = CallbackQueryCoordinated()
-    cbq = make_callback_query()
+    cbq = make_callback_query(chat_id=100)
 
-    assert await cc.extract_key(cbq) == (cbq.id,)
+    assert await cc.extract_key(cbq) == (100,)
     assert await cc.extract_update_id(cbq) == (cbq.id,)
 
 
 def test_init_defaults_every_callable_to_the_class_hooks() -> None:
     cc = CallbackQueryCoordinated()
 
-    assert cc.is_coordinatable_func == cc._is_coordinatable
     assert cc.extract_key_func == cc._extract_key
     assert cc.extract_update_id_func == cc._extract_update_id
     assert isinstance(cc.coordinator, MemoryUpdateCoordinator)
@@ -39,9 +29,6 @@ def test_init_defaults_every_callable_to_the_class_hooks() -> None:
 
 
 def test_init_keeps_the_callables_passed() -> None:
-    def is_coordinatable(u: CallbackQuery) -> bool:
-        return False
-
     def extract_key(u: CallbackQuery) -> tuple[int]:
         return (1,)
 
@@ -49,12 +36,10 @@ def test_init_keeps_the_callables_passed() -> None:
         return (2,)
 
     cc = CallbackQueryCoordinated(
-        is_coordinatable_func=is_coordinatable,
         extract_key_func=extract_key,
         extract_update_id_func=extract_update_id,
     )
 
-    assert cc.is_coordinatable_func is is_coordinatable
     assert cc.extract_key_func is extract_key
     assert cc.extract_update_id_func is extract_update_id
 
@@ -66,7 +51,6 @@ def test_init_defaults_only_the_callables_not_passed() -> None:
     cc = CallbackQueryCoordinated(extract_key_func=extract_key)
 
     assert cc.extract_key_func is extract_key
-    assert cc.is_coordinatable_func == cc._is_coordinatable
     assert cc.extract_update_id_func == cc._extract_update_id
 
 
@@ -82,13 +66,22 @@ def test_init_forwards_the_coordinator_factory() -> None:
     assert seen == [CallbackQuery]
 
 
-async def test_private_hooks_use_the_query_id() -> None:
+async def test_private_extract_key_is_the_message_chat() -> None:
     cc = CallbackQueryCoordinated()
-    query = make_callback_query(id="q-42")
 
-    assert await cc._extract_key(query) == ("q-42",)
-    assert await cc._extract_update_id(query) == ("q-42",)
-    assert await cc._is_coordinatable(query) is True
+    assert await cc._extract_key(make_callback_query(chat_id=-100, id="q-42")) == (-100,)
+
+
+async def test_private_extract_key_falls_back_to_the_query_id_without_a_message() -> None:
+    cc = CallbackQueryCoordinated()
+
+    assert await cc._extract_key(make_callback_query(id="q-42", message=None)) == ("q-42",)
+
+
+async def test_private_extract_update_id_is_the_query_id() -> None:
+    cc = CallbackQueryCoordinated()
+
+    assert await cc._extract_update_id(make_callback_query(id="q-42")) == ("q-42",)
 
 
 async def test_widened_key_keeps_the_per_query_identity() -> None:
@@ -98,20 +91,6 @@ async def test_widened_key_keeps_the_per_query_identity() -> None:
 
     assert await cc.extract_key(first) == await cc.extract_key(second) == (7,)
     assert await cc.extract_update_id(first) != await cc.extract_update_id(second)
-
-
-async def test_lock_is_shared_per_query_and_dedupe_tracks_identity() -> None:
-    cc = CallbackQueryCoordinated()
-    query = make_callback_query(id="a")
-
-    lock = await cc.lock(query)
-    assert lock is await cc.lock(make_callback_query(id="a"))
-    assert lock is not await cc.lock(make_callback_query(id="b"))
-
-    update_id = await cc.extract_update_id(query)
-    await cc.coordinator.mark_handled(update_id)
-    assert await cc.coordinator.is_handled(update_id) is True
-    assert await cc.coordinator.is_handled(("b",)) is False
 
 
 def test_module_exports_only_the_policy() -> None:

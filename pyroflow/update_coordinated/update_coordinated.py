@@ -8,7 +8,7 @@ from typing import Any, TYPE_CHECKING
 
 from pytrove import maybe_awaitable
 
-from ..typings import AsyncLockProto, UpdateType
+from ..typings import UpdateType
 from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
 from ..utils import UpdateBound, get_update_executor
 
@@ -25,13 +25,18 @@ log = logging.getLogger(__name__)
 class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     """Abstract policy that coordinates one update type.
 
-    A subclass binds its update type through `__update_type__` and decides
-    whether an update is coordinated, its lock scope (`extract_key`) and its
-    identity (`extract_update_id`). Updates sharing a scope are processed one
-    at a time, in arrival order; each identity is processed once. By default
-    both are the update itself. Widen the scope to serialise a whole chat, but
-    keep the identity unique: a shared identity drops every later update as a
-    duplicate.
+    A subclass binds its update type through `__update_type__` and extracts two
+    keys from each update:
+
+    - `extract_key`: the lock that coordinates updates. Updates sharing a key
+      wait for each other, across sessions when the backend is shared. Choose
+      its level by passing `extract_key_func`: the chat, the chat and user, the
+      message, or the update itself. `None` makes the update uncoordinated.
+    - `extract_update_id`: the update's unique identity, used to mark it as
+      handled. Extracted only once the key is known; never `None`.
+
+    An update counts as handled, and its lock is released, as soon as a
+    listener resolves it or one handler's filter passes it.
 
     Each callable may be sync or async; a sync one runs in a thread, on the
     client's executor when it has one.
@@ -39,10 +44,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     Args:
         coordinator_factory: Builds the `UpdateCoordinator` from the update
             type. Defaults to `MemoryUpdateCoordinator`.
-        is_coordinatable_func: `(update) -> bool` backing `is_coordinatable`.
-            If `None`, a subclass must override that method.
-        extract_key_func: `(update) -> key` backing `extract_key`. If `None`,
-            a subclass must override that method.
+        extract_key_func: `(update) -> key | None` backing `extract_key`. If
+            `None`, a subclass must override that method.
         extract_update_id_func: `(update) -> key` backing `extract_update_id`.
             If `None`, a subclass must override that method.
         **kw: Passed to the next class in the MRO.
@@ -60,8 +63,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     def __init__(
         self,
         coordinator_factory: Callable[[type[UpdateType]], UpdateCoordinator] | None = None,
-        is_coordinatable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
-        extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT] | None = None,
+        extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT | None]
+        | None = None,
         extract_update_id_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]
         | None = None,
         **kw: Any,
@@ -73,58 +76,24 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             coordinator_factory = MemoryUpdateCoordinator
 
         self.coordinator = coordinator_factory(self.__class__.__update_type__)
-        """Backend that locks scopes and remembers handled updates."""
+        """Backend that locks keys and remembers handled updates."""
 
-        self.is_coordinatable_func = is_coordinatable_func
-        """Callable deciding whether an update is coordinated, or `None` to use an override."""
         self.extract_key_func = extract_key_func
-        """Callable returning an update's lock scope, or `None` to use an override."""
+        """Callable returning an update's lock key, or `None` to use an override."""
         self.extract_update_id_func = extract_update_id_func
         """Callable returning an update's identity, or `None` to use an override."""
 
-    async def is_coordinatable(self, update: UpdateType) -> bool:
-        """Return whether `update` is coordinated.
+    async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT | None:
+        """Return the lock key that coordinates `update`, or `None` to leave it uncoordinated.
 
-        An uncoordinated update is processed normally, with no lock and no
-        registration.
-
-        Args:
-            update: The incoming update.
-
-        Returns:
-            `True` if the update is coordinated, `False` otherwise.
-
-        Raises:
-            NotImplementedError: If the method is not overridden and no
-                `is_coordinatable_func` was passed.
-            TypeError: If `update` is not an instance of `__update_type__`.
-        """
-        if self.is_coordinatable_func is None:
-            msg = (
-                f"{self.__class__.__name__} must either pass is_coordinatable_func "
-                f"or override is_coordinatable()"
-            )
-            raise NotImplementedError(msg)
-
-        self.validate_update(update)
-
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
-            self.is_coordinatable_func,
-            update,
-            executor=get_update_executor(update),
-        )
-
-    async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT:
-        """Return the lock scope of `update`.
-
-        Updates with the same scope are processed one at a time, in arrival
-        order. This is not the update's identity; see `extract_update_id`.
+        Updates with the same key are processed one at a time. This is not the
+        update's identity; see `extract_update_id`.
 
         Args:
             update: The incoming update.
 
         Returns:
-            The key naming the scope to serialise.
+            The key naming the lock, or `None` if the update is not coordinated.
 
         Raises:
             NotImplementedError: If the method is not overridden and no
@@ -147,12 +116,11 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         )
 
     async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
-        """Return the identity of `update`, used for deduplication.
+        """Return the unique identity of `update`, used to mark it as handled.
 
-        It is checked before processing and registered once handled, so an
-        update is processed once, across sessions when the backend is shared.
-        It must stay unique per update: a shared identity drops every later
-        update as an already handled duplicate.
+        It must be extractable from the update every time, with the same value
+        for the same update and a different one for any other: a shared
+        identity drops every later update as already handled.
 
         Args:
             update: The incoming update.
@@ -163,7 +131,8 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         Raises:
             NotImplementedError: If the method is not overridden and no
                 `extract_update_id_func` was passed.
-            TypeError: If `update` is not an instance of `__update_type__`.
+            TypeError: If `update` is not an instance of `__update_type__`, or
+                the identity is `None`.
         """
         if self.extract_update_id_func is None:
             msg = (
@@ -174,25 +143,17 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
+        update_id = await maybe_awaitable(
             self.extract_update_id_func,
             update,
             executor=get_update_executor(update),
         )
 
-    async def lock(self, update: UpdateType) -> AsyncLockProto:
-        """Build the lock for the scope of `update`, unacquired.
+        if update_id is None:
+            msg = f"{self.__class__.__name__} extracted no update id from {update!r}"
+            raise TypeError(msg)
 
-        The caller decides when to acquire and release it; see
-        `pyroflow.mark_handled`.
-
-        Args:
-            update: The incoming update.
-
-        Returns:
-            An async lock usable with `async with`.
-        """
-        return self.coordinator.lock(await self.extract_key(update))
+        return update_id  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
 
     async def start(self) -> None:
         """Start the coordinator."""

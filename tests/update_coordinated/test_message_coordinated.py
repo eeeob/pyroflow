@@ -2,10 +2,9 @@
 
 from __future__ import annotations as _annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-
-import pytest
 
 from pyrogram.raw.types import PeerChannel
 from pyrogram.types import Message as PyroMessage
@@ -29,7 +28,6 @@ def _message(message_id: int = 5, peer: object | None = None) -> Message:
 def test_init_defaults_every_callable_to_the_class_hooks() -> None:
     mc = MessageCoordinated()
 
-    assert mc.is_coordinatable_func == mc._is_coordinatable
     assert mc.extract_key_func == mc._extract_key
     assert mc.extract_update_id_func == mc._extract_update_id
     assert isinstance(mc.coordinator, MemoryUpdateCoordinator)
@@ -37,9 +35,6 @@ def test_init_defaults_every_callable_to_the_class_hooks() -> None:
 
 
 def test_init_keeps_the_callables_passed() -> None:
-    def is_coordinatable(u: Message) -> bool:
-        return False
-
     def extract_key(u: Message) -> tuple[int]:
         return (1,)
 
@@ -47,12 +42,10 @@ def test_init_keeps_the_callables_passed() -> None:
         return (2,)
 
     mc = MessageCoordinated(
-        is_coordinatable_func=is_coordinatable,
         extract_key_func=extract_key,
         extract_update_id_func=extract_update_id,
     )
 
-    assert mc.is_coordinatable_func is is_coordinatable
     assert mc.extract_key_func is extract_key
     assert mc.extract_update_id_func is extract_update_id
 
@@ -64,7 +57,6 @@ def test_init_defaults_only_the_callables_not_passed() -> None:
     mc = MessageCoordinated(extract_key_func=extract_key)
 
     assert mc.extract_key_func is extract_key
-    assert mc.is_coordinatable_func == mc._is_coordinatable
     assert mc.extract_update_id_func == mc._extract_update_id
 
 
@@ -80,66 +72,41 @@ def test_init_forwards_the_coordinator_factory() -> None:
     assert seen == [PyroMessage]
 
 
-@pytest.mark.parametrize(
-    ("peer", "peer_id"),
-    [
-        (PeerChannel(channel_id=123), -1000000000123),
-    ],
-)
-async def test_extract_key_is_peer_id_and_message_id(peer: object, peer_id: int) -> None:
+async def test_extract_key_is_the_chat_peer_id() -> None:
     mc = MessageCoordinated()
 
-    assert await mc._extract_key(_message(42, peer)) == (peer_id, 42)
-    assert await mc.extract_key(_message(42, peer)) == (peer_id, 42)
+    assert await mc._extract_key(_message(42)) == (-1000000000123,)
+    assert await mc.extract_key(_message(42)) == await mc.extract_key(_message(43))
 
 
-@pytest.mark.parametrize(
-    ("peer", "peer_id"),
-    [
-        (PeerChannel(channel_id=123), -1000000000123),
-    ],
-)
-async def test_extract_update_id_is_peer_id_and_message_id(peer: object, peer_id: int) -> None:
+async def test_extract_update_id_is_peer_id_message_id_and_zero_before_an_edit() -> None:
     mc = MessageCoordinated()
 
-    assert await mc._extract_update_id(_message(42, peer)) == (peer_id, 42)
-    assert await mc.extract_update_id(_message(42, peer)) == (peer_id, 42)
+    assert await mc._extract_update_id(_message(42)) == (-1000000000123, 42, 0)
 
 
-async def test_is_coordinatable_is_always_true() -> None:
+async def test_extract_update_id_tells_an_edit_from_the_original_and_other_edits() -> None:
     mc = MessageCoordinated()
+    original = _message(42)
+    edited = _message(42)
+    edited.edit_date = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    edited_again = _message(42)
+    edited_again.edit_date = datetime(2026, 1, 2, tzinfo=timezone.utc)
 
-    assert await mc._is_coordinatable(_message()) is True
-    assert await mc.is_coordinatable(_message()) is True
-    assert await mc.is_coordinatable(PyroMessage(id=1)) is True
+    ids = {await mc.extract_update_id(m) for m in (original, edited, edited_again)}
+
+    assert len(ids) == 3
+    assert await mc.extract_update_id(edited) == (
+        -1000000000123,
+        42,
+        int(edited.edit_date.timestamp()),
+    )
 
 
-async def test_widened_key_keeps_the_per_message_identity() -> None:
-    mc = MessageCoordinated(extract_key_func=lambda u: (get_peer_id(u.raw.peer_id),))
-    first = _message(1)
-    second = _message(2)
+async def test_narrowed_key_locks_per_message() -> None:
+    mc = MessageCoordinated(extract_key_func=lambda u: (get_peer_id(u.raw.peer_id), u.id))
 
-    assert await mc.extract_key(first) == await mc.extract_key(second) == (-1000000000123,)
-    assert await mc.extract_update_id(first) != await mc.extract_update_id(second)
-
-
-async def test_lock_is_shared_per_message_and_dedupe_tracks_identity() -> None:
-    mc = MessageCoordinated()
-    message = _message()
-
-    lock = await mc.lock(message)
-    assert lock is await mc.lock(_message())
-    assert lock is not await mc.lock(_message(6))
-    assert await lock.acquire() is True
-    await lock.release()
-
-    update_id = await mc.extract_update_id(message)
-    assert await mc.coordinator.is_handled(update_id) is False
-    await mc.coordinator.mark_handled(update_id)
-    assert await mc.coordinator.is_handled(update_id) is True
-
-    await mc.stop()
-    assert await mc.coordinator.is_handled(update_id) is False
+    assert await mc.extract_key(_message(1)) != await mc.extract_key(_message(2))
 
 
 def test_module_exports_only_the_policy() -> None:

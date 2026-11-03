@@ -1,20 +1,18 @@
 """Dispatcher coordination pipeline: lock lifecycle and handled registration.
 
 These cover `Dispatcher.handle_update`, which drives coordination end to end:
-take the update's lock scope, check its identity against the handled
-registry, process it, register it, release.
+extract the update's key (its lock) and take the lock, check its identity
+against the handled registry, then process it. The first listener that
+resolves it or handler filter that passes it marks it as handled and releases
+the lock early; an update nothing took is released unmarked for a peer.
 
-The headline guarantee is the pairing of a *wide* lock with a *narrow*
-identity — serialising a whole chat while every update in it still gets
-processed exactly once. Keying both from one value is the bug this design
-replaced: the first update would register the entire chat as handled and
-every update after it would be silently dropped.
+The fake `_handle_update` below stands in for that first match by awaiting
+`_settle_handled()` itself, as the real one does.
 """
 
 from __future__ import annotations as _annotations
 
 import asyncio
-import contextvars
 import logging
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -29,17 +27,17 @@ from pyrogram.handlers import (
     RawUpdateHandler,
 )
 from pyrogram.types import Message
-from pyrogram.utils import get_peer_id
 
 from pyroflow import dispatcher as dispatcher_module
 from pyroflow.dispatcher import (
-    _HANDLED_MARKER,
+    _SETTLEMENT,
     Dispatcher,
     _CoordinatedRelease,
-    mark_handled,
+    _settle_handled,
 )
-from pyroflow.errors import UnhandledUpdate, UnresolvedUpdate
+from pyroflow.errors import UnresolvedUpdate
 from pyroflow.update_coordinated import MessageCoordinated
+from pyroflow.update_coordinator import RedisUpdateCoordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
     MemoryUpdateCoordinator,
 )
@@ -49,22 +47,14 @@ from .conftest import make_callback_query, make_message
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from pyroflow.typings import UpdateCoordinatorKeyT
-
-    # يعيد (claimed, lock_free) من داخل الـ handler.
-    PeerProbe = Callable[[], Awaitable[tuple[bool, bool]]]
-
-
-CHAT_SCOPE = staticmethod(lambda u: (get_peer_id(u.raw.peer_id),))
 
 PACKET = (None, None, None)
 
 
 def make_coordinated(**kw: Any) -> MessageCoordinated:
-    """A MessageCoordinated over an in-memory coordinator.
+    """A MessageCoordinated over an in-memory coordinator, locked per chat by default.
 
-    ``extract_key_func`` may be passed to widen the lock scope; the default
-    keeps it at one update, matching the shipped behaviour.
+    ``extract_key_func`` may be passed to change the lock key.
     """
     extract_key_func = kw.pop("extract_key_func", None)
     kw.setdefault("blocking_timeout", 0.2)
@@ -75,25 +65,36 @@ def make_coordinated(**kw: Any) -> MessageCoordinated:
     )
 
 
-def fake_dispatcher(**kw: Any) -> SimpleNamespace:
-    """A minimal stand-in exposing only what handle_update() touches.
-
-    `client.loop` is among those: the early-settlement path schedules onto it.
-    """
-    return SimpleNamespace(client=SimpleNamespace(loop=asyncio.get_event_loop()), **kw)
-
-
-def make_dispatcher(
-    coordinated: MessageCoordinated, handle_result: tuple[int, int] | Exception
+def fake_dispatcher(
+    coordinated: object | None,
+    body: Callable[[Message], Awaitable[None]] | None = None,
+    *,
+    settles: bool = True,
+    error: BaseException | None = None,
 ) -> SimpleNamespace:
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
+    """A stand-in exposing only what handle_update() touches.
+
+    Its `_handle_update` runs `body`, settles the update as handled when
+    `settles` (as a passing filter does), then raises `error` if given.
+    """
+    fake = SimpleNamespace(coordinateds={} if coordinated is None else {Message: coordinated})
+    fake.ran = []
 
     async def _handle_update(
         packet: object, parsed_update: Message, handler_type: object
     ) -> tuple[int, int]:
-        if isinstance(handle_result, Exception):
-            raise handle_result
-        return handle_result
+        fake.ran.append(parsed_update.id)
+
+        if body is not None:
+            await body(parsed_update)
+
+        if settles:
+            await _settle_handled()
+
+        if error is not None:
+            raise error
+
+        return (int(settles), 0)
 
     fake._handle_update = _handle_update
     return fake
@@ -112,562 +113,321 @@ async def _is_claimed(coordinated: MessageCoordinated, msg: Message) -> bool:
 
 
 async def _is_lock_free(coordinated: MessageCoordinated, msg: Message) -> bool:
-    """Whether this update's lock scope is available to the next caller."""
-    return await (await coordinated.lock(msg)).acquire()
+    """Whether this update's lock is available to the next caller; releases it again."""
+    lock = coordinated.coordinator.lock(await coordinated.extract_key(msg))
+
+    if not await lock.acquire():
+        return False
+
+    await lock.release()
+    return True
 
 
-# --- what gets registered as handled --------------------------------------
-
-
-async def test_handled_update_is_claimed_so_peers_skip_it() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
-
-    assert await _is_claimed(coordinated, msg) is True
-
-
-async def test_raising_handler_still_claims_the_update() -> None:
-    """A handler that raised still *ran*: the update reached its owner, so
-    replaying it on a peer would duplicate work rather than recover.
-    `sum(result)` counts exc_count deliberately — see Dispatcher docs."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    await Dispatcher.handle_update(make_dispatcher(coordinated, (0, 2)), PACKET, msg, type(None))
-
-    assert await _is_claimed(coordinated, msg) is True
-
-
-async def test_untouched_update_is_left_for_a_peer_to_retry() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    await Dispatcher.handle_update(make_dispatcher(coordinated, (0, 0)), PACKET, msg, type(None))
-
-    assert await _is_claimed(coordinated, msg) is False
-
-
-async def test_unhandled_update_hands_the_update_back() -> None:
-    """Raising UnhandledUpdate stops this session and leaves the update
-    unregistered, so a peer may still take it."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    dispatcher = make_dispatcher(coordinated, UnhandledUpdate("not mine"))
-
-    with pytest.raises(UnhandledUpdate):
-        await Dispatcher.handle_update(dispatcher, PACKET, msg, type(None))
-
-    assert await _is_claimed(coordinated, msg) is False
-
-
-async def test_already_handled_update_is_not_reprocessed() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    # A peer already finished this update.
-    await coordinated.coordinator.mark_handled(await coordinated.extract_update_id(msg))
-
-    ran = False
-
-    async def _handle_update(*a: object, **kw: object) -> tuple[int, int]:
-        nonlocal ran
-        ran = True
-        return (1, 0)
-
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
-
+async def handle(fake: SimpleNamespace, msg: Message) -> None:
     await Dispatcher.handle_update(fake, PACKET, msg, type(None))
 
-    assert ran is False, "update already handled by a peer must not be reprocessed"
+
+# --- what gets marked as handled -------------------------------------------
+
+
+async def test_settled_update_is_marked_and_released() -> None:
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    await handle(fake_dispatcher(coordinated), msg)
+
+    assert await _is_claimed(coordinated, msg) is True
+    assert await _is_lock_free(coordinated, msg) is True
+
+
+async def test_unsettled_update_is_released_unmarked_for_a_peer() -> None:
+    """No listener and no passing filter: a peer with other handlers may take it."""
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    await handle(fake_dispatcher(coordinated, settles=False), msg)
+
+    assert await _is_claimed(coordinated, msg) is False
+    assert await _is_lock_free(coordinated, msg) is True
+
+
+async def test_peer_takes_an_update_this_session_left_unmarked() -> None:
+    """Two sessions on one backend, each with its own handlers."""
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+    first = fake_dispatcher(coordinated, settles=False)
+    second = fake_dispatcher(coordinated)
+
+    await handle(first, msg)
+    await handle(second, msg)
+    await handle(first, msg)
+
+    assert first.ran == [5]
+    assert second.ran == [5]
+    assert await _is_claimed(coordinated, msg) is True
+
+
+async def test_handler_error_after_settling_keeps_the_mark() -> None:
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    with pytest.raises(RuntimeError):
+        await handle(fake_dispatcher(coordinated, error=RuntimeError("boom")), msg)
+
+    assert await _is_claimed(coordinated, msg) is True
+    assert await _is_lock_free(coordinated, msg) is True
+
+
+async def test_error_before_settling_releases_unmarked() -> None:
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    with pytest.raises(RuntimeError):
+        await handle(fake_dispatcher(coordinated, settles=False, error=RuntimeError("boom")), msg)
+
+    assert await _is_claimed(coordinated, msg) is False
+    assert await _is_lock_free(coordinated, msg) is True
+
+
+async def test_stop_propagation_propagates_with_the_update_still_marked() -> None:
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    with pytest.raises(StopPropagation):
+        await handle(fake_dispatcher(coordinated, error=StopPropagation()), msg)
+
+    assert await _is_claimed(coordinated, msg) is True
+    assert await _is_lock_free(coordinated, msg) is True
+
+
+async def test_already_handled_update_is_dropped_and_released() -> None:
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+    await coordinated.coordinator.mark_handled(await coordinated.extract_update_id(msg))
+    fake = fake_dispatcher(coordinated)
+
+    await handle(fake, msg)
+
+    assert fake.ran == [], "update already handled by a peer must not be reprocessed"
+    assert await _is_lock_free(coordinated, msg) is True
 
 
 async def test_uncoordinated_update_type_passes_straight_through() -> None:
-    fake = fake_dispatcher(coordinateds={})
-    seen = []
+    settlements: list[object] = []
 
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
-        seen.append(parsed_update)
-        return (1, 0)
+    async def body(update: Message) -> None:
+        settlements.append(_SETTLEMENT.get())
 
-    fake._handle_update = _handle_update
-    msg = coordinatable_message()
+    fake = fake_dispatcher(None, body)
 
-    await Dispatcher.handle_update(fake, PACKET, msg, type(None))
-    assert seen == [msg]
+    await handle(fake, coordinatable_message())
+
+    assert fake.ran == [5]
+    assert settlements == [None]
 
 
-async def test_uncoordinatable_update_is_processed_without_a_lock() -> None:
-    coordinated = make_coordinated()
-    coordinated.is_coordinatable_func = lambda u: False
-    msg = coordinatable_message()
+async def test_none_key_processes_the_update_without_a_lock() -> None:
+    coordinated = make_coordinated(extract_key_func=lambda u: None)
+    coordinated.extract_update_id_func = None  # never reached without a key
+    settlements: list[object] = []
 
-    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
+    async def body(update: Message) -> None:
+        settlements.append(_SETTLEMENT.get())
 
-    assert await _is_claimed(coordinated, msg) is False
-    assert await _is_lock_free(coordinated, msg) is True
+    fake = fake_dispatcher(coordinated, body)
 
+    await handle(fake, coordinatable_message())
 
-# --- the lock is always given back ----------------------------------------
-
-
-async def test_lock_is_released_after_a_handled_update() -> None:
-    """The core regression: the scope must reopen once the update is done.
-    The old coordinator kept its key marked forever, so the next update in
-    that scope was skipped as an already-handled duplicate."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
-
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_lock_is_released_after_a_raising_handler() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    dispatcher = make_dispatcher(coordinated, RuntimeError("boom"))
-
-    with pytest.raises(RuntimeError):
-        await Dispatcher.handle_update(dispatcher, PACKET, msg, type(None))
-
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_lock_is_released_when_the_update_was_already_handled() -> None:
-    """The skip path returns early — from inside the lock. It still has to
-    unwind through the settlement, or the scope stays wedged."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    await coordinated.coordinator.mark_handled(await coordinated.extract_update_id(msg))
-
-    await Dispatcher.handle_update(make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None))
-
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_lock_is_released_when_identity_extraction_fails() -> None:
-    """extract_update_id runs *after* the lock is taken, so a hook that
-    raises must not strand it."""
-    coordinated = make_coordinated()
-    coordinated.extract_update_id_func = None  # -> NotImplementedError
-    msg = coordinatable_message()
-
-    with pytest.raises(NotImplementedError):
-        await Dispatcher.handle_update(
-            make_dispatcher(coordinated, (1, 0)), PACKET, msg, type(None)
-        )
-
-    assert await _is_lock_free(coordinated, msg) is True
+    assert fake.ran == [5]
+    assert settlements == [None]
 
 
 async def test_a_contended_lock_makes_the_update_skip(caplog: pytest.LogCaptureFixture) -> None:
     coordinated = make_coordinated(blocking_timeout=0.01)
     msg = coordinatable_message()
 
-    held = await coordinated.lock(msg)
+    held = coordinated.coordinator.lock(await coordinated.extract_key(msg))
     assert await held.acquire() is True
 
-    ran = False
-
-    async def _handle_update(*a: object, **kw: object) -> tuple[int, int]:
-        nonlocal ran
-        ran = True
-        return (1, 0)
-
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
+    fake = fake_dispatcher(coordinated)
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await Dispatcher.handle_update(fake, PACKET, msg, type(None))
+        await handle(fake, msg)
 
-    assert ran is False, "an update whose scope is locked must be skipped"
+    assert fake.ran == [], "an update whose lock is held must be skipped"
     assert await _is_claimed(coordinated, msg) is False, "a skipped update must stay available"
     assert "Timeout waiting for coordinated lock" in caplog.text
 
 
-# --- wide lock + narrow identity: ordering without loss -------------------
+@pytest.mark.parametrize("stage", ["extract_key", "acquire", "extract_update_id", "is_handled"])
+async def test_failing_coordination_setup_processes_uncoordinated(
+    stage: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    coordinated = make_coordinated()
+    msg = coordinatable_message()
+
+    def fail(*args: object) -> NoReturn:
+        raise RuntimeError(stage)
+
+    if stage == "extract_key":
+        coordinated.extract_key_func = fail
+    elif stage == "extract_update_id":
+        coordinated.extract_update_id_func = fail
+    elif stage == "is_handled":
+        coordinated.coordinator.is_handled = fail  # ty: ignore[invalid-assignment]
+    else:
+        coordinated.coordinator.lock = lambda key: SimpleNamespace(acquire=fail)  # ty: ignore[invalid-assignment]
+
+    settlements: list[object] = []
+
+    async def body(update: Message) -> None:
+        settlements.append(_SETTLEMENT.get())
+
+    fake = fake_dispatcher(coordinated, body)
+
+    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
+        await handle(fake, msg)
+
+    assert fake.ran == [5]
+    assert settlements == [None]
+    assert "Error while setting up coordination" in caplog.text
+
+    if stage in ("extract_update_id", "is_handled"):
+        assert await _is_lock_free(coordinated, msg) is True, (
+            "a failure after acquire leaked the lock"
+        )
 
 
-async def test_chat_wide_lock_serialises_every_update_without_loss() -> None:
-    """The whole point of splitting the two keys.
+# --- early release once handled --------------------------------------------
 
-    Ten updates arrive concurrently for one chat. The chat-scoped lock must
-    make them run strictly one at a time, and the per-message identity must
-    keep every one of them from being mistaken for a duplicate."""
-    coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
 
-    processed = []
+async def test_settling_releases_the_lock_before_the_handler_returns() -> None:
+    coordinated = make_coordinated(blocking_timeout=0.01)
+    msg = coordinatable_message()
+    seen: dict[str, bool] = {}
+
+    async def body(update: Message) -> None:
+        seen["held_before"] = not await _is_lock_free(coordinated, update)
+        await _settle_handled()
+        seen["claimed"] = await _is_claimed(coordinated, update)
+        seen["free_after"] = await _is_lock_free(coordinated, update)
+
+    await handle(fake_dispatcher(coordinated, body, settles=False), msg)
+
+    assert seen == {"held_before": True, "claimed": True, "free_after": True}
+
+
+async def test_next_update_in_the_chat_starts_while_a_settled_handler_runs() -> None:
+    coordinated = make_coordinated(blocking_timeout=1)
+    first_running = asyncio.Event()
+    second_done = asyncio.Event()
+
+    async def body(update: Message) -> None:
+        await _settle_handled()
+
+        if update.id == 1:
+            first_running.set()
+            await asyncio.wait_for(second_done.wait(), 1)
+        else:
+            second_done.set()
+
+    fake = fake_dispatcher(coordinated, body, settles=False)
+
+    async def second() -> None:
+        await first_running.wait()
+        await handle(fake, coordinatable_message(message_id=2))
+
+    await asyncio.gather(handle(fake, coordinatable_message(message_id=1)), second())
+
+    assert fake.ran == [1, 2]
+
+
+async def test_chat_lock_serialises_updates_until_settled_without_loss() -> None:
+    """The chat-level default key: ten concurrent updates of one chat take
+    turns until each is settled, and the per-message identity keeps every
+    one from being mistaken for a duplicate."""
+    coordinated = make_coordinated(blocking_timeout=5)
     concurrent = peak = 0
 
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
+    async def body(update: Message) -> None:
         nonlocal concurrent, peak
         concurrent += 1
         peak = max(peak, concurrent)
-
         await asyncio.sleep(0.01)
-
-        processed.append(parsed_update.id)
         concurrent -= 1
-        return (1, 0)
 
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
+    fake = fake_dispatcher(coordinated, body)
 
-    await asyncio.gather(
-        *(
-            Dispatcher.handle_update(fake, PACKET, coordinatable_message(message_id=i), type(None))
-            for i in range(10)
-        )
-    )
+    await asyncio.gather(*(handle(fake, coordinatable_message(message_id=i)) for i in range(10)))
 
-    assert peak == 1, f"chat-wide lock failed to serialise (peak {peak})"
-    assert sorted(processed) == list(range(10)), (
-        f"updates were lost under a shared lock scope: {sorted(processed)}"
-    )
+    assert peak == 1, f"chat lock failed to serialise (peak {peak})"
+    assert sorted(fake.ran) == list(range(10)), f"updates were lost: {sorted(fake.ran)}"
 
 
-async def test_chat_wide_lock_still_skips_a_redelivered_update() -> None:
-    coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
-    runs = []
-
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
-        runs.append(parsed_update.id)
-        return (1, 0)
-
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
+async def test_chat_lock_still_skips_a_redelivered_update() -> None:
+    coordinated = make_coordinated(blocking_timeout=5)
+    fake = fake_dispatcher(coordinated)
 
     for message_id in (1, 1, 2):
-        await Dispatcher.handle_update(
-            fake, PACKET, coordinatable_message(message_id=message_id), type(None)
-        )
+        await handle(fake, coordinatable_message(message_id=message_id))
 
-    assert runs == [1, 2], "a redelivered update was processed twice"
+    assert fake.ran == [1, 2], "a redelivered update was processed twice"
 
 
 async def test_separate_chats_do_not_block_each_other() -> None:
-    coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
-
+    coordinated = make_coordinated(blocking_timeout=5)
     concurrent = peak = 0
 
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
+    async def body(update: Message) -> None:
         nonlocal concurrent, peak
         concurrent += 1
         peak = max(peak, concurrent)
         await asyncio.sleep(0.01)
         concurrent -= 1
-        return (1, 0)
 
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
+    fake = fake_dispatcher(coordinated, body)
 
     await asyncio.gather(
-        *(
-            Dispatcher.handle_update(
-                fake, PACKET, coordinatable_message(message_id=1, chat_id=c), type(None)
-            )
-            for c in range(5)
-        )
+        *(handle(fake, coordinatable_message(message_id=1, chat_id=c)) for c in range(5))
     )
 
     assert peak > 1, "distinct chats must not serialise against each other"
 
 
-# --- early settlement via mark_handled() ----------------------------------
-
-
-def make_marking_dispatcher(
-    coordinated: MessageCoordinated, body: Callable[[PeerProbe], Awaitable[tuple[int, int]]]
-) -> SimpleNamespace:
-    """A dispatcher whose _handle_update runs `body(peer)`.
-
-    `peer` probes coordination from *inside* the handler, while it is still
-    running — which is the whole window this feature is about.
-    """
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
-        async def peer() -> tuple[bool, bool]:
-            return (
-                await _is_claimed(coordinated, parsed_update),
-                await _is_lock_free(coordinated, parsed_update),
-            )
-
-        return await body(peer)
-
-    fake._handle_update = _handle_update
-    return fake
-
-
-async def test_lock_is_held_for_the_whole_handler_by_default() -> None:
-    """The baseline the feature departs from: without mark_handled() a slow
-    handler keeps the scope locked for its entire duration."""
-    coordinated = make_coordinated(blocking_timeout=0.01)
-    msg = coordinatable_message()
-
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        await asyncio.sleep(0)
-        claimed, lock_free = await peer()
-        assert claimed is False, "not settled yet"
-        assert lock_free is False, "lock must still be held mid-handler"
-        return (1, 0)
-
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
-    )
-
-
-async def test_mark_handled_settles_before_the_handler_returns() -> None:
-    """The point of the feature: hold time tracks how long the update takes
-    to *claim*, not how long the handler takes to *finish*."""
-    coordinated = make_coordinated(blocking_timeout=0.05)
-    msg = coordinatable_message()
-
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        assert mark_handled() is True
-        # Give the scheduled settlement a chance to run, as any awaiting
-        # handler inevitably would.
-        await asyncio.sleep(0)
-
-        claimed, lock_free = await peer()
-        assert claimed is True, "mark_handled() must register the update"
-        assert lock_free is True, "mark_handled() must release the lock"
-
-        await asyncio.sleep(0.05)  # the "slow job"
-        return (0, 0)
-
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
-    )
-
-    # (0, 0) would normally leave the update unregistered. The early mark
-    # must win over that.
-    assert await _is_claimed(coordinated, msg) is True
-
-
-async def test_mark_handled_lets_the_next_update_in_the_scope_start() -> None:
-    """With a chat-wide lock, settling early is what hands the chat over."""
-    coordinated = make_coordinated(extract_key_func=CHAT_SCOPE, blocking_timeout=5)
-    order = []
-
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
-        order.append(("start", parsed_update.id))
-
-        if parsed_update.id == 1:
-            mark_handled()
-            await asyncio.sleep(0)
-            await asyncio.sleep(0.05)  # long tail, lock already gone
-
-        order.append(("end", parsed_update.id))
-        return (1, 0)
-
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
-
-    await asyncio.gather(
-        Dispatcher.handle_update(fake, PACKET, coordinatable_message(message_id=1), type(None)),
-        Dispatcher.handle_update(fake, PACKET, coordinatable_message(message_id=2), type(None)),
-    )
-
-    assert order.index(("start", 2)) < order.index(("end", 1)), (
-        "the second update should have started while the first was still running"
-    )
-
-
-async def test_mark_handled_is_idempotent() -> None:
+async def test_settlement_is_set_only_while_the_update_is_processed() -> None:
     coordinated = make_coordinated()
-    msg = coordinatable_message()
+    settlements: list[object] = []
 
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        assert mark_handled() is True
-        assert mark_handled() is False, "second call must not settle twice"
-        return (1, 0)
+    async def body(update: Message) -> None:
+        settlements.append(_SETTLEMENT.get())
 
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
+    await handle(fake_dispatcher(coordinated, body), coordinatable_message())
+
+    assert isinstance(settlements[0], _CoordinatedRelease)
+    assert _SETTLEMENT.get() is None
+
+
+async def test_redis_backend_marks_and_hands_over_across_sessions() -> None:
+    fakeredis = pytest.importorskip("fakeredis")
+    pytest.importorskip("lupa")
+    redis = fakeredis.aioredis.FakeRedis()
+    coordinated = MessageCoordinated(
+        coordinator_factory=lambda ut: RedisUpdateCoordinator(redis, ut, blocking_timeout=1)
     )
+    msg = coordinatable_message()
+    first = fake_dispatcher(coordinated, settles=False)
+    second = fake_dispatcher(coordinated)
 
+    await handle(first, msg)
+    assert await _is_claimed(coordinated, msg) is False
+
+    await handle(second, msg)
+    await handle(first, msg)
+
+    assert first.ran == [5]
+    assert second.ran == [5]
     assert await _is_claimed(coordinated, msg) is True
     assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_mark_handled_survives_a_raising_handler() -> None:
-    """Already settled — an exception afterwards must not hand the update
-    back to a peer that would redo the part already done."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    async def body(peer: PeerProbe) -> NoReturn:
-        mark_handled()
-        await asyncio.sleep(0)
-        msg = "boom"
-        raise RuntimeError(msg)
-
-    with pytest.raises(RuntimeError):
-        await Dispatcher.handle_update(
-            make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
-        )
-
-    assert await _is_claimed(coordinated, msg) is True
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_mark_handled_works_from_a_sync_handler_in_the_executor() -> None:
-    """Sync handlers run through to_thread, off the event loop. The
-    settlement has to be scheduled thread-safely rather than awaited, which
-    is why mark_handled() is a plain function.
-
-    Unlike the same-loop early-settlement path (create_task, one hop to its
-    first step), claim_early() off-loop goes through
-    run_coroutine_threadsafe: one hop for call_soon_threadsafe's callback to
-    create the task, then another for the task's own first step. A single
-    ``await asyncio.sleep(0)`` yields exactly one hop — enough for the
-    same-loop case, not guaranteed enough once a real OS thread and an extra
-    scheduling hop are both in the way. A short real sleep, not a bare tick,
-    is what actually waits the settlement out."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    result = {}
-
-    def sync_handler() -> None:
-        result["marked"] = mark_handled()
-
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        await asyncio.to_thread(sync_handler)  # copies the context
-        await asyncio.sleep(0.05)
-
-        claimed, lock_free = await peer()
-        assert claimed is True
-        assert lock_free is True
-        return (0, 0)
-
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
-    )
-
-    assert result["marked"] is True
-    assert await _is_claimed(coordinated, msg) is True
-
-
-def count_settlements(coordinated: MessageCoordinated) -> list[UpdateCoordinatorKeyT]:
-    """Record every mark_handled() the dispatcher performs."""
-    calls = []
-    original = coordinated.coordinator.mark_handled
-
-    async def counting(key: UpdateCoordinatorKeyT) -> None:
-        calls.append(key)
-        return await original(key)
-
-    coordinated.coordinator.mark_handled = counting
-    return calls
-
-
-async def test_a_leaked_context_cannot_settle_twice() -> None:
-    """A handler that spawns background work leaks its context — and with it
-    a live reference to the releaser — well past its own return. A late
-    mark_handled() from there must not settle a second time: by then the lock
-    may have been re-taken by a *later* update, and the stray release would
-    hand that update's scope away while it is still being processed."""
-    coordinated = make_coordinated()
-    calls = count_settlements(coordinated)
-    msg = coordinatable_message()
-    escaped = {}
-
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        escaped["ctx"] = contextvars.copy_context()  # as create_task() does
-        return (1, 0)
-
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
-    )
-    assert len(calls) == 1
-
-    # The background task finally gets round to marking.
-    assert escaped["ctx"].run(mark_handled) is False
-    await asyncio.sleep(0.05)
-
-    assert len(calls) == 1, "the update was settled twice"
-
-
-async def test_settle_twice_settles_once() -> None:
-    """The releaser is a one-shot regardless of who calls it or how often."""
-    coordinated = make_coordinated()
-    calls = count_settlements(coordinated)
-    msg = coordinatable_message()
-
-    lock = await coordinated.lock(msg)
-    await lock.acquire()
-
-    release = _CoordinatedRelease(coordinated, lock, asyncio.get_event_loop())
-    release.update_id = await coordinated.extract_update_id(msg)
-
-    await release.settle(True)
-    await release.settle(True)
-
-    assert len(calls) == 1
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_settling_before_the_identity_is_known_marks_nothing() -> None:
-    """The window between taking the lock and extracting the identity: there
-    is nothing to register yet, but the lock must still come back."""
-    coordinated = make_coordinated()
-    calls = count_settlements(coordinated)
-    msg = coordinatable_message()
-
-    lock = await coordinated.lock(msg)
-    await lock.acquire()
-
-    release = _CoordinatedRelease(coordinated, lock, asyncio.get_event_loop())
-    await release.settle(True)  # update_id still None
-
-    assert calls == []
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_mark_handled_outside_update_processing_is_a_noop() -> None:
-    assert mark_handled() is False
-
-
-async def test_marker_does_not_leak_between_updates() -> None:
-    """The ContextVar is reset per update: the handler of a later, uncoordinated
-    update in the same context must not see the earlier update's releaser."""
-    coordinated = make_coordinated()
-
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        return (1, 0)
-
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, coordinatable_message(), type(None)
-    )
-
-    seen: list[object] = []
-
-    async def _handle_update(*a: object, **kw: object) -> tuple[int, int]:
-        seen.append(_HANDLED_MARKER.get())
-        return (1, 0)
-
-    uncoordinated = fake_dispatcher(coordinateds={})
-    uncoordinated._handle_update = _handle_update
-
-    await Dispatcher.handle_update(uncoordinated, PACKET, coordinatable_message(), type(None))
-
-    assert seen == [None], "marker outlived the update it belonged to"
 
 
 # --- module-level definitions ----------------------------------------------
@@ -678,10 +438,15 @@ def test_module_logger_is_named_after_the_module() -> None:
 
 
 def test_public_surface() -> None:
-    assert dispatcher_module.__all__ == ("Dispatcher", "mark_handled")
+    assert dispatcher_module.__all__ == ("Dispatcher",)
 
 
-# --- _CoordinatedRelease ----------------------------------------------------
+def test_settlement_context_variable_defaults_to_none() -> None:
+    assert _SETTLEMENT.name == "pyroflow_settlement"
+    assert _SETTLEMENT.get() is None
+
+
+# --- _CoordinatedRelease and _settle_handled --------------------------------
 
 
 class FakeLock:
@@ -711,69 +476,47 @@ def make_release(
 ) -> tuple[_CoordinatedRelease, FakeCoordinator, FakeLock]:
     coordinator = coordinator or FakeCoordinator()
     lock = lock or FakeLock()
-    release = _CoordinatedRelease(
-        SimpleNamespace(coordinator=coordinator), lock, asyncio.get_running_loop()
-    )
+    release = _CoordinatedRelease(coordinator, lock, ("id",))  # ty: ignore[invalid-argument-type]
     return release, coordinator, lock
 
 
-async def test_release_starts_unsettled_without_an_identity() -> None:
+async def test_release_starts_unsettled() -> None:
     release, coordinator, lock = make_release()
 
-    assert release.update_id is None
-    assert release._early is None
-    assert release._released is False
+    assert release._settled is False
     assert coordinator.marked == []
     assert lock.releases == 0
 
 
-async def test_claim_early_on_the_loop_schedules_a_handled_settlement() -> None:
+@pytest.mark.parametrize(("handled", "marked"), [(True, [("id",)]), (False, [])])
+async def test_settle_marks_only_when_handled_and_always_releases(
+    handled: bool, marked: list[object]
+) -> None:
     release, coordinator, lock = make_release()
-    release.update_id = "id"
 
-    assert release.claim_early() is True
-    assert isinstance(release._early, asyncio.Task)
-    assert release.claim_early() is False, "a second claim must lose"
+    await release.settle(handled)
 
-    # `handled=False` is ignored: the early settlement already won.
-    await release.settle(False)
-
-    assert coordinator.marked == ["id"]
+    assert coordinator.marked == marked
     assert lock.releases == 1
+    assert release._settled is True
 
 
-async def test_claim_early_after_settlement_is_refused() -> None:
+async def test_settle_is_a_one_shot() -> None:
     release, coordinator, lock = make_release()
-    release.update_id = "id"
 
     await release.settle(False)
+    await release.settle(True)
 
-    assert release.claim_early() is False
-    assert release._early is None
     assert coordinator.marked == []
-    assert lock.releases == 1
-
-
-async def test_claim_early_from_another_thread_is_thread_safe() -> None:
-    release, coordinator, lock = make_release()
-    release.update_id = "id"
-
-    assert await asyncio.to_thread(release.claim_early) is True
-    assert not isinstance(release._early, asyncio.Task)
-
-    await release.settle(False)
-
-    assert coordinator.marked == ["id"]
     assert lock.releases == 1
 
 
 async def test_settle_swallows_a_failing_registration_and_still_releases() -> None:
     release, coordinator, lock = make_release(coordinator=FakeCoordinator(RuntimeError("down")))
-    release.update_id = "id"
 
     await release.settle(True)
 
-    assert coordinator.marked == ["id"]
+    assert coordinator.marked == [("id",)]
     assert lock.releases == 1
 
 
@@ -783,17 +526,25 @@ async def test_settle_swallows_a_failing_release() -> None:
     await release.settle(False)
 
     assert lock.releases == 1
-    assert release._released is True
+    assert release._settled is True
 
 
-async def test_private_settle_is_a_one_shot() -> None:
+async def test_settle_handled_outside_a_coordinated_update_is_a_noop() -> None:
+    await _settle_handled()
+
+    assert _SETTLEMENT.get() is None
+
+
+async def test_settle_handled_settles_the_current_update_as_handled() -> None:
     release, coordinator, lock = make_release()
-    release.update_id = "id"
+    token = _SETTLEMENT.set(release)
 
-    await release._settle(True)
-    await release._settle(True)
+    try:
+        await _settle_handled()
+    finally:
+        _SETTLEMENT.reset(token)
 
-    assert coordinator.marked == ["id"]
+    assert coordinator.marked == [("id",)]
     assert lock.releases == 1
 
 
@@ -1066,6 +817,36 @@ async def test_handle_listen_dispatches_on_the_exact_type() -> None:
     assert listener.resolved == []
 
 
+async def test_handle_listen_settles_a_resolved_update_before_stopping() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.listeners[Message] = FakeListener()  # ty: ignore[invalid-assignment]
+    release, coordinator, lock = make_release()
+    token = _SETTLEMENT.set(release)
+
+    try:
+        with pytest.raises(StopPropagation):
+            await dispatcher.handle_listen(make_message())
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert coordinator.marked == [("id",)]
+    assert lock.releases == 1
+
+
+async def test_handle_listen_leaves_an_unresolved_update_unsettled() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.listeners[Message] = FakeListener(UnresolvedUpdate("x"))  # ty: ignore[invalid-assignment]
+    release, coordinator, lock = make_release()
+    token = _SETTLEMENT.set(release)
+
+    try:
+        await dispatcher.handle_listen(make_message())
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert release._settled is False
+
+
 # --- Dispatcher._handle_update ----------------------------------------------
 
 RAW_PACKET = ("raw-update", {"users": 1}, {"chats": 2})
@@ -1214,8 +995,8 @@ async def test_continue_propagation_tries_the_next_handler_uncounted() -> None:
     assert calls == [("a", msg), ("b", msg)]
 
 
-@pytest.mark.parametrize("error", [StopPropagation(), UnhandledUpdate("x")])
-async def test_stop_and_unhandled_propagate_out(error: Exception) -> None:
+async def test_stop_propagation_propagates_out() -> None:
+    error = StopPropagation()
     dispatcher = make_real_dispatcher()
     calls: list[tuple[object, ...]] = []
     msg = make_message()
@@ -1241,6 +1022,49 @@ async def test_handler_error_is_counted_and_reported_then_the_group_ends() -> No
     assert await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler) == (1, 1)
     assert calls == [("broken", msg), ("other-group", msg)]
     assert seen == [(error, broken, *RAW_PACKET)]
+
+
+async def test_passing_filter_settles_the_update_before_its_handler_runs() -> None:
+    dispatcher = make_real_dispatcher()
+    release, coordinator, lock = make_release()
+    settled_in_handler: list[bool] = []
+
+    async def callback(client: object, update: object) -> None:
+        settled_in_handler.append(release._settled)
+
+    dispatcher.groups[0] = [MessageHandler(callback)]
+    dispatcher.groups[1] = [MessageHandler(callback)]
+    token = _SETTLEMENT.set(release)
+
+    try:
+        await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert settled_in_handler == [True, True]
+    assert coordinator.marked == [("id",)]
+    assert lock.releases == 1
+
+
+async def test_rejecting_filters_leave_the_update_unsettled() -> None:
+    dispatcher = make_real_dispatcher()
+    calls: list[tuple[object, ...]] = []
+    rejecting = MessageHandler(recording(calls, "rejecting"))
+
+    async def reject(client: object, update: object) -> bool:
+        return False
+
+    rejecting.check = reject
+    dispatcher.groups[0] = [rejecting]
+    release, _, _ = make_release()
+    token = _SETTLEMENT.set(release)
+
+    try:
+        await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert release._settled is False
 
 
 class FakeHistory:
@@ -1339,68 +1163,6 @@ async def test_nothing_succeeded_records_nothing() -> None:
     assert history.recorded == []
 
 
-# --- Dispatcher.handle_update: remaining branches ---------------------------
-
-
-async def test_stop_propagation_still_claims_a_coordinated_update() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    with pytest.raises(StopPropagation):
-        await Dispatcher.handle_update(
-            make_dispatcher(coordinated, StopPropagation()), PACKET, msg, type(None)
-        )
-
-    assert await _is_claimed(coordinated, msg) is True
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_failing_coordination_setup_processes_uncoordinated(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    async def is_coordinatable(update: object) -> bool:
-        msg = "down"
-        raise RuntimeError(msg)
-
-    coordinated = SimpleNamespace(is_coordinatable=is_coordinatable)
-    seen: list[object] = []
-
-    async def _handle_update(
-        packet: object, parsed_update: object, handler_type: object
-    ) -> tuple[int, int]:
-        seen.append(parsed_update)
-        assert mark_handled() is False, "no coordination while uncoordinated"
-        return (1, 0)
-
-    fake = fake_dispatcher(coordinateds={Message: coordinated})
-    fake._handle_update = _handle_update
-    msg = coordinatable_message()
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await Dispatcher.handle_update(fake, PACKET, msg, type(None))
-
-    assert seen == [msg]
-    assert "Error while acquiring coordinated lock" in caplog.text
-
-
-async def test_marker_is_set_only_while_the_update_is_processed() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    markers: list[object] = []
-
-    async def body(peer: PeerProbe) -> tuple[int, int]:
-        markers.append(_HANDLED_MARKER.get())
-        return (1, 0)
-
-    await Dispatcher.handle_update(
-        make_marking_dispatcher(coordinated, body), PACKET, msg, type(None)
-    )
-
-    assert isinstance(markers[0], _CoordinatedRelease)
-    assert markers[0].update_id == await coordinated.extract_update_id(msg)
-    assert _HANDLED_MARKER.get() is None
-
-
 # --- Dispatcher.handler_worker ----------------------------------------------
 
 
@@ -1451,7 +1213,7 @@ async def test_handler_worker_passes_unknown_updates_unparsed() -> None:
 
 async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptureFixture) -> None:
     dispatcher = make_real_dispatcher()
-    errors = iter([StopPropagation(), UnhandledUpdate("x"), RuntimeError("boom"), None])
+    errors = iter([StopPropagation(), RuntimeError("boom"), None])
     handled: list[object] = []
 
     async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
@@ -1468,7 +1230,7 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
 
     dispatcher.update_parsers = {str: parser}
     dispatcher.handle_update = handle_update
-    for update in ("stop", "unhandled", "boom", "bad-parse", "ok"):
+    for update in ("stop", "boom", "bad-parse", "ok"):
         dispatcher.updates_queue.put_nowait((update, {}, {}))
     dispatcher.updates_queue.put_nowait(None)
     dispatcher.updates_queue.put_nowait(("after-sentinel", {}, {}))
@@ -1476,6 +1238,6 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
         await dispatcher.handler_worker(asyncio.Lock())
 
-    assert handled == ["stop", "unhandled", "boom", "ok"]
+    assert handled == ["stop", "boom", "ok"]
     assert caplog.text.count("Unexpected error in handler_worker") == 2
     assert dispatcher.updates_queue.qsize() == 1, "the worker must stop at the sentinel"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _annotations
 
-import asyncio
 import logging
 from contextvars import ContextVar
 from typing import Any, Final, TYPE_CHECKING
@@ -12,125 +11,84 @@ from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
-from .errors import UnresolvedUpdate, UnhandledUpdate
+from .errors import UnresolvedUpdate
 from .utils import patch_cls
 
 if TYPE_CHECKING:
+    import asyncio
     from collections.abc import Awaitable, Callable
-    from concurrent.futures import Future
 
     from pyrogram.types import Update as PyroUpdate
 
     from .typings import UpdateType, AsyncLockProto, UpdateCoordinatorKeyT
     from .update_listener import UpdateListener
     from .update_coordinated import UpdateCoordinated
+    from .update_coordinator import UpdateCoordinator
     from .update_history import UpdateHistory
 
 
 log = logging.getLogger(__name__)
 
-_HANDLED_MARKER: Final[ContextVar[_CoordinatedRelease | None]] = ContextVar(
-    "pyroflow_handled_marker", default=None
+_SETTLEMENT: Final[ContextVar[_CoordinatedRelease | None]] = ContextVar(
+    "pyroflow_settlement", default=None
 )
-"""Settlement of the update being processed, reachable from sync handlers in the executor and raw handlers too."""
+"""Settlement of the coordinated update being processed, or `None` when it is not coordinated."""
 
 
 class _CoordinatedRelease:
-    """Settle one update's coordination exactly once.
+    """Settle one coordinated update once: mark it as handled if asked, then release its lock."""
 
-    Settling registers the update as handled (when asked) and then releases its
-    lock. `mark_handled` and `Dispatcher.handle_update` race for it; the first
-    one wins and the other becomes a no-op.
-    """
-
-    __slots__ = ("_coordinated", "_lock", "_loop", "_early", "_released", "update_id")
+    __slots__ = ("_coordinator", "_lock", "_settled", "_update_id")
     """Fixed attribute layout; a settlement is created per coordinated update."""
 
     def __init__(
         self,
-        coordinated: UpdateCoordinated,
+        coordinator: UpdateCoordinator,
         lock: AsyncLockProto,
-        loop: asyncio.AbstractEventLoop,
+        update_id: UpdateCoordinatorKeyT,
     ) -> None:
-        """Bind the settlement to the update's coordinated, its held lock and the event loop.
+        """Bind the settlement to the update's coordinator, its held lock and its identity.
 
         Args:
-            coordinated: The coordinated whose coordinator registers the update as handled.
+            coordinator: The coordinator that marks the update as handled.
             lock: The already-acquired lock to release on settlement.
-            loop: The event loop an early settlement is scheduled onto.
+            update_id: The identity marked as handled.
         """
-        self._coordinated = coordinated
-        """Coordinated whose coordinator registers the update as handled."""
+        self._coordinator = coordinator
+        """Coordinator that marks the update as handled."""
         self._lock = lock
         """Held lock released on settlement."""
-        self._loop = loop
-        """Event loop an early settlement is scheduled onto."""
-        self._early: Future[None] | asyncio.Future[None] | None = None
-        """Scheduled early settlement, set once `mark_handled` claims it."""
-        self._released: bool = False
+        self._update_id = update_id
+        """Identity marked as handled."""
+        self._settled: bool = False
         """Whether the settlement already ran."""
 
-        self.update_id: UpdateCoordinatorKeyT | None = None
-        """Update key, known only once the lock is held; a settlement before that registers nothing."""
-
-    def claim_early(self) -> bool:
-        """Claim the settlement and schedule it on the loop. Backs `mark_handled`.
-
-        Safe to call from a thread outside the event loop, such as a sync
-        handler in the client's executor.
-
-        Returns:
-            `True` if this call took the settlement, `False` if it was already
-            claimed or settled.
-        """
-        if self._early is not None or self._released:
-            return False
-
-        coro, loop = self._settle(True), self._loop
-
-        # Assigned here, not inside `coro`, so `settle` sees the claim at once.
-        self._early = (
-            asyncio.create_task(coro)
-            if asyncio._get_running_loop() is loop
-            else asyncio.run_coroutine_threadsafe(coro, loop)
-        )
-
-        return True
-
     async def settle(self, handled: bool) -> None:
-        """Settle now, or wait out an early settlement if one won.
+        """Mark the update as handled if `handled`, then release the lock; later calls do nothing.
+
+        Backend errors are logged, not raised, so the lock is always released.
 
         Args:
-            handled: Whether to register the update as handled; ignored when an
-                early settlement already won.
+            handled: Whether to mark the update as handled.
         """
-        if self._early is not None:
-            # Don't abandon a settlement that is only scheduled: the dispatcher
-            # may be stopped the moment the handler returns.
-            await asyncio.wrap_future(self._early)
+        if self._settled:
             return
 
-        await self._settle(handled)
-
-    async def _settle(self, handled: bool) -> None:
-        """Register the update as handled if asked and known, then release the lock, once.
-
-        Args:
-            handled: Whether to register the update as handled.
-        """
-        if self._released:
-            return
-
-        self._released = True
-
-        # `safe_await` logs backend errors instead of raising: the early
-        # settlement runs detached, so nobody could catch them.
+        self._settled = True
 
         try:
-            if handled and self.update_id is not None:
-                await safe_await(self._coordinated.coordinator.mark_handled(self.update_id))
+            if handled:
+                await safe_await(self._coordinator.mark_handled(self._update_id))
         finally:
             await safe_await(self._lock.release())
+
+
+async def _settle_handled() -> None:
+    """Mark the update being processed as handled and release its lock, if it is coordinated."""
+    release = _SETTLEMENT.get()
+
+    if release is not None:
+        await release.settle(True)
 
 
 @patch_cls(setter=setattr)
@@ -139,8 +97,10 @@ class Dispatcher(PyroDispatcher):
 
     Patched onto `pyrogram.dispatcher.Dispatcher` in place, so every client uses
     it. Each update goes through `handle_update`: the coordinator (when one is
-    registered for its type) runs everything under the update's lock and drops
-    updates a peer already handled; then a registered listener gets the update
+    registered for its type) takes the update's lock, drops updates a peer
+    already handled, and marks the update as handled and releases the lock as
+    soon as a listener resolves it or a handler's filter passes it; then a
+    registered listener gets the update
     first and, if it resolves it, propagation stops; then the first matching
     handler of each group runs, and the handlers that succeeded are recorded in
     the type's history when it is recordable.
@@ -337,6 +297,9 @@ class Dispatcher(PyroDispatcher):
         Args:
             parsed_update: The parsed Pyrogram update to resolve.
 
+        A resolved coordinated update is marked as handled and its lock
+        released before propagation stops.
+
         Raises:
             StopPropagation: If the listener resolved the update, so no handler
                 runs.
@@ -353,6 +316,7 @@ class Dispatcher(PyroDispatcher):
         except Exception:
             log.exception("Unexpected error in handle_listen")
         else:
+            await _settle_handled()
             parsed_update.stop_propagation()
 
     async def _handle_update(
@@ -379,7 +343,6 @@ class Dispatcher(PyroDispatcher):
         Raises:
             StopPropagation: If the listener resolved the update or a handler
                 stopped propagation.
-            UnhandledUpdate: If a handler raised it.
         """
         handled_count = exc_count = 0
         update, users, chats = packet
@@ -427,11 +390,15 @@ class Dispatcher(PyroDispatcher):
                 if args is None:
                     continue
 
+                # A passing filter makes a coordinated update handled; the
+                # handler then runs without its lock.
+                await _settle_handled()
+
                 try:
                     await maybe_awaitable(
                         handler.callback, self.client, *args, executor=self.client.executor
                     )
-                except (StopPropagation, UnhandledUpdate) as e:
+                except StopPropagation as e:
                     raise e
                 except ContinuePropagation:
                     continue
@@ -463,15 +430,16 @@ class Dispatcher(PyroDispatcher):
     ) -> None:
         """Process the update, under its coordinator when one applies.
 
-        Without a coordinator for its type, or when the update is not
-        coordinatable, the update is processed directly. Otherwise its lock is
-        taken; an update a peer already handled is dropped, and any other is
-        processed and then registered as handled if at least one handler ran,
-        even one that raised. The lock is released once the update is settled,
-        or earlier through `mark_handled`.
+        Without a coordinator for its type, or when its key is `None`, the
+        update is processed directly. Otherwise the key's lock is taken and an
+        update a peer already handled is dropped. Any other is processed; the
+        first listener that resolves it or handler filter that passes it marks
+        it as handled and releases the lock, and the handlers run on without
+        it. An update nothing took is released unmarked, so a peer may take it.
 
         If the lock times out the update is skipped and logged. If setting up
-        coordination raises, the update is processed uncoordinated.
+        coordination raises, the error is logged and the update is processed
+        uncoordinated.
 
         Args:
             packet: The raw `(update, users, chats)` tuple from Pyrogram.
@@ -479,9 +447,7 @@ class Dispatcher(PyroDispatcher):
             handler_type: The handler class expected to handle this update.
 
         Raises:
-            StopPropagation: If the listener or a handler stopped propagation;
-                a coordinated update is still registered as handled.
-            UnhandledUpdate: If a handler raised it.
+            StopPropagation: If the listener or a handler stopped propagation.
         """
         coordinated = self.coordinateds.get(type(parsed_update))
 
@@ -492,49 +458,44 @@ class Dispatcher(PyroDispatcher):
         release = None
 
         try:
-            if await coordinated.is_coordinatable(parsed_update):
-                lock = await coordinated.lock(parsed_update)
+            key = await coordinated.extract_key(parsed_update)
+
+            if key is not None:
+                lock = coordinated.coordinator.lock(key)
 
                 if not await lock.acquire():
                     log.error("Timeout waiting for coordinated lock on %r", parsed_update)
                     return
 
-                # From here the lock is held, and only `release` gives it back.
-                release = _CoordinatedRelease(coordinated, lock, self.client.loop)
+                try:
+                    update_id = await coordinated.extract_update_id(parsed_update)
+                    handled = await coordinated.coordinator.is_handled(update_id)
+                except BaseException:
+                    await safe_await(lock.release())
+                    raise
+
+                if handled:
+                    # A peer already handled it.
+                    await safe_await(lock.release())
+                    return
+
+                release = _CoordinatedRelease(coordinated.coordinator, lock, update_id)
         except Exception:
-            log.exception("Error while acquiring coordinated lock")
+            log.exception("Error while setting up coordination for %r", parsed_update)
 
         if release is None:
             await self._handle_update(packet, parsed_update, handler_type)
             return
 
-        result = (0, 0)
-        handled = False
-        token = _HANDLED_MARKER.set(release)
+        token = _SETTLEMENT.set(release)
 
         try:
-            release.update_id = update_id = await coordinated.extract_update_id(parsed_update)
-
-            if await coordinated.coordinator.is_handled(update_id):
-                # A peer already handled and registered it.
-                return
-
-            result = await self._handle_update(packet, parsed_update, handler_type)
-        except StopPropagation as e:
-            handled = True
-            raise e
-
+            await self._handle_update(packet, parsed_update, handler_type)
         finally:
-            _HANDLED_MARKER.reset(token)
+            _SETTLEMENT.reset(token)
 
-            # `sum()` counts `exc_count` on purpose: a handler that raised still
-            # ran, so replaying the update on a peer would duplicate work.
-            if not handled:
-                handled = sum(result) >= 1
-
-            # A no-op if the handler already claimed the settlement through
-            # `mark_handled()`. Always releases the lock.
-            await release.settle(handled)
+            # A no-op once a listener or a passing filter settled it as handled.
+            await release.settle(False)
 
     async def handler_worker(self, lock: asyncio.Lock) -> None:
         """Parse and dispatch updates from the queue until a `None` sentinel arrives.
@@ -562,38 +523,10 @@ class Dispatcher(PyroDispatcher):
                 async with lock:
                     await self.handle_update(packet, parsed_update, handler_type)
 
-            except (StopPropagation, UnhandledUpdate):
+            except StopPropagation:
                 pass
             except Exception:
                 log.exception("Unexpected error in handler_worker")
 
 
-def mark_handled() -> bool:
-    """Register the current update as handled and release its lock now.
-
-    Call it from a handler, sync or async, that keeps running after the work
-    needing the lock is done. The settlement is scheduled on the event loop,
-    not awaited. Later calls and the automatic settlement become no-ops. The
-    lock's ordering ends here: the next update in its scope may start while
-    this handler is still running.
-
-    Returns:
-        `True` if this call settled the update, `False` if the update is not
-        coordinated, is already settled, or no update is being processed.
-
-    Example:
-        >>> mark_handled()  # outside update processing there is nothing to settle
-        False
-    """
-    release = _HANDLED_MARKER.get()
-
-    if release is None:
-        return False
-
-    return release.claim_early()
-
-
-__all__ = (
-    "Dispatcher",
-    "mark_handled",
-)
+__all__ = ("Dispatcher",)
