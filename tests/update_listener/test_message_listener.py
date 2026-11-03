@@ -4,7 +4,6 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import gc
-import logging
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, TYPE_CHECKING
@@ -50,11 +49,6 @@ def _bot(username: str | None = "MyBot", usernames: list[str] | None = None) -> 
 
 
 # --- module level -----------------------------------------------------------
-
-
-def test_log_is_module_logger() -> None:
-    assert isinstance(message_listener.log, logging.Logger)
-    assert message_listener.log.name == "pyroflow.update_listener.message_listener"
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _annotations
 
-import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -33,11 +32,6 @@ class _RecordingCoordinator:
 
     async def stop(self) -> None:
         self.calls.append(("stop", None))
-
-
-def test_module_logger_is_named_after_the_module() -> None:
-    assert isinstance(module.log, logging.Logger)
-    assert module.log.name == "pyroflow.update_coordinated.update_coordinated"
 
 
 def test_init_defaults_to_memory_coordinator_and_no_callables() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _annotations
 
-import logging
 from abc import ABC
 from typing import Any, TYPE_CHECKING
 
@@ -18,8 +17,6 @@ if TYPE_CHECKING:
     from pytrove.typings import MaybeCoroutineCallable
 
     from ..typings import UpdateCoordinatorKeyT
-
-log = logging.getLogger(__name__)
 
 
 class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
