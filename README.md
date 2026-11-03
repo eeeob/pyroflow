@@ -33,7 +33,7 @@ pyroflow solves all three problems:
 | Problem | pyroflow solution |
 |---|---|
 | Waiting for a specific reply | `UpdateListener` — `await` the next update from a user |
-| Duplicate processing across multiple bot sessions | `UpdateCoordinated` — distributed lock per update |
+| Duplicate processing across multiple bot sessions | `UpdateCoordinated` — distributed lock per key (the chat by default) |
 | Replaying or inspecting previous handler steps | `UpdateHistory` — per-update-type handler record |
 
 ---
@@ -188,7 +188,10 @@ answer = await client.ask_rich(
 
 ### Coordinators
 
-A `UpdateCoordinated` acquires a **distributed lock** before processing an update. This ensures the same update is handled by exactly one session when the bot runs on multiple servers simultaneously.
+A `UpdateCoordinated` coordinates one update type across sessions, for example when the bot runs on multiple servers, each session with its own handlers. It extracts two keys from each update:
+
+- **`extract_key`** — the **lock** that coordinates updates. Updates sharing a key wait for each other. The default is the chat; pass `extract_key_func` to coordinate per chat and user, per message, per update, or any level you need. Returning `None` leaves that update uncoordinated.
+- **`extract_update_id`** — the update's unique identity, used to mark it as handled. It must be extractable from the update every time, with the same value, and never `None`. It is only extracted once the key is known.
 
 ```python
 from functools import partial
@@ -211,12 +214,24 @@ client.run()
 |---|---|
 | Redis | `pip install pyroflow[redis]` |
 
-**Lock states:**
+**How an update is processed:**
 
-- `HANDLED` — at least one handler *ran* for the update, whether it returned normally or raised; the lock is released and other sessions skip the update. A raising handler still counts: the update reached its owner, so replaying it elsewhere would duplicate work rather than recover.
-- `None` — no handler ran at all; the lock is released so another session may retry.
+1. Extract the key; `None` processes the update uncoordinated.
+2. Take the key's lock, then drop the update if a session already handled it.
+3. Process it. The update counts as **handled** as soon as a listener resolves it or one handler's filter passes it: it is marked as handled and the lock is released right away, while the handler keeps running.
+4. If no listener and no filter took it, the lock is released unmarked, so another session with other handlers may take it.
 
-To hand an update back for another session to retry, raise `UnhandledUpdate` from your handler — it stops processing on the current session and leaves the lock unclaimed.
+A session that cannot handle an update should say so in its handler's filter: a rejecting filter leaves the update to another session.
+
+```python
+from pyrogram.utils import get_peer_id
+
+# Coordinate per message instead of per chat.
+coordinated = MessageCoordinated(
+    coordinator_factory,
+    extract_key_func=lambda m: (get_peer_id(m.raw.peer_id), m.id),
+)
+```
 
 ---
 
@@ -258,7 +273,7 @@ except ListenerCancelled:
     await client.send_message(chat_id, "Session was cancelled.")
 ```
 
-Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`, `UnresolvedUpdate`), and `CoordinationError` covers coordination (`UnhandledUpdate`), so `except ListenerError` around `ask` never swallows `UnhandledUpdate`.
+Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`, `UnresolvedUpdate`), and `CoordinationError` is the family for coordination errors.
 
 ---
 

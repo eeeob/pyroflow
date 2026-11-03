@@ -14,8 +14,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `pyroflow.constants`, the home of public constants (`BOT_COMMANDS_ATTR`).
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
   publishes the bot commands declared on registered handlers.
-- `mark_handled()`: settles the current coordinated update early and releases
-  its lock while the handler keeps running.
 - `Update.context`: a per-update dict for arbitrary data.
 - `error_handlers=` on `ask()`, plus `Client.ask_error_handlers` and
   `Client.register_ask_error_handler`/`unregister_ask_error_handler` for
@@ -30,7 +28,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `pyroflow.utils.get_update_executor(update)`: the executor of the client an
   update is bound to, or `None`.
 - `PyroflowError`, the root of every pyroflow error, and `CoordinationError`,
-  the family of coordination signals.
+  the family of coordination errors.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
@@ -41,13 +39,45 @@ Every breaking change lists what changed, who is affected and how to migrate.
   Migration: call `key.to_tuple()`.
 - **BREAKING:** the error hierarchy. `PyroflowError` is the root;
   `ListenerError` keeps `ListenerCancelled`, `ListenerTimeout`,
-  `ListenerAlreadyExists` and `UnresolvedUpdate`; `UnhandledUpdate` now
-  subclasses `CoordinationError`, not `ListenerError`. Every message changed,
+  `ListenerAlreadyExists` and `UnresolvedUpdate`. Every message changed,
   e.g. "Listener for {value} timed out" instead of
-  "UpdateListener {value} timed out". Affects code that catches
-  `ListenerError` to catch `UnhandledUpdate`, or matches message text.
-  Migration: catch `CoordinationError`/`UnhandledUpdate` (or `PyroflowError`
-  for everything) and match on the class, not the message.
+  "UpdateListener {value} timed out". Affects code that matches message text.
+  Migration: match on the class (or catch `PyroflowError` for everything),
+  not the message.
+- **BREAKING:** an `UpdateCoordinated` is two extractors. `extract_key` is the
+  lock that coordinates updates and returns `None` for an update that is not
+  coordinated; `extract_update_id` is the update's unique identity and must
+  never return `None` (a `None` identity raises `TypeError`).
+  `is_coordinatable`, `is_coordinatable_func` and `UpdateCoordinated.lock()`
+  are removed. Affects code that passes `is_coordinatable_func`, overrides
+  `is_coordinatable`/`_is_coordinatable`, or calls `coordinated.lock(update)`.
+  Migration: return `None` from `extract_key_func` instead of `False` from
+  `is_coordinatable_func`, and call `coordinated.coordinator.lock(key)`.
+- **BREAKING:** a coordinated update counts as handled, and its lock is
+  released, as soon as a listener resolves it or one handler's filter passes
+  it, before the handler runs. It used to stay locked until every group had
+  run, and counted as handled only if a handler ran. An update no listener
+  or filter took is still released unmarked for another session. Affects
+  handlers that relied on holding the lock while they run.
+  Migration: serialise that work yourself, e.g. with your own lock.
+- **BREAKING:** `UnhandledUpdate` is removed: the update is already marked as
+  handled before the handler runs, so it can no longer hand the update back.
+  Affects handlers that raise it or code that catches it.
+  Migration: move the condition into the handler's filter; a filter that
+  rejects the update leaves it to another session.
+- **BREAKING:** the default lock keys are per chat. `MessageCoordinated` locks
+  on `(peer_id,)` instead of `(peer_id, message_id)`, and
+  `CallbackQueryCoordinated` on the chat of the query's message (the query id
+  for an inline message) instead of the query id. Updates of one chat now wait
+  for each other until each is handled. Affects bots relying on concurrent
+  processing within a chat.
+  Migration: pass `extract_key_func` with the old key, e.g.
+  `lambda m: (get_peer_id(m.raw.peer_id), m.id)`.
+- **BREAKING:** `MessageCoordinated` identifies a message by
+  `(peer_id, message_id, edit_ts)`, where `edit_ts` is the edit time in
+  seconds or `0`. An edited message is no longer dropped as a duplicate of the
+  original. Affects code that reads or marks these identities directly.
+  Migration: none for handlers; build identities with `extract_update_id`.
 - `split_text` never matches `bytes` callback data, even without a
   `separator` (it used to pass the bytes to a single callable rule).
 - pyroflow now depends on `pytrove>=2.0` and `kurigram>=2.2.24`, and

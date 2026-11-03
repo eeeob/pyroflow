@@ -37,7 +37,7 @@ pip install pyroflow[redis]
 | المشكلة | حل pyroflow |
 |---|---|
 | انتظار رد محدد | `UpdateListener`: انتظر بـ `await` الـ update التالية من مستخدم |
-| معالجة مكررة عبر عدة sessions للبوت | `UpdateCoordinated`: قفل موزّع (distributed lock) لكل update |
+| معالجة مكررة عبر عدة sessions للبوت | `UpdateCoordinated`: قفل موزّع (distributed lock) لكل مفتاح (المحادثة افتراضيًا) |
 | إعادة تشغيل خطوات الـ handlers السابقة أو فحصها | `UpdateHistory`: سجل للـ handlers لكل نوع update |
 
 ---
@@ -203,9 +203,17 @@ answer = await client.ask_rich(
 
 ### Coordinators
 
-يأخذ `UpdateCoordinated` **قفلًا موزّعًا** (distributed lock) قبل معالجة الـ update.
+ينسّق `UpdateCoordinated` نوع update واحدًا بين الـ sessions، مثلًا حين يعمل البوت على عدة خوادم ولكل session فيها handlers خاصة بها.
 
-هذا يضمن أن الـ update نفسها تُعالَج في session واحدة فقط عندما يعمل البوت على عدة خوادم في الوقت نفسه.
+يستخرج من كل update مفتاحين:
+
+- **`extract_key`**: هو **القفل** الذي ينسّق الـ updates. الـ updates التي تشترك في المفتاح ينتظر بعضها بعضًا.
+  - الافتراضي هو المحادثة.
+  - مرّر `extract_key_func` للتنسيق على مستوى المحادثة والمستخدم، أو الرسالة، أو الـ update، أو أي مستوى تريده.
+  - إرجاع `None` يجعل هذا الـ update غير قابل للتنسيق.
+- **`extract_update_id`**: هوية فريدة للـ update، تُستخدم لتعليمه كمعالج.
+  - يجب أن تُستخرج من نفس الـ update دائمًا بنفس القيمة، وألا تكون `None` أبدًا.
+  - لا تُستخرج إلا بعد معرفة المفتاح.
 
 ```python
 from functools import partial
@@ -228,15 +236,26 @@ client.run()
 |---|---|
 | Redis | `pip install pyroflow[redis]` |
 
-**حالات القفل:**
+**كيف يُعالَج الـ update:**
 
-- `HANDLED`: *شُغِّل* handler واحد على الأقل للـ update، سواء انتهى بشكل طبيعي أو رفع استثناءً. يُحرَّر القفل وتتجاهل الـ sessions الأخرى الـ update.
-  - الـ handler الذي رفع استثناءً يُحسب أيضًا: الـ update وصلت إلى صاحبها، وإعادة تشغيلها في مكان آخر تكرر العمل ولا تصلح شيئًا.
-- `None`: لم يُشغَّل أي handler. يُحرَّر القفل لتعيد session أخرى المحاولة.
+1. يُستخرج المفتاح. إن كان `None` يُعالَج الـ update بلا تنسيق.
+2. يُؤخذ قفل المفتاح. إن كانت session أخرى قد عالجت الـ update يُتجاهل.
+3. يُعالَج. يُعتبر الـ update **معالجًا** لحظة أن يحلّه مستمع أو يمرّ filter أحد الـ handlers:
+   - يُعلَّم كمعالج ويُحرَّر القفل فورًا.
+   - يكمل الـ handler عمله بلا قفل.
+4. إن لم يأخذه مستمع ولا filter، يُحرَّر القفل بلا تعليم، فتأخذه session أخرى بـ handlers أخرى.
 
-لإعادة update كي تحاول session أخرى معالجتها، ارفع `UnhandledUpdate` من الـ handler.
+الـ session التي لا تستطيع معالجة update تعبّر عن ذلك في filter الـ handler: الـ filter الذي يرفض الـ update يتركه لـ session أخرى.
 
-هذا يوقف المعالجة في الـ session الحالية ويترك القفل دون مطالبة.
+```python
+from pyrogram.utils import get_peer_id
+
+# التنسيق على مستوى الرسالة بدل المحادثة.
+coordinated = MessageCoordinated(
+    coordinator_factory,
+    extract_key_func=lambda m: (get_peer_id(m.raw.peer_id), m.id),
+)
+```
 
 ---
 
@@ -283,9 +302,7 @@ except ListenerCancelled:
 كل الأخطاء ترث `PyroflowError`:
 
 - `ListenerError`: أخطاء الانتظار و`ask` (`ListenerTimeout`، `ListenerCancelled`، `ListenerAlreadyExists`، `UnresolvedUpdate`).
-- `CoordinationError`: أخطاء التنسيق (`UnhandledUpdate`).
-
-لذلك لا يلتقط `except ListenerError` حول `ask` الخطأ `UnhandledUpdate`.
+- `CoordinationError`: عائلة أخطاء التنسيق.
 
 ---
 
