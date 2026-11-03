@@ -247,9 +247,17 @@ A `UpdateHistory` records which handlers ran successfully for each update. This 
 from pyroflow import Client, CallbackQueryHistory
 
 client = Client("my_session")
-client.register_history(CallbackQueryHistory())
+history = CallbackQueryHistory()
+client.register_history(history)
 
 client.run()
+```
+
+The dispatcher writes the handlers that succeeded to `history.store`, under the key `extract_key` returns; `None` leaves the update unrecorded. Read them back from the store:
+
+```python
+key = await history.extract_key(query)
+records = await history.store.get(key) if key is not None else []
 ```
 
 ---

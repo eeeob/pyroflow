@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import logging
+import time
 from contextvars import ContextVar
 from typing import Any, Final, TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHan
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
 from .errors import UnresolvedUpdate, UpdateAlreadyHandled
+from .models import UpdateRecord
 from .utils import patch_cls
 
 if TYPE_CHECKING:
@@ -345,8 +347,8 @@ class Dispatcher(PyroDispatcher):
     ) -> tuple[int, int]:
         """Run the update through its listener, then the first matching handler of each group.
 
-        Handlers that succeed are recorded in the update type's history when it
-        is recordable. A handler error is passed to
+        Handlers that succeed are written, with one shared timestamp, to the
+        store of the update type's history, unless its key is `None`. A handler error is passed to
         `handle_update_handler_exception` and does not stop the other groups.
         A coordinated update a peer marked first is dropped before any handler
         runs.
@@ -375,14 +377,7 @@ class Dispatcher(PyroDispatcher):
         if parsed_update is not None:
             history = self.histories.get(type(parsed_update))
 
-        records = None
-
-        if history is not None:
-            try:
-                if await history.is_recordable(parsed_update):
-                    records = []
-            except Exception:
-                log.exception("Unexpected error checking is_recordable for %r", parsed_update)
+        succeeded: list[PyroHandler] = []
 
         for group in self.groups.values():
             for handler in group:
@@ -434,15 +429,21 @@ class Dispatcher(PyroDispatcher):
                     await self.handle_update_handler_exception(exc, handler, update, users, chats)
                 else:
                     handled_count += 1
-
-                    if records is not None:
-                        records.append(handler)
+                    succeeded.append(handler)
 
                 break
 
-        if history is not None and records:
+        if history is not None and succeeded:
             try:
-                await history.record_many(parsed_update, records, check=False)
+                key = await history.extract_key(parsed_update)
+
+                if key is not None:
+                    data = await history.extract_data(parsed_update)
+                    now = time.time()
+                    await history.store.update(
+                        key,
+                        *(UpdateRecord(handler=h, data=data, created_at=now) for h in succeeded),
+                    )
             except Exception:
                 log.exception("Unexpected error recording handlers for %r", parsed_update)
 

@@ -45,6 +45,7 @@ from pyroflow.update_coordinator.memory_update_coordinator import (
 from .conftest import make_callback_query, make_message
 
 if TYPE_CHECKING:
+    from pyroflow.models import UpdateRecord
     from collections.abc import Awaitable, Callable
 
 
@@ -1134,29 +1135,49 @@ async def test_rejecting_filters_leave_the_update_unsettled() -> None:
     assert release._settled is False
 
 
+class FakeHistoryStore:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.written: list[tuple[object, tuple[UpdateRecord, ...]]] = []
+
+    async def update(self, key: object, *records: UpdateRecord) -> None:
+        self.written.append((key, records))
+        if self.error is not None:
+            raise self.error
+
+
 class FakeHistory:
     __update_type__ = Message
 
     def __init__(
         self,
-        recordable: bool = True,
-        recordable_error: Exception | None = None,
-        record_error: Exception | None = None,
+        key: object = ("k",),
+        key_error: Exception | None = None,
+        store_error: Exception | None = None,
     ) -> None:
-        self.recordable = recordable
-        self.recordable_error = recordable_error
-        self.record_error = record_error
-        self.recorded: list[tuple[object, list[object], bool]] = []
+        self.key = key
+        self.key_error = key_error
+        self.store = FakeHistoryStore(store_error)
 
-    async def is_recordable(self, update: object) -> bool:
-        if self.recordable_error is not None:
-            raise self.recordable_error
-        return self.recordable
+    async def extract_key(self, update: object) -> object:
+        if self.key_error is not None:
+            raise self.key_error
+        return self.key
 
-    async def record_many(self, update: object, handlers: list[object], check: bool) -> None:
-        self.recorded.append((update, list(handlers), check))
-        if self.record_error is not None:
-            raise self.record_error
+    async def extract_data(self, update: object) -> object:
+        return "data"
+
+    @property
+    def written(self) -> list[tuple[object, list[object], set[object], int]]:
+        return [
+            (
+                key,
+                [r.handler for r in records],
+                {r.data for r in records},
+                len({r.created_at for r in records}),
+            )
+            for key, records in self.store.written
+        ]
 
 
 def history_dispatcher(
@@ -1176,46 +1197,33 @@ def history_dispatcher(
     return dispatcher, handlers
 
 
-async def test_recordable_update_records_only_the_handlers_that_succeeded() -> None:
+async def test_succeeded_handlers_are_written_with_one_timestamp() -> None:
     history = FakeHistory()
     dispatcher, handlers = history_dispatcher(history)
-    msg = make_message()
 
-    assert await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler) == (2, 1)
-    assert history.recorded == [(msg, [handlers[0], handlers[2]], False)]
+    assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (2, 1)
+    assert history.written == [(("k",), [handlers[0], handlers[2]], {"data"}, 1)]
 
 
-async def test_unrecordable_update_records_nothing() -> None:
-    history = FakeHistory(recordable=False)
+async def test_update_with_a_none_history_key_records_nothing() -> None:
+    history = FakeHistory(key=None)
     dispatcher, _ = history_dispatcher(history)
 
     assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (2, 1)
-    assert history.recorded == []
+    assert history.written == []
 
 
-async def test_failing_is_recordable_is_logged_and_handlers_still_run(
-    caplog: pytest.LogCaptureFixture,
+@pytest.mark.parametrize("failing", ["key_error", "store_error"])
+async def test_failing_history_is_logged_and_handlers_still_count(
+    failing: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    history = FakeHistory(recordable_error=RuntimeError("down"))
+    history = FakeHistory(**{failing: RuntimeError("down")})
     dispatcher, _ = history_dispatcher(history)
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
         result = await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
 
     assert result == (2, 1)
-    assert history.recorded == []
-    assert "Unexpected error checking is_recordable" in caplog.text
-
-
-async def test_failing_record_many_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
-    history = FakeHistory(record_error=RuntimeError("down"))
-    dispatcher, _ = history_dispatcher(history)
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        result = await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
-
-    assert result == (2, 1)
-    assert len(history.recorded) == 1
     assert "Unexpected error recording handlers" in caplog.text
 
 
@@ -1227,7 +1235,7 @@ async def test_nothing_succeeded_records_nothing() -> None:
     dispatcher.histories[Message] = history  # ty: ignore[invalid-assignment]
 
     assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (0, 1)
-    assert history.recorded == []
+    assert history.written == []
 
 
 # --- Dispatcher.handler_worker ----------------------------------------------

@@ -42,6 +42,18 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** `UpdateHistory` only extracts, like `UpdateCoordinated`:
+  `extract_key` (returning `None` leaves the update unrecorded) and
+  `extract_data`, with the backend in `store`. `is_recordable`,
+  `is_recordable_func`, `record`, `record_many`, `get`, `pop` and `clear` are
+  removed; the dispatcher writes the handlers that succeeded to `store`
+  directly, extracting the key after they run. Affects code calling those
+  methods or passing `is_recordable_func`.
+  Migration: return `None` from `extract_key_func` instead of passing
+  `is_recordable_func`, and use the store with the extracted key:
+  `key = await history.extract_key(update)`, then
+  `await history.store.get(key)` (or `pop`, `delete`, `update`).
+
 - **BREAKING:** `UpdateCoordinator.mark_handled` raises the new
   `UpdateAlreadyHandled` (a `CoordinationError`) when the id is already
   registered, instead of refreshing its expiry. The dispatcher logs it and

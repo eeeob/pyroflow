@@ -2,13 +2,10 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Any, cast, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..types import Message
 from .update_history import UpdateHistory
-
-if TYPE_CHECKING:
-    from pyrogram.types import Chat
 
 
 class MessageHistory(UpdateHistory[Message]):
@@ -18,14 +15,11 @@ class MessageHistory(UpdateHistory[Message]):
 
     Example:
         >>> import asyncio
-        >>> from pyrogram.types import Chat, Message
+        >>> from pyrogram.types import Chat
         >>> history = MessageHistory()
         >>> message = Message(id=7, chat=Chat(id=5), text="hi")
-        >>> async def main():
-        ...     await history.record(message, "start")
-        ...     return [(r.handler, r.data) for r in await history.get((5, None, 7))]
-        >>> asyncio.run(main())
-        [('start', 'hi')]
+        >>> asyncio.run(history.extract_key(message)), asyncio.run(history.extract_data(message))
+        ((5, None, 7), 'hi')
     """
 
     __update_type__ = Message
@@ -34,11 +28,8 @@ class MessageHistory(UpdateHistory[Message]):
     if not TYPE_CHECKING:
 
         def __init__(self, *args: Any, **kw: Any) -> None:
-            """Initialise the history, defaulting any unset callable to the built-in one."""
+            """Initialise the history, defaulting any callable not passed to this class's own."""
             super().__init__(*args, **kw)
-
-            if self.is_recordable_func is None:
-                self.is_recordable_func = self._is_recordable
 
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
@@ -46,18 +37,15 @@ class MessageHistory(UpdateHistory[Message]):
             if self.extract_data_func is None:
                 self.extract_data_func = self._extract_data
 
-    async def _is_recordable(self, update: Message) -> bool:
-        """Return whether the message belongs to a chat."""
-        return update.chat is not None
+    async def _extract_key(self, update: Message) -> tuple[int | None, int | None, int] | None:
+        """Return the `(chat_id, user_id, message_id)` key, or `None` without a chat.
 
-    async def _extract_key(self, update: Message) -> tuple[int | None, int | None, int]:
-        """Return the `(chat_id, user_id, message_id)` key; `user_id` is `None` without a sender."""
-        # `is_recordable()` guarantees the chat exists.
-        return (
-            cast("Chat", update.chat).id,
-            getattr(update.from_user, "id", None),
-            update.id,
-        )
+        `user_id` is `None` without a sender.
+        """
+        if update.chat is None:
+            return None
+
+        return (update.chat.id, getattr(update.from_user, "id", None), update.id)
 
     async def _extract_data(self, update: Message) -> str | None:
         """Return the message text."""

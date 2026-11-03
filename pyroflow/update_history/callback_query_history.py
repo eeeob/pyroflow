@@ -2,13 +2,10 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Any, cast, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..types import CallbackQuery
 from .update_history import UpdateHistory
-
-if TYPE_CHECKING:
-    from pyrogram.types import Chat, Message
 
 
 class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
@@ -28,11 +25,8 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
         ...     message=Message(id=7, chat=Chat(id=5)),
         ...     data="yes",
         ... )
-        >>> async def main():
-        ...     await history.record(query, "menu")
-        ...     return [(r.handler, r.data) for r in await history.get((5, 3, 7))]
-        >>> asyncio.run(main())
-        [('menu', 'yes')]
+        >>> asyncio.run(history.extract_key(query)), asyncio.run(history.extract_data(query))
+        ((5, 3, 7), 'yes')
     """
 
     __update_type__ = CallbackQuery
@@ -41,11 +35,8 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
     if not TYPE_CHECKING:
 
         def __init__(self, *args: Any, **kw: Any) -> None:
-            """Initialise the history, defaulting any unset callable to the built-in one."""
+            """Initialise the history, defaulting any callable not passed to this class's own."""
             super().__init__(*args, **kw)
-
-            if self.is_recordable_func is None:
-                self.is_recordable_func = self._is_recordable
 
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
@@ -53,19 +44,20 @@ class CallbackQueryHistory(UpdateHistory[CallbackQuery]):
             if self.extract_data_func is None:
                 self.extract_data_func = self._extract_data
 
-    async def _is_recordable(self, update: CallbackQuery) -> bool:
-        """Return whether the query has a message that belongs to a chat."""
-        m = update.message
+    async def _extract_key(
+        self, update: CallbackQuery
+    ) -> tuple[int | None, int | None, int] | None:
+        """Return the `(chat_id, user_id, message_id)` key of the query's message.
 
-        return m is not None and m.chat is not None
+        `None` when the query has no message in a chat, such as one from an
+        inline message.
+        """
+        message = update.message
 
-    async def _extract_key(self, update: CallbackQuery) -> tuple[int | None, int | None, int]:
-        """Return the `(chat_id, user_id, message_id)` key of the query's message."""
-        # `is_recordable()` guarantees the message and its chat exist.
-        m = cast("Message", update.message)
-        chat = cast("Chat", m.chat)
+        if message is None or message.chat is None:
+            return None
 
-        return (chat.id, getattr(update.from_user, "id", None), m.id)
+        return (message.chat.id, getattr(update.from_user, "id", None), message.id)
 
     async def _extract_data(self, update: CallbackQuery) -> str | bytes | None:
         """Return the callback data."""
