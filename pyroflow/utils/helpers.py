@@ -1,9 +1,10 @@
-"""Internal helpers: an awaitable-release lock, the `UpdateBound` base and `ask` error dispatch."""
+"""Internal helpers: an awaitable-release lock, a Redis lock with a chosen value, the `UpdateBound` base and `ask` error dispatch."""
 
 from __future__ import annotations as _annotations
 
 import asyncio
 from abc import ABC
+from functools import cache
 from typing import Any, Generic, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
@@ -12,8 +13,13 @@ from pytrove import maybe_awaitable
 from ..typings import UpdateType
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from concurrent.futures import ThreadPoolExecutor
     from types import TracebackType
+
+    from pytrove.typings import Number
+    from redis.asyncio import Redis
+    from redis.asyncio.lock import Lock
 
     from ..types import Message
     from ..typings import AskErrorHandlersT
@@ -192,9 +198,63 @@ def get_update_executor(update: object) -> ThreadPoolExecutor | None:
     return getattr(getattr(update, "_client", None), "executor", None)
 
 
+@cache
+def _redis_token_lock_class() -> Callable[..., Lock]:
+    """Build, once, redis-py's async `Lock` extended to take its value in `__init__`.
+
+    `redis` is an optional extra, so it is imported only when a caller that
+    already holds a Redis client asks for a lock.
+    """
+    from redis.asyncio.lock import Lock  # noqa: PLC0415  # `redis` is an optional extra (CONTRIBUTING 2.6)
+
+    class RedisTokenLock(Lock):
+        """A redis-py async lock that writes `token` as its value on every acquisition."""
+
+        def __init__(self, *args: Any, token: str, **kw: Any) -> None:
+            """Create the lock; `token` is its value, the rest goes to redis-py's `Lock`."""
+            super().__init__(*args, **kw)
+
+            self.token = token
+            """Value written to the lock key on acquisition."""
+
+        async def acquire(
+            self,
+            blocking: bool | None = None,
+            blocking_timeout: Number | None = None,
+            token: str | bytes | None = None,
+        ) -> bool:
+            """Acquire the lock with `token`, defaulting to the one given at creation."""
+            return await super().acquire(
+                blocking, blocking_timeout, self.token if token is None else token
+            )
+
+    return RedisTokenLock
+
+
+def redis_token_lock(redis: Redis, name: str, *, token: str, **kw: Any) -> Lock:
+    """Build a redis-py async lock whose value is `token` instead of a random UUID.
+
+    The value tells who holds the lock, so its owner can find it later. Keep
+    `token` unique per lock: redis-py releases a lock only while its value
+    still matches.
+
+    Args:
+        redis: The connected async Redis client.
+        name: The Redis key of the lock.
+        token: The value written to `name` on acquisition.
+        **kw: Passed to redis-py's `Lock`, such as `timeout` or
+            `blocking_timeout`.
+
+    Returns:
+        The lock, usable like any redis-py async lock.
+    """
+    return _redis_token_lock_class()(redis, name, token=token, **kw)
+
+
 __all__ = (
     "AsyncioLock",
     "UpdateBound",
     "get_update_executor",
     "handle_ask_error",
+    "redis_token_lock",
 )

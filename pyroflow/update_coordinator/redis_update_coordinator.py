@@ -2,12 +2,12 @@
 
 from __future__ import annotations as _annotations
 
-from functools import partial
 from typing import Any, ClassVar, Literal, TYPE_CHECKING
 from uuid import uuid4
 
 from pytrove.enums import TimeUnit
 
+from ..utils import redis_token_lock
 from .update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
@@ -123,16 +123,15 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         releasing a newer one on the same key.
         """
         # redis-py's `None` defaults let a dead session hold the lock and a waiter block forever.
-        lock = self.redis.lock(
+        return redis_token_lock(
+            self.redis,
             self.build_key(key, "lock"),
+            token=f"{self.fingerprint}:{uuid4().hex}",
             timeout=self.lock_ttl,
             sleep=self.sleep,
             blocking_timeout=self.blocking_timeout,
             thread_local=False,
         )
-        # `acquire(token=...)` is redis-py's only hook for the value; `async with` calls `acquire()` too.
-        lock.acquire = partial(lock.acquire, token=f"{self.fingerprint}:{uuid4().hex}")  # ty: ignore[invalid-assignment]  # the partial only binds `token`, which callers never pass
-        return lock
 
     async def is_handled(self, key: CoordinatedUpdateIdT) -> bool:
         """Return whether the handled key for `key` exists in Redis."""

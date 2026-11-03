@@ -35,6 +35,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   already carries it, and `stop()` deletes the locks the coordinator still
   holds. Other sessions' locks and every handled key are left alone. The Redis
   client stays owned by the caller, who closes it after `stop()`.
+- `pyroflow.utils.redis_token_lock`: a redis-py async lock that takes its value
+  as `token` instead of a random UUID.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
