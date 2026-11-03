@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from pyrogram.types import Update as PyroUpdate
 
-    from .typings import UpdateType, AsyncLockProto, UpdateCoordinatorKeyT
+    from .typings import UpdateType, AsyncLockProto, CoordinatedUpdateIdT
     from .update_listener import UpdateListener
     from .update_coordinated import UpdateCoordinated
     from .update_coordinator import UpdateCoordinator
@@ -45,7 +45,7 @@ class _CoordinatedRelease:
         self,
         coordinator: UpdateCoordinator,
         lock: AsyncLockProto,
-        update_id: UpdateCoordinatorKeyT,
+        update_id: CoordinatedUpdateIdT,
     ) -> None:
         """Bind the settlement to the update's coordinator, its held lock and its identity.
 

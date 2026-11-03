@@ -8,7 +8,7 @@ from ..types import CallbackQuery
 from .update_coordinated import UpdateCoordinated
 
 if TYPE_CHECKING:
-    from ..typings import UpdateCoordinatorKeyT
+    from ..typings import CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
 class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
@@ -38,7 +38,7 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
             if self.extract_update_id_func is None:
                 self.extract_update_id_func = self._extract_update_id
 
-    async def _extract_key(self, update: CallbackQuery) -> UpdateCoordinatorKeyT:
+    async def _extract_key(self, update: CallbackQuery) -> CoordinatedUpdateKeyT:
         """Lock per chat of the query's message, or per query when it has none.
 
         A query from an inline message carries no chat, so it is locked on its
@@ -52,7 +52,7 @@ class CallbackQueryCoordinated(UpdateCoordinated[CallbackQuery]):
 
         return (update.id,)
 
-    async def _extract_update_id(self, update: CallbackQuery) -> UpdateCoordinatorKeyT:
+    async def _extract_update_id(self, update: CallbackQuery) -> CoordinatedUpdateIdT:
         """Identify the query by its id."""
         return (update.id,)
 

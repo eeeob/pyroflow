@@ -150,13 +150,6 @@ async def test_extract_key_may_return_none_to_leave_the_update_uncoordinated() -
     assert await policy.extract_key(make_message()) is None
 
 
-async def test_extract_update_id_rejects_a_none_identity() -> None:
-    policy = _Coordinated(extract_update_id_func=lambda u: None)
-
-    with pytest.raises(TypeError, match="_Coordinated extracted no update id from"):
-        await policy.extract_update_id(make_message())
-
-
 async def test_start_and_stop_delegate_to_coordinator() -> None:
     policy = _Coordinated(coordinator_factory=_RecordingCoordinator)
 

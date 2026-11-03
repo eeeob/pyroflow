@@ -224,12 +224,10 @@ client.run()
 A session that cannot handle an update should say so in its handler's filter: a rejecting filter leaves the update to another session.
 
 ```python
-from pyrogram.utils import get_peer_id
-
 # Coordinate per message instead of per chat.
 coordinated = MessageCoordinated(
     coordinator_factory,
-    extract_key_func=lambda m: (get_peer_id(m.raw.peer_id), m.id),
+    extract_key_func=lambda m: (m.chat.id, m.id),
 )
 ```
 

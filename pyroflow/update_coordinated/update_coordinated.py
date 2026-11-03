@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from pytrove.typings import MaybeCoroutineCallable
 
-    from ..typings import UpdateCoordinatorKeyT
+    from ..typings import CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
 class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
@@ -60,9 +60,9 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
     def __init__(
         self,
         coordinator_factory: Callable[[type[UpdateType]], UpdateCoordinator] | None = None,
-        extract_key_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT | None]
+        extract_key_func: MaybeCoroutineCallable[[UpdateType], CoordinatedUpdateKeyT | None]
         | None = None,
-        extract_update_id_func: MaybeCoroutineCallable[[UpdateType], UpdateCoordinatorKeyT]
+        extract_update_id_func: MaybeCoroutineCallable[[UpdateType], CoordinatedUpdateIdT]
         | None = None,
         **kw: Any,
     ) -> None:
@@ -80,7 +80,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         self.extract_update_id_func = extract_update_id_func
         """Callable returning an update's identity, or `None` to use an override."""
 
-    async def extract_key(self, update: UpdateType) -> UpdateCoordinatorKeyT | None:
+    async def extract_key(self, update: UpdateType) -> CoordinatedUpdateKeyT | None:
         """Return the lock key that coordinates `update`, or `None` to leave it uncoordinated.
 
         Updates with the same key are processed one at a time. This is not the
@@ -113,7 +113,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             log_exc=False,
         )
 
-    async def extract_update_id(self, update: UpdateType) -> UpdateCoordinatorKeyT:
+    async def extract_update_id(self, update: UpdateType) -> CoordinatedUpdateIdT:
         """Return the unique identity of `update`, used to mark it as handled.
 
         It must be extractable from the update every time, with the same value
@@ -129,8 +129,7 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
         Raises:
             NotImplementedError: If the method is not overridden and no
                 `extract_update_id_func` was passed.
-            TypeError: If `update` is not an instance of `__update_type__`, or
-                the identity is `None`.
+            TypeError: If `update` is not an instance of `__update_type__`.
         """
         if self.extract_update_id_func is None:
             msg = (
@@ -141,18 +140,12 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        update_id = await maybe_awaitable(
+        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
             self.extract_update_id_func,
             update,
             executor=get_update_executor(update),
             log_exc=False,
         )
-
-        if update_id is None:
-            msg = f"{self.__class__.__name__} extracted no update id from {update!r}"
-            raise TypeError(msg)
-
-        return update_id  # ty: ignore[invalid-return-type]  # `pytrove` `maybe_awaitable` overloads resolve `MaybeCoroutineCallable[..., T]` to `T | Coroutine[T]`
 
     async def start(self) -> None:
         """Start the coordinator."""

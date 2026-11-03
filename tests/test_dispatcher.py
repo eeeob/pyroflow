@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
-from pyrogram import ContinuePropagation, StopPropagation, raw
+from pyrogram import ContinuePropagation, StopPropagation
 from pyrogram.handlers import (
     CallbackQueryHandler,
     ErrorHandler,
@@ -101,10 +101,8 @@ def fake_dispatcher(
 
 
 def coordinatable_message(message_id: int = 5, chat_id: int = 100, user_id: int = 7) -> Message:
-    """A Message carrying the raw.peer_id that MessageCoordinated keys on."""
-    msg = make_message(chat_id, user_id, message_id)
-    msg.raw = SimpleNamespace(peer_id=raw.types.PeerChannel(channel_id=chat_id))
-    return msg
+    """A Message carrying the chat that MessageCoordinated keys on."""
+    return make_message(chat_id, user_id, message_id)
 
 
 async def _is_claimed(coordinated: MessageCoordinated, msg: Message) -> bool:

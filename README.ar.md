@@ -248,12 +248,10 @@ client.run()
 الـ session التي لا تستطيع معالجة update تعبّر عن ذلك في filter الـ handler: الـ filter الذي يرفض الـ update يتركه لـ session أخرى.
 
 ```python
-from pyrogram.utils import get_peer_id
-
 # التنسيق على مستوى الرسالة بدل المحادثة.
 coordinated = MessageCoordinated(
     coordinator_factory,
-    extract_key_func=lambda m: (get_peer_id(m.raw.peer_id), m.id),
+    extract_key_func=lambda m: (m.chat.id, m.id),
 )
 ```
 

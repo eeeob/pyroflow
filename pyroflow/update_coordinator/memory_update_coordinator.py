@@ -15,7 +15,7 @@ from .update_coordinator import UpdateCoordinator
 if TYPE_CHECKING:
     from pytrove.typings import Number
 
-    from ..typings import UpdateCoordinatorKeyT
+    from ..typings import CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
 class TimedLock(AsyncioLock):
@@ -92,12 +92,12 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         self.locks = DefaultWeakValueDict(partial(TimedLock, self.blocking_timeout))
         """Lock per scope key, held weakly: an idle scope's lock is dropped, so callers keep a reference across `acquire`/`release`."""
 
-        self.handled: TTLCache[UpdateCoordinatorKeyT, None] = TTLCache(
+        self.handled: TTLCache[CoordinatedUpdateIdT, None] = TTLCache(
             maxsize=max_handled, ttl=self.handled_ttl
         )
         """Expiring registry of handled update keys."""
 
-    def lock(self, key: UpdateCoordinatorKeyT) -> TimedLock:
+    def lock(self, key: CoordinatedUpdateKeyT) -> TimedLock:
         """Return the process-local `TimedLock` for `key`.
 
         The same lock is returned only while someone references it, so keep
@@ -105,11 +105,11 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         """
         return self.locks[key]
 
-    async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
+    async def is_handled(self, key: CoordinatedUpdateIdT) -> bool:
         """Return whether `key` is in the in-memory handled registry."""
         return key in self.handled
 
-    async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
+    async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
         """Add `key` to the in-memory handled registry."""
         self.handled[key] = None
 

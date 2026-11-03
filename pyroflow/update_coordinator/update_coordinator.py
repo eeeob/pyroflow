@@ -10,7 +10,7 @@ from pytrove.enums import TimeUnit
 if TYPE_CHECKING:
     from pytrove.typings import Number
 
-    from ..typings import AsyncLockProto, UpdateType, UpdateCoordinatorKeyT
+    from ..typings import AsyncLockProto, UpdateType, CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
 class UpdateCoordinator(ABC):
@@ -58,7 +58,7 @@ class UpdateCoordinator(ABC):
         super().__init__(**kw)
 
     @abstractmethod
-    def lock(self, key: UpdateCoordinatorKeyT) -> AsyncLockProto:
+    def lock(self, key: CoordinatedUpdateKeyT) -> AsyncLockProto:
         """Return the mutex for the scope `key`.
 
         Implementations honour `blocking_timeout`: `acquire()` returns `False`
@@ -75,7 +75,7 @@ class UpdateCoordinator(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
+    async def is_handled(self, key: CoordinatedUpdateIdT) -> bool:
         """Return whether `key` is registered as handled.
 
         Args:
@@ -87,7 +87,7 @@ class UpdateCoordinator(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
+    async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
         """Register `key` as handled for `handled_ttl` seconds.
 
         Marking a key again only refreshes its expiry.

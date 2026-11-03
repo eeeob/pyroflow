@@ -5,6 +5,8 @@ from __future__ import annotations as _annotations
 from collections.abc import Callable
 from typing import get_args, get_origin
 
+import pytest
+
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
@@ -16,7 +18,8 @@ from pyroflow.typings import (
     BotCommandPartsT,
     ListenMessageIdT,
     ListenerCoordinatorIdT,
-    UpdateCoordinatorKeyT,
+    CoordinatedUpdateIdT,
+    CoordinatedUpdateKeyT,
     UpdateHistoryKeyT,
     UpdateType,
 )
@@ -26,10 +29,10 @@ def test_update_type_is_bound_to_pyrogram_update() -> None:
     assert UpdateType.__bound__ is PyroUpdate
 
 
-def test_update_coordinator_key_is_a_variadic_tuple() -> None:
-    assert get_origin(UpdateCoordinatorKeyT) is tuple
-    assert get_args(UpdateCoordinatorKeyT) == (int | str, ...)
-    assert UpdateHistoryKeyT is UpdateCoordinatorKeyT
+@pytest.mark.parametrize("alias", [CoordinatedUpdateKeyT, CoordinatedUpdateIdT, UpdateHistoryKeyT])
+def test_key_and_id_aliases_are_variadic_tuples_of_ids(alias: object) -> None:
+    assert get_origin(alias) is tuple
+    assert get_args(alias) == (int | str, ...)
 
 
 def test_listener_coordinator_id_is_str_or_int() -> None:
@@ -76,7 +79,8 @@ def test_typings_all() -> None:
     assert set(pyroflow.typings.__all__) == {
         "UpdateType",
         "AsyncLockProto",
-        "UpdateCoordinatorKeyT",
+        "CoordinatedUpdateKeyT",
+        "CoordinatedUpdateIdT",
         "UpdateHistoryKeyT",
         "ListenerCoordinatorIdT",
         "BotCommandEntryT",

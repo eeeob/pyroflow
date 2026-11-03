@@ -13,7 +13,7 @@ from pyroflow.update_coordinator import update_coordinator
 from pyroflow.update_coordinator.update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
-    from pyroflow.typings import AsyncLockProto, UpdateCoordinatorKeyT
+    from pyroflow.typings import AsyncLockProto, CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
 # --- the base class itself, through a minimal concrete stub ---------------
@@ -22,13 +22,13 @@ if TYPE_CHECKING:
 class _Stub(UpdateCoordinator):
     """Reaches the abstract bodies through `super()` to pin their contract."""
 
-    def lock(self, key: UpdateCoordinatorKeyT) -> AsyncLockProto:
+    def lock(self, key: CoordinatedUpdateKeyT) -> AsyncLockProto:
         return super().lock(key)  # type: ignore[safe-super]
 
-    async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
+    async def is_handled(self, key: CoordinatedUpdateIdT) -> bool:
         return await super().is_handled(key)  # type: ignore[safe-super]
 
-    async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
+    async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
         await super().mark_handled(key)  # type: ignore[safe-super]
 
 

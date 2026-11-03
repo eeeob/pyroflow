@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from redis.asyncio.lock import Lock
 
-    from ..typings import UpdateCoordinatorKeyT
+    from ..typings import CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
 class RedisUpdateCoordinator(UpdateCoordinator):
@@ -46,7 +46,7 @@ class RedisUpdateCoordinator(UpdateCoordinator):
 
     def build_key(
         self,
-        key: UpdateCoordinatorKeyT,
+        key: CoordinatedUpdateKeyT | CoordinatedUpdateIdT,
         section: Literal["lock", "handled"] = "lock",
     ) -> str:
         """Render `key` into its backend key under `section`.
@@ -71,7 +71,7 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         """
         return self._key_formats[section].format_map({"key": self._sep.join(str(i) for i in key)})
 
-    def lock(self, key: UpdateCoordinatorKeyT) -> Lock:
+    def lock(self, key: CoordinatedUpdateKeyT) -> Lock:
         """Build the distributed lock for `key`, expiring after `lock_ttl`."""
         # redis-py's `None` defaults let a dead session hold the lock and a waiter block forever.
         return self.redis.lock(
@@ -82,11 +82,11 @@ class RedisUpdateCoordinator(UpdateCoordinator):
             thread_local=False,
         )
 
-    async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
+    async def is_handled(self, key: CoordinatedUpdateIdT) -> bool:
         """Return whether the handled key for `key` exists in Redis."""
         return bool(await self.redis.exists(self.build_key(key, "handled")))
 
-    async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
+    async def mark_handled(self, key: CoordinatedUpdateIdT) -> None:
         """Set the handled key for `key` in Redis, expiring after `handled_ttl`."""
         # `px` rather than `ex`, so a sub-second `handled_ttl` is not truncated to zero.
         await self.redis.set(

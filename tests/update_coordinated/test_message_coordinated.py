@@ -3,12 +3,9 @@
 from __future__ import annotations as _annotations
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-from pyrogram.raw.types import PeerChannel
-from pyrogram.types import Message as PyroMessage
-from pyrogram.utils import get_peer_id
+from pyrogram.types import Chat, Message as PyroMessage
 
 from pyroflow import MessageCoordinated
 from pyroflow.update_coordinated import message_coordinated
@@ -18,11 +15,8 @@ if TYPE_CHECKING:
     from pyrogram.types import Message
 
 
-def _message(message_id: int = 5, peer: object | None = None) -> Message:
-    return PyroMessage(
-        id=message_id,
-        raw=SimpleNamespace(peer_id=PeerChannel(channel_id=123) if peer is None else peer),
-    )
+def _message(message_id: int = 5) -> Message:
+    return PyroMessage(id=message_id, chat=Chat(id=-1000000000123))
 
 
 def test_init_defaults_every_callable_to_the_class_hooks() -> None:
@@ -72,14 +66,18 @@ def test_init_forwards_the_coordinator_factory() -> None:
     assert seen == [PyroMessage]
 
 
-async def test_extract_key_is_the_chat_peer_id() -> None:
+async def test_extract_key_is_the_chat_id() -> None:
     mc = MessageCoordinated()
 
     assert await mc._extract_key(_message(42)) == (-1000000000123,)
     assert await mc.extract_key(_message(42)) == await mc.extract_key(_message(43))
 
 
-async def test_extract_update_id_is_peer_id_message_id_and_zero_before_an_edit() -> None:
+async def test_extract_key_leaves_a_message_without_a_chat_uncoordinated() -> None:
+    assert await MessageCoordinated()._extract_key(PyroMessage(id=1)) is None
+
+
+async def test_extract_update_id_is_chat_id_message_id_and_zero_before_an_edit() -> None:
     mc = MessageCoordinated()
 
     assert await mc._extract_update_id(_message(42)) == (-1000000000123, 42, 0)
@@ -104,7 +102,7 @@ async def test_extract_update_id_tells_an_edit_from_the_original_and_other_edits
 
 
 async def test_narrowed_key_locks_per_message() -> None:
-    mc = MessageCoordinated(extract_key_func=lambda u: (get_peer_id(u.raw.peer_id), u.id))
+    mc = MessageCoordinated(extract_key_func=lambda u: (u.chat.id, u.id))
 
     assert await mc.extract_key(_message(1)) != await mc.extract_key(_message(2))
 

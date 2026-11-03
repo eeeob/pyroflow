@@ -47,7 +47,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - **BREAKING:** an `UpdateCoordinated` is two extractors. `extract_key` is the
   lock that coordinates updates and returns `None` for an update that is not
   coordinated; `extract_update_id` is the update's unique identity and must
-  never return `None` (a `None` identity raises `TypeError`).
+  never return `None`.
   `is_coordinatable`, `is_coordinatable_func` and `UpdateCoordinated.lock()`
   are removed. Affects code that passes `is_coordinatable_func`, overrides
   `is_coordinatable`/`_is_coordinatable`, or calls `coordinated.lock(update)`.
@@ -66,13 +66,14 @@ Every breaking change lists what changed, who is affected and how to migrate.
   Migration: move the condition into the handler's filter; a filter that
   rejects the update leaves it to another session.
 - **BREAKING:** the default lock keys are per chat. `MessageCoordinated` locks
-  on `(peer_id,)` instead of `(peer_id, message_id)`, and
+  on `(chat_id,)` instead of `(peer_id, message_id)`, and a message without
+  a chat is uncoordinated; and
   `CallbackQueryCoordinated` on the chat of the query's message (the query id
   for an inline message) instead of the query id. Updates of one chat now wait
   for each other until each is handled. Affects bots relying on concurrent
   processing within a chat.
   Migration: pass `extract_key_func` with the old key, e.g.
-  `lambda m: (get_peer_id(m.raw.peer_id), m.id)`.
+  `lambda m: (m.chat.id, m.id)`.
 - **BREAKING:** `LockKeyT` is removed and `ListenerCoordinator.lock` takes a
   `ListenerKey` only; `RedisListenerCoordinator.lock` no longer wraps a chat
   id or a tuple of ids. Affects code that calls a listener coordinator's
@@ -84,8 +85,15 @@ Every breaking change lists what changed, who is affected and how to migrate.
   handled registry by the key tuple itself. Affects code that calls
   `build_key` on a memory coordinator or reads its `handled` keys as strings.
   Migration: use the key tuple directly with `MemoryUpdateCoordinator`.
+- **BREAKING:** `UpdateCoordinatorKeyT` is renamed `CoordinatedUpdateKeyT`
+  (the lock key), and update ids have their own alias, `CoordinatedUpdateIdT`,
+  used by `extract_update_id` and the coordinators' `is_handled` and
+  `mark_handled`. `UpdateHistoryKeyT` no longer aliases the coordinator key.
+  Affects code that imports `UpdateCoordinatorKeyT`.
+  Migration: import `CoordinatedUpdateKeyT`, or `CoordinatedUpdateIdT` for
+  update ids, from `pyroflow.typings`.
 - **BREAKING:** `MessageCoordinated` identifies a message by
-  `(peer_id, message_id, edit_ts)`, where `edit_ts` is the edit time in
+  `(chat_id, message_id, edit_ts)`, where `edit_ts` is the edit time in
   seconds or `0`. An edited message is no longer dropped as a duplicate of the
   original. Affects code that reads or marks these identities directly.
   Migration: none for handlers; build identities with `extract_update_id`.
