@@ -93,9 +93,12 @@ Every breaking change lists what changed, who is affected and how to migrate.
   Migration: import `CoordinatedUpdateKeyT`, or `CoordinatedUpdateIdT` for
   update ids, from `pyroflow.typings`.
 - **BREAKING:** `MessageCoordinated` identifies a message by
-  `(chat_id, message_id, edit_ts)`, where `edit_ts` is the edit time in
-  seconds or `0`. An edited message is no longer dropped as a duplicate of the
-  original. Affects code that reads or marks these identities directly.
+  `(business_connection_id, scheduled, chat_id, message_id, edit_ts)`:
+  `business_connection_id` is `""` outside a business connection, `scheduled`
+  is `1` for a scheduled message, `edit_ts` is the edit time in seconds or
+  `0`, and an ephemeral message (id `0`) uses `"e<ephemeral id>:<send time>"`
+  as its message id. Edited, business, scheduled and ephemeral messages are no
+  longer dropped as duplicates of unrelated ones. Affects code that reads or marks these identities directly.
   Migration: none for handlers; build identities with `extract_update_id`.
 - `split_text` never matches `bytes` callback data, even without a
   `separator` (it used to pass the bytes to a single callable rule).

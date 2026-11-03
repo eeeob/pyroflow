@@ -77,10 +77,10 @@ async def test_extract_key_leaves_a_message_without_a_chat_uncoordinated() -> No
     assert await MessageCoordinated()._extract_key(PyroMessage(id=1)) is None
 
 
-async def test_extract_update_id_is_chat_id_message_id_and_zero_before_an_edit() -> None:
+async def test_extract_update_id_of_a_plain_message() -> None:
     mc = MessageCoordinated()
 
-    assert await mc._extract_update_id(_message(42)) == (-1000000000123, 42, 0)
+    assert await mc._extract_update_id(_message(42)) == ("", 0, -1000000000123, 42, 0)
 
 
 async def test_extract_update_id_tells_an_edit_from_the_original_and_other_edits() -> None:
@@ -94,11 +94,45 @@ async def test_extract_update_id_tells_an_edit_from_the_original_and_other_edits
     ids = {await mc.extract_update_id(m) for m in (original, edited, edited_again)}
 
     assert len(ids) == 3
-    assert await mc.extract_update_id(edited) == (
-        -1000000000123,
-        42,
-        int(edited.edit_date.timestamp()),
-    )
+    assert (await mc.extract_update_id(edited))[-1] == int(edited.edit_date.timestamp())
+
+
+async def test_extract_update_id_keeps_business_messages_apart() -> None:
+    mc = MessageCoordinated()
+    business = _message(42)
+    business.business_connection_id = "conn-1"
+    other_business = _message(42)
+    other_business.business_connection_id = "conn-2"
+
+    ids = {await mc.extract_update_id(m) for m in (_message(42), business, other_business)}
+
+    assert len(ids) == 3
+    assert (await mc.extract_update_id(business))[0] == "conn-1"
+
+
+async def test_extract_update_id_keeps_scheduled_messages_apart() -> None:
+    mc = MessageCoordinated()
+    scheduled = _message(42)
+    scheduled.scheduled = True
+
+    assert (await mc.extract_update_id(scheduled))[1] == 1
+    assert await mc.extract_update_id(scheduled) != await mc.extract_update_id(_message(42))
+
+
+async def test_extract_update_id_identifies_ephemeral_messages_by_their_id_and_date() -> None:
+    mc = MessageCoordinated()
+
+    def ephemeral(ephemeral_id: int, day: int) -> Message:
+        message = _message(0)
+        message.ephemeral_message_id = ephemeral_id
+        message.date = datetime(2026, 1, day, tzinfo=timezone.utc)
+        return message
+
+    first, second, reused = ephemeral(1, 1), ephemeral(2, 1), ephemeral(1, 2)
+
+    assert (await mc.extract_update_id(first))[3] == f"e1:{int(first.date.timestamp())}"
+    ids = {await mc.extract_update_id(m) for m in (first, second, reused)}
+    assert len(ids) == 3
 
 
 async def test_narrowed_key_locks_per_message() -> None:
