@@ -23,7 +23,9 @@ SENTINEL = object()
 
 def make_client(me_id: int | None = ME_ID) -> SimpleNamespace:
     me = None if me_id is None else SimpleNamespace(id=me_id)
-    return SimpleNamespace(me=me, ask=AsyncMock(return_value=SENTINEL))
+    return SimpleNamespace(
+        me=me, ask=AsyncMock(return_value=SENTINEL), ask_rich=AsyncMock(return_value=SENTINEL)
+    )
 
 
 def make_msg(
@@ -263,3 +265,126 @@ async def test_ask_edit_rejects_send_only_options(option: str, value: object) ->
     with pytest.raises(ValueError, match="force_send=True"):
         await m.ask("hi", **{option: value})
     m._client.ask.assert_not_awaited()
+
+
+# --- Message.ask_rich -----------------------------------------------------
+
+RICH = object()
+
+
+@pytest.mark.parametrize("field", ["service", "empty"])
+async def test_ask_rich_rejects_service_or_empty_message(field: str) -> None:
+    m = make_msg()
+    setattr(m, field, True)
+    with pytest.raises(ValueError, match="service or empty"):
+        await m.ask_rich(RICH)
+    m._client.ask_rich.assert_not_awaited()
+
+
+async def test_ask_rich_sends_reply_when_not_editable() -> None:
+    m = make_msg(message_thread_id=3, direct_messages_topic_id=4, business_connection_id="bc")
+    result = await m.ask_rich(RICH, listen_user_id=7, timeout=1, extra="kw")
+
+    assert result is SENTINEL
+    m._client.ask.assert_not_awaited()
+    args, kwargs = m._client.ask_rich.await_args
+    assert args == (100, RICH, None)
+    assert kwargs["reply_parameters"].message_id == 5
+    assert kwargs["message_thread_id"] == 3
+    assert kwargs["direct_messages_topic_id"] == 4
+    assert kwargs["business_connection_id"] == "bc"
+    assert kwargs["listen_user_id"] == 7
+    assert kwargs["timeout"] == 1
+    assert kwargs["update_type"] is pyrogram.types.Message
+    assert kwargs["extra"] == "kw"
+
+
+async def test_ask_rich_edits_when_editable() -> None:
+    m = make_msg(is_self=True)
+    assert await m.ask_rich(RICH, update_type=CallbackQuery) is SENTINEL
+
+    args, kwargs = m._client.ask_rich.await_args
+    assert args == (100, RICH, 5)
+    assert kwargs["reply_parameters"] is None
+    assert kwargs["message_thread_id"] is None
+    assert kwargs["update_type"] is CallbackQuery
+
+
+async def test_ask_rich_force_send_sends_even_when_editable() -> None:
+    m = make_msg(is_self=True)
+    await m.ask_rich(RICH, True, disable_notification=True)
+
+    args, kwargs = m._client.ask_rich.await_args
+    assert args[2] is None
+    assert kwargs["reply_parameters"].message_id == 5
+    assert kwargs["disable_notification"] is True
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("reply_parameters", ReplyParameters(message_id=1)),
+        ("disable_notification", False),
+        ("message_thread_id", 1),
+        ("direct_messages_topic_id", 1),
+        ("effect_id", 1),
+        ("protect_content", False),
+        ("allow_paid_broadcast", False),
+        ("suggested_post_parameters", object()),
+    ],
+)
+async def test_ask_rich_edit_rejects_send_only_options(option: str, value: object) -> None:
+    m = make_msg(is_self=True)
+    with pytest.raises(ValueError, match="force_send=True"):
+        await m.ask_rich(RICH, **{option: value})
+    m._client.ask_rich.assert_not_awaited()
+
+
+# --- Message._ask_target --------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["service", "empty"])
+def test_ask_target_rejects_service_or_empty_message(field: str) -> None:
+    m = make_msg(is_self=True)
+    setattr(m, field, True)
+    with pytest.raises(ValueError, match="Cannot call 'ask' on a service or empty message"):
+        m._ask_target(False, None, None, None, ())
+
+
+def test_ask_target_edits_an_editable_message() -> None:
+    assert make_msg(is_self=True)._ask_target(False, None, None, None, ()) == (
+        5,
+        None,
+        None,
+        None,
+    )
+
+
+@pytest.mark.parametrize(("is_self", "force_send"), [(False, False), (True, True)])
+def test_ask_target_replies_with_this_messages_defaults(is_self: bool, force_send: bool) -> None:
+    m = make_msg(is_self=is_self, message_thread_id=3, direct_messages_topic_id=4)
+
+    message_id, rp, thread, topic = m._ask_target(force_send, None, None, None, (1,))
+
+    assert (message_id, rp.message_id, thread, topic) == (None, 5, 3, 4)
+
+
+def test_ask_target_reply_keeps_explicit_values() -> None:
+    m = make_msg(message_thread_id=3, direct_messages_topic_id=4)
+    rp = ReplyParameters(message_id=99)
+
+    assert m._ask_target(False, rp, 8, 9, ()) == (None, rp, 8, 9)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (ReplyParameters(message_id=1), None, None, ()),
+        (None, 1, None, ()),
+        (None, None, 1, ()),
+        (None, None, None, (None, False)),
+    ],
+)
+def test_ask_target_edit_rejects_send_only_values(args: tuple[Any, ...]) -> None:
+    with pytest.raises(ValueError, match="Use force_send=True to send a new message"):
+        make_msg(is_self=True)._ask_target(False, *args)

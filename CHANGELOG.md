@@ -31,6 +31,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   update is bound to, or `None`.
 - `PyroflowError`, the root of every pyroflow error, and `CoordinationError`,
   the family of coordination signals.
+- `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
+  `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 
 ### Changed
 

@@ -171,6 +171,19 @@ callback = await client.ask(
 - `ListenerTimeout` — no reply arrived within `timeout` seconds
 - `ListenerCancelled` — the listener was cancelled while waiting
 
+`ask_rich()` does the same with a rich message: it sends with `send_rich_message`, or edits with `edit_message_text(rich_message=...)` when `message_id` is given. `Message.ask_rich()` mirrors `Message.ask()`.
+
+```python
+from pyrogram.types import InputRichMessage
+
+answer = await client.ask_rich(
+    chat_id,
+    InputRichMessage(html="Pick a <b>name</b>:"),
+    listen_user_id=user_id,
+    timeout=30,
+)
+```
+
 ---
 
 ### Coordinators

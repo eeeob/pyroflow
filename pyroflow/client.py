@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from pyrogram.handlers.handler import Handler
-    from pyrogram.types import BotCommand, BotCommandScope
+    from pyrogram.types import BotCommand, BotCommandScope, InputRichMessage
     from pytrove.typings import (
         Number,
         JsonValue as JsonValueT,
@@ -395,21 +395,10 @@ class Client(PyroClient):
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
-        listener = self.listeners.get(update_type)
-
-        if listener is None:
-            msg = (
-                f"No listener registered for {update_type.__name__}. "
-                f"Register one via client.register_listener() before calling ask()."
-            )
-            raise RuntimeError(msg)
+        listener = self._ask_listener(update_type)
 
         if message_id is not None:
-            if reply_markup is not None and not isinstance(
-                reply_markup, pyro_types.InlineKeyboardMarkup
-            ):
-                msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
-                raise ValueError(msg)
+            reply_markup = self._check_edit_reply_markup(reply_markup)
 
             # `patch_cls` يجعل `Message` الخاصة بـ `pyrogram` هي نفسها الخاصة بـ `pyroflow` وقت التشغيل
             m = cast(
@@ -454,6 +443,300 @@ class Client(PyroClient):
                 ),
             )
 
+        return await self._await_reply(
+            listener,
+            m,
+            chat_id,
+            listen_user_id=listen_user_id,
+            listen_message_id=listen_message_id,
+            meta=meta,
+            timeout=timeout,
+            update_type=update_type,
+            error_handlers=error_handlers,
+        )
+
+    @overload
+    async def ask_rich(
+        self,
+        chat_id: StrInt,
+        rich_message: InputRichMessage,
+        *,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup
+        | pyro_types.ReplyKeyboardMarkup
+        | pyro_types.ReplyKeyboardRemove
+        | pyro_types.ForceReply
+        | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType],
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> UpdateType: ...
+
+    @overload
+    async def ask_rich(
+        self,
+        chat_id: StrInt,
+        rich_message: InputRichMessage,
+        *,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup
+        | pyro_types.ReplyKeyboardMarkup
+        | pyro_types.ReplyKeyboardRemove
+        | pyro_types.ForceReply
+        | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[Message] = Message,
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> Message: ...
+
+    @overload
+    async def ask_rich(
+        self,
+        chat_id: StrInt,
+        rich_message: InputRichMessage,
+        message_id: int,
+        *,
+        schedule_date: datetime | None = None,
+        business_connection_id: str | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[UpdateType],
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> UpdateType: ...
+
+    @overload
+    async def ask_rich(
+        self,
+        chat_id: StrInt,
+        rich_message: InputRichMessage,
+        message_id: int,
+        *,
+        schedule_date: datetime | None = None,
+        business_connection_id: str | None = None,
+        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[Message] = Message,
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> Message: ...
+
+    async def ask_rich(
+        self,
+        chat_id: StrInt,
+        rich_message: InputRichMessage,
+        message_id: int | None = None,
+        *,
+        reply_markup: pyro_types.InlineKeyboardMarkup
+        | pyro_types.ReplyKeyboardMarkup
+        | pyro_types.ReplyKeyboardRemove
+        | pyro_types.ForceReply
+        | None = None,
+        # `edit_message_text` only params (`send_rich_message` takes neither)
+        schedule_date: datetime | None = None,
+        business_connection_id: str | None = None,
+        # `send_rich_message` only params
+        disable_notification: bool | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        effect_id: int | None = None,
+        reply_parameters: pyro_types.ReplyParameters | None = None,
+        protect_content: bool | None = None,
+        allow_paid_broadcast: bool | None = None,
+        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
+        # listen params
+        listen_user_id: int | None = None,
+        listen_message_id: ListenMessageIdT | None = None,
+        meta: JsonValueT | None = None,
+        timeout: Number | None = None,
+        update_type: type[pyro_types.Update] = Message,
+        error_handlers: AskErrorHandlersT | None = None,
+        **kw: Any,
+    ) -> pyro_types.Update:
+        """Send or edit a rich message, then wait for the next matching update.
+
+        Like `ask`, but sends with `send_rich_message`, or edits `message_id`
+        with `edit_message_text(rich_message=...)`. `schedule_date` and
+        `business_connection_id` apply to editing only, and the arguments from
+        `disable_notification` to `suggested_post_parameters` to sending only;
+        each is ignored in the other mode.
+
+        Args:
+            chat_id: Chat to send to, or that holds the message to edit.
+            rich_message: The rich message to send or edit.
+            message_id: If provided, edit this message instead of sending a new one.
+            reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
+            schedule_date: Date to send the edited message at.
+            business_connection_id: Business connection to edit through.
+            disable_notification: Send the message silently.
+            message_thread_id: Target topic.
+            direct_messages_topic_id: Target direct messages topic.
+            effect_id: Message effect to apply.
+            reply_parameters: Reply options.
+            protect_content: Protect the message from forwarding and saving.
+            allow_paid_broadcast: Allow a paid broadcast.
+            suggested_post_parameters: Parameters of a suggested channel post.
+            listen_user_id: As in `ask`.
+            listen_message_id: As in `ask`.
+            meta: As in `ask`.
+            timeout: As in `ask`.
+            update_type: As in `ask`.
+            error_handlers: As in `ask`.
+            **kw: Passed to `send_rich_message` or `edit_message_text`.
+
+        Returns:
+            The matching update of type `update_type`.
+
+        Raises:
+            RuntimeError: If no listener is registered for `update_type`.
+            ValueError: If `message_id` is given with a `reply_markup` other
+                than `InlineKeyboardMarkup`.
+            ListenerTimeout: If the timeout expires before the update arrives.
+            ListenerCancelled: If the listener is cancelled while waiting.
+        """
+        listener = self._ask_listener(update_type)
+
+        if message_id is not None:
+            reply_markup = self._check_edit_reply_markup(reply_markup)
+
+            m = cast(
+                "Message",
+                await self.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    rich_message=rich_message,
+                    schedule_date=schedule_date,
+                    business_connection_id=business_connection_id,
+                    reply_markup=reply_markup,
+                    **kw,
+                ),
+            )
+        else:
+            m = cast(
+                "Message",
+                await self.send_rich_message(
+                    chat_id=chat_id,
+                    rich_message=rich_message,
+                    disable_notification=disable_notification,
+                    message_thread_id=message_thread_id,
+                    direct_messages_topic_id=direct_messages_topic_id,
+                    effect_id=effect_id,
+                    reply_parameters=reply_parameters,
+                    protect_content=protect_content,
+                    allow_paid_broadcast=allow_paid_broadcast,
+                    suggested_post_parameters=suggested_post_parameters,
+                    reply_markup=reply_markup,
+                    **kw,
+                ),
+            )
+
+        return await self._await_reply(
+            listener,
+            m,
+            chat_id,
+            listen_user_id=listen_user_id,
+            listen_message_id=listen_message_id,
+            meta=meta,
+            timeout=timeout,
+            update_type=update_type,
+            error_handlers=error_handlers,
+        )
+
+    def _ask_listener(self, update_type: type[pyro_types.Update]) -> UpdateListener[Any]:
+        """Return the listener registered for `update_type`.
+
+        Raises:
+            RuntimeError: If no listener is registered for `update_type`.
+        """
+        listener = self.listeners.get(update_type)
+
+        if listener is None:
+            msg = (
+                f"No listener registered for {update_type.__name__}. "
+                f"Register one via client.register_listener() before calling ask()."
+            )
+            raise RuntimeError(msg)
+
+        return listener
+
+    @staticmethod
+    def _check_edit_reply_markup(
+        reply_markup: object,
+    ) -> pyro_types.InlineKeyboardMarkup | None:
+        """Return `reply_markup` if it can be attached when editing.
+
+        Raises:
+            ValueError: If `reply_markup` is neither `None` nor `InlineKeyboardMarkup`.
+        """
+        if reply_markup is not None and not isinstance(
+            reply_markup, pyro_types.InlineKeyboardMarkup
+        ):
+            msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
+            raise ValueError(msg)
+
+        return reply_markup
+
+    async def _await_reply(
+        self,
+        listener: UpdateListener[Any],
+        m: Message,
+        chat_id: StrInt,
+        *,
+        listen_user_id: int | None,
+        listen_message_id: ListenMessageIdT | None,
+        meta: JsonValueT | None,
+        timeout: Number | None,
+        update_type: type[pyro_types.Update],
+        error_handlers: AskErrorHandlersT | None,
+    ) -> pyro_types.Update:
+        """Wait on `listener` for the update that answers `m`, the sent or edited message.
+
+        Args:
+            listener: The listener to wait on.
+            m: The message `ask` or `ask_rich` sent or edited.
+            chat_id: Chat to listen in when `m` has no chat id.
+            listen_user_id: As in `ask`.
+            listen_message_id: As in `ask`.
+            meta: As in `ask`.
+            timeout: As in `ask`.
+            update_type: As in `ask`; selects the client-wide error handlers.
+            error_handlers: As in `ask`.
+
+        Returns:
+            The update `listener` returned.
+        """
         if meta is None or isinstance(meta, dict):
             meta = {} if meta is None else meta.copy()
             if "message_id" not in meta:

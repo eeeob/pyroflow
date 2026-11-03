@@ -6,6 +6,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import inspect
+from datetime import datetime
 from types import SimpleNamespace
 
 import pyroflow
@@ -62,6 +63,7 @@ def _install_raising_ask(
         return SimpleNamespace(id=5, chat=None)
 
     c.send_message = fake_send
+    c.send_rich_message = fake_send
 
 
 async def test_ask_routes_a_listening_error_to_the_scoped_client_handler() -> None:
@@ -217,6 +219,7 @@ def _ask_client(
     send, edit = _Recorder(message), _Recorder(message)
     c.send_message = send
     c.edit_message_text = edit
+    c.send_rich_message = _Recorder(message)
     return c, listener, send, edit
 
 
@@ -486,8 +489,273 @@ async def test_ask_re_raises_with_no_handlers_registered() -> None:
         await c.ask(100, "hi")
 
 
+# --- ask_rich() -------------------------------------------------------------
+
+
+async def test_ask_rich_without_a_listener_raises_runtime_error_naming_the_type() -> None:
+    c = make_client()
+    with pytest.raises(RuntimeError, match="No listener registered for CallbackQuery"):
+        await c.ask_rich(100, object(), update_type=CallbackQuery)
+
+
+async def test_ask_rich_sends_with_send_rich_message() -> None:
+    c, listener, send, edit = _ask_client()
+    rich = object()
+    markup = ReplyKeyboardRemove()
+
+    result = await c.ask_rich(
+        100,
+        rich,
+        disable_notification=True,
+        business_connection_id="bc",
+        reply_markup=markup,
+        schedule_date=datetime(2026, 1, 1),
+        extra="kw",
+        timeout=3,
+    )
+
+    assert result is listener.result
+    assert send.calls == edit.calls == []
+    call = c.send_rich_message.calls[0]
+    assert (call["chat_id"], call["rich_message"]) == (100, rich)
+    assert call["disable_notification"] is True
+    assert call["reply_markup"] is markup
+    assert call["extra"] == "kw"
+    # `send_rich_message` takes neither (kurigram 2.2.26 dropped `business_connection_id`)
+    assert "schedule_date" not in call
+    assert "business_connection_id" not in call
+    assert listener.calls == [
+        {
+            "chat_id": 100,
+            "user_id": None,
+            "message_id": None,
+            "meta": {"message_id": 5},
+            "timeout": 3,
+        }
+    ]
+
+
+async def test_ask_rich_with_message_id_edits_with_rich_message() -> None:
+    c, listener, send, edit = _ask_client()
+    rich = object()
+    markup = InlineKeyboardMarkup([])
+    when = datetime(2026, 1, 1)
+
+    await c.ask_rich(
+        100,
+        rich,
+        5,
+        reply_markup=markup,
+        schedule_date=when,
+        business_connection_id="bc",
+        extra="kw",
+    )
+
+    assert send.calls == c.send_rich_message.calls == []
+    call = edit.calls[0]
+    assert (call["chat_id"], call["message_id"], call["rich_message"]) == (100, 5, rich)
+    assert call["reply_markup"] is markup
+    assert call["schedule_date"] is when
+    assert call["business_connection_id"] == "bc"
+    assert call["extra"] == "kw"
+    assert "text" not in call
+    assert "disable_notification" not in call
+    assert len(listener.calls) == 1
+
+
+async def test_ask_rich_forwards_only_arguments_kurigram_accepts() -> None:
+    # The recorders accept anything; bind what was forwarded to the real signatures.
+    c, _, _, edit = _ask_client()
+    await c.ask_rich(100, object())
+    await c.ask_rich(100, object(), 5)
+
+    inspect.signature(pyroflow.Client.send_rich_message).bind(c, **c.send_rich_message.calls[0])
+    inspect.signature(pyroflow.Client.edit_message_text).bind(c, **edit.calls[0])
+
+
+async def test_ask_rich_edit_mode_rejects_a_non_inline_reply_markup() -> None:
+    c, listener, _, edit = _ask_client()
+
+    with pytest.raises(ValueError, match="InlineKeyboardMarkup"):
+        await c.ask_rich(100, object(), 5, reply_markup=ReplyKeyboardRemove())
+
+    assert edit.calls == c.send_rich_message.calls == listener.calls == []
+
+
+async def test_ask_rich_calls_a_callable_listen_message_id_with_the_sent_message() -> None:
+    sent = make_message(chat_id=100, message_id=5)
+    c, listener, _, _ = _ask_client(sent)
+
+    await c.ask_rich(100, object(), listen_message_id=lambda m: m.id + 1)
+
+    assert listener.calls[0]["message_id"] == 6
+
+
+async def test_ask_rich_waits_on_the_listener_of_the_given_update_type() -> None:
+    c, listener, _, _ = _ask_client(update_type=CallbackQuery)
+
+    assert await c.ask_rich(100, object(), update_type=CallbackQuery) is listener.result
+
+
+async def test_ask_rich_routes_a_listening_error_to_the_error_handlers() -> None:
+    c = make_client()
+    _install_raising_ask(c)
+    calls = []
+    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append(("client", m.id)))
+
+    with pytest.raises(ExcA):
+        await c.ask_rich(100, object(), error_handlers={ExcA: lambda exc, m: calls.append("call")})
+    with pytest.raises(ExcA):
+        await c.ask_rich(100, object(), error_handlers={ExcB: lambda exc, m: calls.append("call")})
+
+    assert calls == ["call", ("client", 5)]
+
+
+# --- ask helpers --------------------------------------------------------------
+
+
+def test_ask_listener_returns_the_registered_listener() -> None:
+    c = make_client()
+    listener = object()
+    c.dispatcher.listeners[CallbackQuery] = listener
+    assert c._ask_listener(CallbackQuery) is listener
+
+
+def test_ask_listener_raises_runtime_error_naming_the_type() -> None:
+    with pytest.raises(RuntimeError, match=r"No listener registered for Message\. Register"):
+        make_client()._ask_listener(Message)
+
+
+@pytest.mark.parametrize("markup", [None, InlineKeyboardMarkup([])])
+def test_check_edit_reply_markup_returns_none_or_an_inline_markup(
+    markup: InlineKeyboardMarkup | None,
+) -> None:
+    assert pyroflow.Client._check_edit_reply_markup(markup) is markup
+
+
+def test_check_edit_reply_markup_rejects_other_markups() -> None:
+    with pytest.raises(ValueError, match="Edit mode only supports InlineKeyboardMarkup"):
+        pyroflow.Client._check_edit_reply_markup(ReplyKeyboardRemove())
+
+
+async def _await_reply(
+    c: pyroflow.Client,
+    listener: object,
+    m: object,
+    chat_id: int | str = 100,
+    **overrides: object,
+) -> object:
+    kw: dict[str, object] = {
+        "listen_user_id": None,
+        "listen_message_id": None,
+        "meta": None,
+        "timeout": None,
+        "update_type": Message,
+        "error_handlers": None,
+    }
+    kw.update(overrides)
+    return await c._await_reply(listener, m, chat_id, **kw)
+
+
+async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() -> None:
+    c, listener = make_client(), _RecordingListener()
+
+    result = await _await_reply(
+        c, listener, make_message(chat_id=-1001), "@x", listen_user_id=7, timeout=3
+    )
+
+    assert result is listener.result
+    assert listener.calls == [
+        {
+            "chat_id": -1001,
+            "user_id": 7,
+            "message_id": None,
+            "meta": {"message_id": 5},
+            "timeout": 3,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("meta", "expected"),
+    [
+        ({"step": 1}, {"step": 1, "message_id": 5}),
+        ({"message_id": 99}, {"message_id": 99}),
+    ],
+)
+async def test_await_reply_copies_a_dict_meta_and_adds_the_message_id(
+    meta: dict[str, int], expected: dict[str, int]
+) -> None:
+    c, listener = make_client(), _RecordingListener()
+    original = dict(meta)
+
+    await _await_reply(c, listener, make_message(), meta=meta)
+
+    assert listener.calls[0]["meta"] == expected
+    assert meta == original
+
+
+async def test_await_reply_passes_a_non_dict_meta_through_unchanged() -> None:
+    c, listener = make_client(), _RecordingListener()
+    meta = ["a", 1]
+
+    await _await_reply(c, listener, make_message(), meta=meta)
+
+    assert listener.calls[0]["meta"] is meta
+
+
+async def test_await_reply_resolves_a_callable_listen_message_id() -> None:
+    c, listener = make_client(), _RecordingListener()
+    sent = make_message()
+    seen = []
+
+    await _await_reply(c, listener, sent, listen_message_id=lambda m: seen.append(m) or 42)
+
+    assert seen == [sent]
+    assert listener.calls[0]["message_id"] == 42
+
+
+async def test_await_reply_falls_back_to_chat_id_and_resolves_a_str() -> None:
+    c, listener = make_client(), _RecordingListener()
+
+    async def fake_resolve_peer(peer_id: str) -> PeerUser:
+        return PeerUser(user_id=42)
+
+    c.resolve_peer = fake_resolve_peer
+
+    await _await_reply(c, listener, SimpleNamespace(id=5, chat=None))
+    await _await_reply(c, listener, SimpleNamespace(id=5, chat=None), "@someone")
+
+    assert [call["chat_id"] for call in listener.calls] == [100, 42]
+
+
+async def test_await_reply_tries_call_then_scoped_client_handlers_and_re_raises() -> None:
+    c = make_client()
+    calls = []
+    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append("message"))
+    c.register_ask_error_handler(
+        ExcA, lambda exc, m: calls.append("callback_query"), update_type=CallbackQuery
+    )
+    m = SimpleNamespace(id=5, chat=None)
+
+    with pytest.raises(ExcA):
+        await _await_reply(
+            c, _RaisingListener(), m, error_handlers={ExcA: lambda exc, m: calls.append("call")}
+        )
+    with pytest.raises(ExcA):
+        await _await_reply(c, _RaisingListener(), m, update_type=CallbackQuery)
+
+    assert calls == ["call", "callback_query"]
+
+
 def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:
-    for name in ("ask", "unregister_listener", "unregister_coordinated", "unregister_history"):
+    for name in (
+        "ask",
+        "ask_rich",
+        "unregister_listener",
+        "unregister_coordinated",
+        "unregister_history",
+    ):
         method = getattr(pyroflow.Client, name)
         assert inspect.iscoroutinefunction(method.__wrapped__), name
 
