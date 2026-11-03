@@ -48,27 +48,27 @@ def test_instances_do_not_share_state() -> None:
     a._register(KEY)
 
     assert b.data == {}
-    assert a.lock(1) is not b.lock(1)
+    assert a.lock(ListenerKey(1)) is not b.lock(ListenerKey(1))
 
 
 # --- lock -------------------------------------------------------------------
 
 
 def test_lock_is_cached_per_key(coordinator: MemoryListenerCoordinator) -> None:
-    lock = coordinator.lock(1)
+    lock = coordinator.lock(ListenerKey(1))
 
     assert isinstance(lock, AsyncioLock)
-    assert coordinator.lock(1) is lock
-    assert coordinator.lock(2) is not lock
+    assert coordinator.lock(ListenerKey(1)) is lock
+    assert coordinator.lock(ListenerKey(2)) is not lock
 
 
 def test_lock_is_dropped_once_unreferenced(coordinator: MemoryListenerCoordinator) -> None:
-    ref = weakref.ref(coordinator.lock(1))
+    ref = weakref.ref(coordinator.lock(ListenerKey(1)))
     gc.collect()
 
     assert ref() is None
     assert 1 not in coordinator.locks
-    assert isinstance(coordinator.lock(1), AsyncioLock)
+    assert isinstance(coordinator.lock(ListenerKey(1)), AsyncioLock)
 
 
 # --- _register --------------------------------------------------------------

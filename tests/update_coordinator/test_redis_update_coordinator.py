@@ -16,7 +16,7 @@ fakeredis = pytest.importorskip("fakeredis")
 pytest.importorskip("lupa")  # fakeredis needs lupa to run Lua scripts
 
 from fakeredis import aioredis as fake_aioredis  # noqa: E402
-from pyrogram.types import Message  # noqa: E402
+from pyrogram.types import CallbackQuery, Message  # noqa: E402
 from redis.asyncio.lock import Lock  # noqa: E402
 from redis.exceptions import LockError  # noqa: E402
 
@@ -52,6 +52,38 @@ def test_init_stores_the_client_and_default_sleep(redis: fake_aioredis.FakeRedis
 
     assert coord.redis is redis
     assert coord.sleep == 0.1
+
+
+# --- build_key --------------------------------------------------------------
+
+
+def test_build_key_renders_each_section_exactly(redis: fake_aioredis.FakeRedis) -> None:
+    coord = RedisUpdateCoordinator(redis, Message)
+
+    assert coord.build_key((-100123, 42), "lock") == "update|lock|Message|-100123|42"
+    assert coord.build_key((-100123, 42), "handled") == "update|handled|Message|-100123|42"
+
+
+def test_build_key_uses_the_update_type_name(redis: fake_aioredis.FakeRedis) -> None:
+    assert (
+        RedisUpdateCoordinator(redis, CallbackQuery).build_key((1,))
+        == "update|lock|CallbackQuery|1"
+    )
+
+
+def test_build_key_stringifies_str_components(redis: fake_aioredis.FakeRedis) -> None:
+    assert (
+        RedisUpdateCoordinator(redis, Message).build_key(("abc", 1)) == "update|lock|Message|abc|1"
+    )
+
+
+def test_build_key_of_an_empty_tuple(redis: fake_aioredis.FakeRedis) -> None:
+    assert RedisUpdateCoordinator(redis, Message).build_key(()) == "update|lock|Message|"
+
+
+def test_build_key_rejects_an_unknown_section(redis: fake_aioredis.FakeRedis) -> None:
+    with pytest.raises(KeyError):
+        RedisUpdateCoordinator(redis, Message).build_key((1,), "other")  # type: ignore[arg-type]
 
 
 # --- the lock ---------------------------------------------------------------

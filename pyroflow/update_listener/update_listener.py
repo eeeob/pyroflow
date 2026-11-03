@@ -211,7 +211,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             True
         """
-        async with self.coordinator.lock(key.chat_id):
+        async with self.coordinator.lock(ListenerKey(key.chat_id)):
             return await self._cancel(key, cancel_coordinator, is_duplicate, coordinator_id)
 
     def _cleanup_listen(self, key: ListenerKey, f: asyncio.Future) -> None:
@@ -273,7 +273,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         key = ListenerKey(chat_id, user_id, message_id)
 
         # One lock per chat serializes registration, cancellation and resolution.
-        async with self.coordinator.lock(key.chat_id):
+        async with self.coordinator.lock(ListenerKey(key.chat_id)):
             # `registered` checks every session, not only `self.listeners`.
             if await self.coordinator.registered(key):
                 if self.duplicate_policy == DuplicatePolicy.REJECT:
@@ -319,7 +319,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             # `coordinator_id` keeps `unregister` from deleting a newer registration.
             self._cleanup_listen(key, fut)
 
-            async with self.coordinator.lock(key.chat_id):
+            async with self.coordinator.lock(ListenerKey(key.chat_id)):
                 await self.coordinator.unregister(key, coordinator_id)
 
     __call__ = listen
@@ -351,7 +351,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         if listeners:
             # One lock per chat serializes registration, cancellation and resolution.
-            async with self.coordinator.lock(key.chat_id):
+            async with self.coordinator.lock(ListenerKey(key.chat_id)):
                 for sub in key.sub_keys():
                     if listener := listeners.get(sub):
                         # Another session may own this key while its cancel signal is

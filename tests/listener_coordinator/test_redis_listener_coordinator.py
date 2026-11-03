@@ -199,7 +199,7 @@ async def test_lock_always_carries_both_timeouts(sessions: list[MessageListener]
     instead of failing. Neither may ever be None, including on the default
     construction the README shows."""
     a, _ = sessions
-    lock = a.coordinator.lock(CHAT)
+    lock = a.coordinator.lock(ListenerKey(CHAT))
 
     assert lock.timeout is not None, "lock has no TTL: a dead holder locks the chat forever"
     assert lock.blocking_timeout is not None, "waiter would block forever"
@@ -218,11 +218,11 @@ async def test_lock_acquire_fails_fast_instead_of_hanging(redis: fake_aioredis.F
             lock_blocking_timeout=0.2,
         )
     )
-    held = listener.coordinator.lock(CHAT)
+    held = listener.coordinator.lock(ListenerKey(CHAT))
     await held.acquire()
 
     async def _contend() -> None:
-        async with listener.coordinator.lock(CHAT):
+        async with listener.coordinator.lock(ListenerKey(CHAT)):
             pass
 
     # wait_for is the safety net: if blocking_timeout ever regresses to None
@@ -247,11 +247,11 @@ async def test_lock_ttl_reclaims_an_abandoned_lock(redis: fake_aioredis.FakeRedi
             lock_blocking_timeout=2,
         )
     )
-    abandoned = listener.coordinator.lock(CHAT)
+    abandoned = listener.coordinator.lock(ListenerKey(CHAT))
     await abandoned.acquire()  # never released, as if the session died
 
     async def _reclaim() -> None:
-        async with listener.coordinator.lock(CHAT):
+        async with listener.coordinator.lock(ListenerKey(CHAT)):
             pass  # reclaimed once the TTL lapses
 
     try:
@@ -458,9 +458,7 @@ def test_unpack_key_round_trips(coordinator: RedisListenerCoordinator, key: List
 # --- lock -------------------------------------------------------------------
 
 
-def test_lock_normalises_every_key_form(coordinator: RedisListenerCoordinator) -> None:
-    assert coordinator.lock(1).name == "listen|lock|Message|1|_|_"
-    assert coordinator.lock((1, 2)).name == "listen|lock|Message|1|2|_"
+def test_lock_name_packs_the_listener_key(coordinator: RedisListenerCoordinator) -> None:
     assert coordinator.lock(ListenerKey(1, 2, 3)).name == "listen|lock|Message|1|2|3"
 
 
@@ -471,7 +469,7 @@ def test_lock_passes_configured_timeouts(redis: fake_aioredis.FakeRedis) -> None
         lock_timeout=4,
         lock_blocking_timeout=2,
     )
-    lock = coordinator.lock(1)
+    lock = coordinator.lock(ListenerKey(1))
 
     assert (lock.timeout, lock.blocking_timeout) == (4, 2)
     assert lock.thread_local is False
@@ -481,9 +479,9 @@ async def test_lock_is_shared_across_coordinators(redis: fake_aioredis.FakeRedis
     a = RedisListenerCoordinator(redis, _FakeListener(), lock_blocking_timeout=0.05)  # type: ignore[arg-type]
     b = RedisListenerCoordinator(redis, _FakeListener(), lock_blocking_timeout=0.05)  # type: ignore[arg-type]
 
-    async with a.lock(1):
-        assert await b.lock(1).acquire() is False
-        assert await b.lock(2).acquire() is True
+    async with a.lock(ListenerKey(1)):
+        assert await b.lock(ListenerKey(1)).acquire() is False
+        assert await b.lock(ListenerKey(2)).acquire() is True
 
 
 # --- register ---------------------------------------------------------------

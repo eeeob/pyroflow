@@ -92,7 +92,9 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         self.locks = DefaultWeakValueDict(partial(TimedLock, self.blocking_timeout))
         """Lock per scope key, held weakly: an idle scope's lock is dropped, so callers keep a reference across `acquire`/`release`."""
 
-        self.handled: TTLCache[str, None] = TTLCache(maxsize=max_handled, ttl=self.handled_ttl)
+        self.handled: TTLCache[UpdateCoordinatorKeyT, None] = TTLCache(
+            maxsize=max_handled, ttl=self.handled_ttl
+        )
         """Expiring registry of handled update keys."""
 
     def lock(self, key: UpdateCoordinatorKeyT) -> TimedLock:
@@ -101,15 +103,15 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
         The same lock is returned only while someone references it, so keep
         it between `acquire` and `release`.
         """
-        return self.locks[self.build_key(key, "lock")]
+        return self.locks[key]
 
     async def is_handled(self, key: UpdateCoordinatorKeyT) -> bool:
         """Return whether `key` is in the in-memory handled registry."""
-        return self.build_key(key, "handled") in self.handled
+        return key in self.handled
 
     async def mark_handled(self, key: UpdateCoordinatorKeyT) -> None:
         """Add `key` to the in-memory handled registry."""
-        self.handled[self.build_key(key, "handled")] = None
+        self.handled[key] = None
 
     async def stop(self) -> None:
         """Clear the handled registry."""

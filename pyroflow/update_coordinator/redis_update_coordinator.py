@@ -2,7 +2,7 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 
 from .update_coordinator import UpdateCoordinator
 
@@ -36,6 +36,40 @@ class RedisUpdateCoordinator(UpdateCoordinator):
         """Async Redis client holding the locks and the handled registry."""
         self.sleep = sleep
         """Seconds between lock acquisition attempts while waiting."""
+        self._sep = "|"
+        """Separator joining the parts of a Redis key."""
+        self._key_formats = {
+            section: f"update{self._sep}{section}{self._sep}{self._update_name}{self._sep}{{key}}"
+            for section in ("lock", "handled")
+        }
+        """Redis key template per section, with a `{key}` placeholder."""
+
+    def build_key(
+        self,
+        key: UpdateCoordinatorKeyT,
+        section: Literal["lock", "handled"] = "lock",
+    ) -> str:
+        """Render `key` into its backend key under `section`.
+
+        The section keeps a lock and a handled mark built from the same tuple
+        apart.
+
+        Args:
+            key: The key tuple.
+            section: The namespace, `"lock"` or `"handled"`.
+
+        Returns:
+            The backend key.
+
+        Example:
+            >>> from pyroflow.types import Message
+            >>> coordinator = RedisUpdateCoordinator(None, Message)  # build_key never touches Redis
+            >>> coordinator.build_key((-100123, 42))
+            'update|lock|Message|-100123|42'
+            >>> coordinator.build_key((-100123, 42), "handled")
+            'update|handled|Message|-100123|42'
+        """
+        return self._key_formats[section].format_map({"key": self._sep.join(str(i) for i in key)})
 
     def lock(self, key: UpdateCoordinatorKeyT) -> Lock:
         """Build the distributed lock for `key`, expiring after `lock_ttl`."""

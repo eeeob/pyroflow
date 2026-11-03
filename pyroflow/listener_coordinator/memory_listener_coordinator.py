@@ -13,7 +13,7 @@ from .listener_coordinator import ListenerCoordinator
 
 if TYPE_CHECKING:
     from ..models import ListenerKey
-    from ..typings import ListenerCoordinatorIdT, LockKeyT
+    from ..typings import ListenerCoordinatorIdT
     from ..update_listener import UpdateListener
 
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class MemoryListenerCoordinator(ListenerCoordinator):
         >>> async def main():
         ...     coordinator = MemoryListenerCoordinator(listener=None)
         ...     key = ListenerKey(1)
-        ...     async with coordinator.lock(key.chat_id):
+        ...     async with coordinator.lock(ListenerKey(key.chat_id)):
         ...         coordinator_id = await coordinator.register(key)
         ...         return await coordinator.registered(key, coordinator_id)
         >>> asyncio.run(main())
@@ -39,23 +39,26 @@ class MemoryListenerCoordinator(ListenerCoordinator):
         """Start with no registrations for `listener`."""
         super().__init__(listener)
 
-        self.locks: DefaultWeakValueDict[LockKeyT, AsyncioLock] = DefaultWeakValueDict(AsyncioLock)
+        self.locks: DefaultWeakValueDict[ListenerKey, AsyncioLock] = DefaultWeakValueDict(
+            AsyncioLock
+        )
         """Per-key locks, held weakly and created on first use."""
         self.data: dict[ListenerKey, int] = {}
         """Registered keys mapped to the id each was registered under."""
         self.counter = count()
         """Source of the next registration id."""
 
-    def lock(self, key: LockKeyT) -> AsyncioLock:
+    def lock(self, key: ListenerKey) -> AsyncioLock:
         """Return the in-process lock for `key`, created on first use.
 
         The lock is held weakly, so `key` gets a new one once nothing references
         the previous one.
 
         Example:
+            >>> from pyroflow.models import ListenerKey
             >>> coordinator = MemoryListenerCoordinator(listener=None)
-            >>> lock = coordinator.lock(1)
-            >>> lock is coordinator.lock(1), lock is coordinator.lock(2)
+            >>> lock = coordinator.lock(ListenerKey(1))
+            >>> lock is coordinator.lock(ListenerKey(1)), lock is coordinator.lock(ListenerKey(2))
             (True, False)
         """
         return self.locks[key]

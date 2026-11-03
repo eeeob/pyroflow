@@ -307,7 +307,9 @@ async def test__cancel_ignores_a_stale_coordinator_id() -> None:
 async def test_cancel_takes_the_chat_lock() -> None:
     lis = _make()
     task = await _pending(lis, 1)
-    lock = lis.coordinator.lock(1)  # strong reference: the coordinator holds locks weakly
+    lock = lis.coordinator.lock(
+        ListenerKey(1)
+    )  # strong reference: the coordinator holds locks weakly
     try:
         async with lock:
             with pytest.raises(asyncio.TimeoutError):

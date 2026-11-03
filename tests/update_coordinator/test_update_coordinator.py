@@ -1,5 +1,4 @@
-"""Tests for the coordinator base class: key building and the defaults every
-backend inherits."""
+"""Tests for the coordinator base class: the defaults every backend inherits."""
 
 from __future__ import annotations as _annotations
 
@@ -7,7 +6,7 @@ from typing import Any, TYPE_CHECKING
 
 import pytest
 
-from pyrogram.types import CallbackQuery, Message
+from pyrogram.types import Message
 from pytrove.enums import TimeUnit
 
 from pyroflow.update_coordinator import update_coordinator
@@ -57,30 +56,6 @@ def test_init_forwards_extra_kwargs_along_the_mro() -> None:
         pass
 
     assert _WithMixin(Message, extra=7).extra == 7
-
-
-def test_build_key_renders_each_section_exactly() -> None:
-    coord = _Stub(Message)
-
-    assert coord.build_key((-100123, 42), "lock") == "update|lock|Message|-100123|42"
-    assert coord.build_key((-100123, 42), "handled") == "update|handled|Message|-100123|42"
-
-
-def test_build_key_uses_the_update_type_name() -> None:
-    assert _Stub(CallbackQuery).build_key((1,)) == "update|lock|CallbackQuery|1"
-
-
-def test_build_key_stringifies_str_components() -> None:
-    assert _Stub(Message).build_key(("abc", 1)) == "update|lock|Message|abc|1"
-
-
-def test_build_key_of_an_empty_tuple() -> None:
-    assert _Stub(Message).build_key(()) == "update|lock|Message|"
-
-
-def test_build_key_rejects_an_unknown_section() -> None:
-    with pytest.raises(KeyError):
-        _Stub(Message).build_key((1,), "other")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("name", ["is_handled", "mark_handled"])

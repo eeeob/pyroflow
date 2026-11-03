@@ -8,7 +8,6 @@ from typing import get_args, get_origin
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
-from pyroflow.models import ListenerKey
 from pyroflow.typings import (
     AskErrorHandlersT,
     AsyncLockProto,
@@ -17,9 +16,7 @@ from pyroflow.typings import (
     BotCommandPartsT,
     ListenMessageIdT,
     ListenerCoordinatorIdT,
-    LockKeyT,
     UpdateCoordinatorKeyT,
-    UpdateCoordinatorSectionT,
     UpdateHistoryKeyT,
     UpdateType,
 )
@@ -37,19 +34,6 @@ def test_update_coordinator_key_is_a_variadic_tuple() -> None:
 
 def test_listener_coordinator_id_is_str_or_int() -> None:
     assert set(get_args(ListenerCoordinatorIdT)) == {str, int}
-
-
-def test_lock_key_accepts_int_tuples_and_listener_key() -> None:
-    args = get_args(LockKeyT)
-    assert int in args
-    assert ListenerKey in args
-    assert tuple[int] in args
-    assert tuple[int, int | None] in args
-    assert tuple[int, int | None, int | None] in args
-
-
-def test_update_coordinator_section_literal() -> None:
-    assert get_args(UpdateCoordinatorSectionT) == ("lock", "handled")
 
 
 def test_bot_command_entry_shapes() -> None:
@@ -93,10 +77,8 @@ def test_typings_all() -> None:
         "UpdateType",
         "AsyncLockProto",
         "UpdateCoordinatorKeyT",
-        "UpdateCoordinatorSectionT",
         "UpdateHistoryKeyT",
         "ListenerCoordinatorIdT",
-        "LockKeyT",
         "BotCommandEntryT",
         "BotCommandPartsT",
         "BotCommandGroupKeyT",

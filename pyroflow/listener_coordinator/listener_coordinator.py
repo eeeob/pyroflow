@@ -8,7 +8,7 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..models import ListenerKey
-    from ..typings import AsyncLockProto, ListenerCoordinatorIdT, LockKeyT
+    from ..typings import AsyncLockProto, ListenerCoordinatorIdT
     from ..update_listener import UpdateListener
 
 
@@ -35,7 +35,7 @@ class ListenerCoordinator(ABC):
         """The listener whose registrations this coordinator tracks."""
 
     @abstractmethod
-    def lock(self, key: LockKeyT) -> AsyncLockProto:
+    def lock(self, key: ListenerKey) -> AsyncLockProto:
         """Return the async lock that serialises coordinator operations for `key`.
 
         Args:

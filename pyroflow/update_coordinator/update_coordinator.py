@@ -3,11 +3,9 @@
 from __future__ import annotations as _annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, get_args, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from pytrove.enums import TimeUnit
-
-from ..typings import UpdateCoordinatorSectionT
 
 if TYPE_CHECKING:
     from pytrove.typings import Number
@@ -21,8 +19,8 @@ class UpdateCoordinator(ABC):
     It holds two independent primitives. `lock` is a plain mutex over the
     scope the caller chose, and keeps no state once released. `is_handled` and
     `mark_handled` form the handled registry: a set of update ids, each either
-    handled (skip it) or not. Both are namespaced apart (see `build_key`), so
-    the same key tuple can serve both.
+    handled (skip it) or not. Each backend keeps the two apart, so the same key
+    tuple can serve both.
 
     Args:
         update_type: The Pyrogram update class handled; its name namespaces
@@ -55,44 +53,9 @@ class UpdateCoordinator(ABC):
         """Maximum seconds `lock` waits before reporting failure."""
 
         self._update_name = update_type.__name__
-        """Name of the handled update class, used to namespace the keys."""
-        self._sep = "|"
-        """Separator joining the parts of a backend key."""
-        self._key_formats = {
-            section: (f"update{self._sep}{section}{self._sep}{self._update_name}{self._sep}{{key}}")
-            for section in get_args(UpdateCoordinatorSectionT)
-        }
-        """Backend key template per section, with a `{key}` placeholder."""
+        """Name of the handled update class, for backends that namespace their keys with it."""
 
         super().__init__(**kw)
-
-    def build_key(
-        self,
-        key: UpdateCoordinatorKeyT,
-        section: UpdateCoordinatorSectionT = "lock",
-    ) -> str:
-        """Render `key` into its backend key under `section`.
-
-        The section keeps a lock and a handled mark built from the same tuple
-        apart.
-
-        Args:
-            key: The key tuple.
-            section: The namespace, `"lock"` or `"handled"`.
-
-        Returns:
-            The backend key.
-
-        Example:
-            >>> from pyroflow.types import Message
-            >>> from pyroflow.update_coordinator import MemoryUpdateCoordinator
-            >>> coordinator = MemoryUpdateCoordinator(Message)
-            >>> coordinator.build_key((-100123, 42))
-            'update|lock|Message|-100123|42'
-            >>> coordinator.build_key((-100123, 42), "handled")
-            'update|handled|Message|-100123|42'
-        """
-        return self._key_formats[section].format_map({"key": self._sep.join(str(i) for i in key)})
 
     @abstractmethod
     def lock(self, key: UpdateCoordinatorKeyT) -> AsyncLockProto:

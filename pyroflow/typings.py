@@ -7,15 +7,12 @@ from typing import (
     Protocol,
     TypeVar,
     Any,
-    Literal,
     TypeAlias,
     TYPE_CHECKING,
 )
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 from pytrove.typings import MaybeList, MaybeCoroutineCallable, StrInt
-
-from .models import ListenerKey
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -30,16 +27,10 @@ UpdateCoordinatorKeyT: TypeAlias = tuple[StrInt, ...]
 """An update's lock key or dedupe id, as extracted by a coordinated policy."""
 UpdateHistoryKeyT: TypeAlias = UpdateCoordinatorKeyT
 """The key an update history files its records under."""
+
 ListenerCoordinatorIdT: TypeAlias = StrInt
 """Ownership token a listener coordinator hands out at registration time."""
 
-LockKeyT: TypeAlias = (
-    int | tuple[int] | tuple[int, int | None] | tuple[int, int | None, int | None] | ListenerKey
-)
-"""The key a listener coordinator locks on."""
-
-UpdateCoordinatorSectionT: TypeAlias = Literal["lock", "handled"]
-"""Key namespace an `UpdateCoordinator` keeps apart: the update lock or the handled registry."""
 
 BotCommandEntryT: TypeAlias = (
     MaybeList[BotCommand]
@@ -95,10 +86,8 @@ __all__ = (
     "UpdateType",
     "AsyncLockProto",
     "UpdateCoordinatorKeyT",
-    "UpdateCoordinatorSectionT",
     "UpdateHistoryKeyT",
     "ListenerCoordinatorIdT",
-    "LockKeyT",
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",

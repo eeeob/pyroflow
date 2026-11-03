@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from redis.asyncio.client import PubSub
     from redis.commands.core import AsyncScript
 
-    from ..typings import AsyncLockProto, ListenerCoordinatorIdT, LockKeyT
+    from ..typings import AsyncLockProto, ListenerCoordinatorIdT
     from ..update_listener import UpdateListener
 
 log = logging.getLogger(__name__)
@@ -161,21 +161,15 @@ class RedisListenerCoordinator(ListenerCoordinator):
             }
         )
 
-    def lock(self, key: LockKeyT) -> AsyncLockProto:
+    def lock(self, key: ListenerKey) -> AsyncLockProto:
         """Build the Redis lock for `key` with `lock_timeout` and `lock_blocking_timeout`.
 
         Args:
-            key: A chat id, a tuple of ids or a `ListenerKey`; ids are wrapped
-                in a `ListenerKey` first.
+            key: The listener key to lock.
 
         Returns:
             A Redis lock that is not thread-local.
         """
-        if isinstance(key, int):
-            key = ListenerKey(key)
-        elif isinstance(key, tuple):
-            key = ListenerKey(*key)
-
         # redis-py يجعل `timeout` و`blocking_timeout` افتراضياً `None`، أي قفل بلا TTL
         # يبقى بعد موت الـ session وانتظار بلا نهاية؛ لذلك نمرّرهما دائماً.
         return self.redis.lock(

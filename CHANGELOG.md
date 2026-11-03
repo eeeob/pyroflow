@@ -73,6 +73,17 @@ Every breaking change lists what changed, who is affected and how to migrate.
   processing within a chat.
   Migration: pass `extract_key_func` with the old key, e.g.
   `lambda m: (get_peer_id(m.raw.peer_id), m.id)`.
+- **BREAKING:** `LockKeyT` is removed and `ListenerCoordinator.lock` takes a
+  `ListenerKey` only; `RedisListenerCoordinator.lock` no longer wraps a chat
+  id or a tuple of ids. Affects code that calls a listener coordinator's
+  `lock` with an int or a tuple, or imports `LockKeyT`.
+  Migration: pass `ListenerKey(chat_id)` (or the full key) and annotate with
+  `ListenerKey`.
+- **BREAKING:** `build_key` moved from `UpdateCoordinator` to
+  `RedisUpdateCoordinator`; `MemoryUpdateCoordinator` keys its locks and its
+  handled registry by the key tuple itself. Affects code that calls
+  `build_key` on a memory coordinator or reads its `handled` keys as strings.
+  Migration: use the key tuple directly with `MemoryUpdateCoordinator`.
 - **BREAKING:** `MessageCoordinated` identifies a message by
   `(peer_id, message_id, edit_ts)`, where `edit_ts` is the edit time in
   seconds or `0`. An edited message is no longer dropped as a duplicate of the
@@ -83,8 +94,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - pyroflow now depends on `pytrove>=2.0` and `kurigram>=2.2.24`, and
   `cachetools` gained a `>=4.1.0` floor. It no longer depends on
   `sortedcontainers` or `typing_extensions`.
-- `pyroflow.typings` now also holds `UpdateType`, `AsyncLockProto` and
-  `LockKeyT`.
+- `pyroflow.typings` now also holds `UpdateType` and `AsyncLockProto`.
 - Every module defines `__all__`; `pyroflow.typings`, `pyroflow.errors`,
   `pyroflow.models`, `pyroflow.enums` and `pyroflow.constants` are the entry
   points for each kind of name.
@@ -109,7 +119,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `pyroflow.utils` submodules (`classes`, `misc_tools`, ...), or `LockKeyT`
   from `pyroflow.listener_coordinator.listener_coordinator`.
   Migration:
-  - `UpdateType`, `AsyncLockProto`, `LockKeyT` -> `pyroflow.typings`.
+  - `UpdateType`, `AsyncLockProto` -> `pyroflow.typings`; `LockKeyT` is
+    gone, see below.
   - `MaybeCoroutineCallable`, `MaybeAwaitable`, `NestedContainer`,
     `NotContainer`, `Number` -> `pytrove.typings`; `JsonValueT` ->
     `pytrove.typings.JsonValue`.

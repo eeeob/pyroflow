@@ -16,8 +16,7 @@ from pytrove.typings import JsonValue as JsonValueT, Number
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    # Type-only: `dataclasses` read only `ClassVar` annotations at runtime, and
-    # `typings.py` imports this module at runtime for `LockKeyT`.
+    # Type-only: `dataclasses` read only `ClassVar` annotations at runtime.
     from .typings import ListenerCoordinatorIdT  # noqa: TC004
 
 
