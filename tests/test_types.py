@@ -13,12 +13,14 @@ from pyrogram.enums import ChatType
 from pyrogram.types import Chat, ReplyParameters
 
 from pyroflow import types as pf_types
+from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message, User
 
 from .conftest import make_callback_query
 
 ME_ID = 42
 SENTINEL = object()
+CONTEXT = ListenerContext(step=1)
 
 
 def make_client(me_id: int | None = ME_ID) -> SimpleNamespace:
@@ -199,10 +201,10 @@ async def test_ask_sends_reply_when_not_editable() -> None:
     result = await m.ask(
         "hi",
         listen_user_id=7,
-        pass_message=False,
-        filters=pyrogram.filters.text,
-        strict=True,
-        timeout=1,
+        listen_context=CONTEXT,
+        listen_filters=pyrogram.filters.text,
+        listen_strict=True,
+        listen_timeout=1,
         extra="kw",
     )
 
@@ -214,11 +216,11 @@ async def test_ask_sends_reply_when_not_editable() -> None:
     assert kwargs["direct_messages_topic_id"] == 4
     assert kwargs["business_connection_id"] == "bc"
     assert kwargs["listen_user_id"] == 7
-    assert kwargs["pass_message"] is False
-    assert kwargs["filters"] is pyrogram.filters.text
-    assert kwargs["strict"] is True
-    assert kwargs["timeout"] == 1
-    assert kwargs["update_type"] is pyrogram.types.Message
+    assert kwargs["listen_context"] is CONTEXT
+    assert kwargs["listen_filters"] is pyrogram.filters.text
+    assert kwargs["listen_strict"] is True
+    assert kwargs["listen_timeout"] == 1
+    assert kwargs["listen_update_type"] is pyrogram.types.Message
     assert kwargs["extra"] == "kw"
 
 
@@ -235,14 +237,14 @@ async def test_ask_send_keeps_explicit_send_options() -> None:
 
 async def test_ask_edits_when_editable() -> None:
     m = make_msg(is_self=True)
-    assert await m.ask("hi", update_type=CallbackQuery) is SENTINEL
+    assert await m.ask("hi", listen_update_type=CallbackQuery) is SENTINEL
 
     args, kwargs = m._client.ask.await_args
     assert args == (100, "hi", 5)
     assert kwargs["reply_parameters"] is None
     assert kwargs["message_thread_id"] is None
     assert kwargs["direct_messages_topic_id"] is None
-    assert kwargs["update_type"] is CallbackQuery
+    assert kwargs["listen_update_type"] is CallbackQuery
 
 
 async def test_ask_force_send_sends_even_when_editable() -> None:
@@ -297,10 +299,10 @@ async def test_ask_rich_sends_reply_when_not_editable() -> None:
     result = await m.ask_rich(
         RICH,
         listen_user_id=7,
-        pass_message=False,
-        filters=pyrogram.filters.text,
-        strict=True,
-        timeout=1,
+        listen_context=CONTEXT,
+        listen_filters=pyrogram.filters.text,
+        listen_strict=True,
+        listen_timeout=1,
         extra="kw",
     )
 
@@ -313,23 +315,23 @@ async def test_ask_rich_sends_reply_when_not_editable() -> None:
     assert kwargs["direct_messages_topic_id"] == 4
     assert kwargs["business_connection_id"] == "bc"
     assert kwargs["listen_user_id"] == 7
-    assert kwargs["pass_message"] is False
-    assert kwargs["filters"] is pyrogram.filters.text
-    assert kwargs["strict"] is True
-    assert kwargs["timeout"] == 1
-    assert kwargs["update_type"] is pyrogram.types.Message
+    assert kwargs["listen_context"] is CONTEXT
+    assert kwargs["listen_filters"] is pyrogram.filters.text
+    assert kwargs["listen_strict"] is True
+    assert kwargs["listen_timeout"] == 1
+    assert kwargs["listen_update_type"] is pyrogram.types.Message
     assert kwargs["extra"] == "kw"
 
 
 async def test_ask_rich_edits_when_editable() -> None:
     m = make_msg(is_self=True)
-    assert await m.ask_rich(RICH, update_type=CallbackQuery) is SENTINEL
+    assert await m.ask_rich(RICH, listen_update_type=CallbackQuery) is SENTINEL
 
     args, kwargs = m._client.ask_rich.await_args
     assert args == (100, RICH, 5)
     assert kwargs["reply_parameters"] is None
     assert kwargs["message_thread_id"] is None
-    assert kwargs["update_type"] is CallbackQuery
+    assert kwargs["listen_update_type"] is CallbackQuery
 
 
 async def test_ask_rich_force_send_sends_even_when_editable() -> None:

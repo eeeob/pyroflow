@@ -118,12 +118,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[UpdateType],
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[UpdateType],
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -156,12 +155,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[Message] = Message,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[Message] = Message,
         **kw: Any,
     ) -> Message: ...
 
@@ -181,12 +179,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[UpdateType],
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[UpdateType],
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -206,12 +203,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[Message] = Message,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[Message] = Message,
         **kw: Any,
     ) -> Message: ...
 
@@ -245,12 +241,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[pyro_types.Update] = Message,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[pyro_types.Update] = Message,
         **kw: Any,
     ) -> pyro_types.Update:
         """Send or edit a message, then wait for the next matching update.
@@ -286,40 +281,39 @@ class Client(PyroClient):
                 a callable that receives the sent or edited message and returns
                 the id (or `None` for no filter). The callable runs synchronously
                 on the event loop, so it must not block.
-            context: Values attached to the listener. It is copied, and the
-                copy's `message_id` is set to the id of the sent or edited
-                message unless it is already set; with
+            listen_context: Values attached to the listener. It is copied,
+                and the copy's `message_id` and `message` are set to the id
+                of the sent or edited message and to the message itself,
+                each unless it is already set. So `on_error_func` can edit
+                or delete the question and, with
                 `MessageListenCancellingCallbackQueryListener` registered, a
                 button pressed on that message cancels the wait.
-            pass_message: Also set the copy's `message` to the sent or edited
-                message itself (unless it is already set), so `on_error_func`
-                can edit or delete it.
-            filters: A Pyrogram filter the awaited update must pass besides
+            listen_filters: A Pyrogram filter the awaited update must pass besides
                 `listen_user_id` and `listen_message_id`.
-            strict: What an update that matches the key but fails `filters`
+            listen_strict: What an update that matches the key but fails `listen_filters`
                 does: `True` ends the wait with `ListenerRejected`, `False`
-                skips it and keeps waiting. Without `strict`, a rejected update that cannot
-                come again leaves the wait open until `timeout`, or forever
+                skips it and keeps waiting. Without `listen_strict`, a rejected update that cannot
+                come again leaves the wait open until `listen_timeout`, or forever
                 without one; see the warning in `UpdateListener.listen`.
-            timeout: Seconds to wait before raising `ListenerTimeout`.
-            update_type: The update type to wait for and return.
+            listen_timeout: Seconds to wait before raising `ListenerTimeout`.
+            listen_update_type: The update type to wait for and return.
             **kw: Passed to `send_message` or `edit_message_text`.
 
         Returns:
-            The matching update of type `update_type`.
+            The matching update of type `listen_update_type`.
 
         Raises:
-            RuntimeError: If no listener is registered for `update_type`.
+            RuntimeError: If no listener is registered for `listen_update_type`.
             ValueError: If `message_id` is given with a `reply_markup` other
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
-        listener = self.listeners.get(update_type)
+        listener = self.listeners.get(listen_update_type)
 
         if listener is None:
             msg = (
-                f"No listener registered for {update_type.__name__}. "
+                f"No listener registered for {listen_update_type.__name__}. "
                 f"Register one via client.register_listener() before calling ask()."
             )
             raise RuntimeError(msg)
@@ -386,12 +380,12 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
-        context = ListenerContext() if context is None else copy.copy(context)
+        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
 
         if context.message_id is None:
             context.message_id = m.id
 
-        if pass_message and context.message is None:
+        if context.message is None:
             context.message = m
 
         return await listener(
@@ -399,9 +393,9 @@ class Client(PyroClient):
             user_id=listen_user_id,
             message_id=listen_message_id,
             context=context,
-            filters=filters,
-            strict=strict,
-            timeout=timeout,
+            filters=listen_filters,
+            strict=listen_strict,
+            timeout=listen_timeout,
         )
 
     @overload
@@ -426,12 +420,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[UpdateType],
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[UpdateType],
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -457,12 +450,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[Message] = Message,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[Message] = Message,
         **kw: Any,
     ) -> Message: ...
 
@@ -479,12 +471,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[UpdateType],
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[UpdateType],
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -501,12 +492,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[Message] = Message,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[Message] = Message,
         **kw: Any,
     ) -> Message: ...
 
@@ -536,12 +526,11 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        context: ListenerContext | None = None,
-        pass_message: bool = True,
-        filters: Filter | None = None,
-        strict: bool = False,
-        timeout: Number | None = None,
-        update_type: type[pyro_types.Update] = Message,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        listen_update_type: type[pyro_types.Update] = Message,
         **kw: Any,
     ) -> pyro_types.Update:
         """Send or edit a rich message, then wait for the next matching update.
@@ -569,29 +558,28 @@ class Client(PyroClient):
             suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
-            context: As in `ask`.
-            pass_message: As in `ask`.
-            filters: As in `ask`.
-            strict: As in `ask`.
-            timeout: As in `ask`.
-            update_type: As in `ask`.
+            listen_context: As in `ask`.
+            listen_filters: As in `ask`.
+            listen_strict: As in `ask`.
+            listen_timeout: As in `ask`.
+            listen_update_type: As in `ask`.
             **kw: Passed to `send_rich_message` or `edit_message_text`.
 
         Returns:
-            The matching update of type `update_type`.
+            The matching update of type `listen_update_type`.
 
         Raises:
-            RuntimeError: If no listener is registered for `update_type`.
+            RuntimeError: If no listener is registered for `listen_update_type`.
             ValueError: If `message_id` is given with a `reply_markup` other
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
-        listener = self.listeners.get(update_type)
+        listener = self.listeners.get(listen_update_type)
 
         if listener is None:
             msg = (
-                f"No listener registered for {update_type.__name__}. "
+                f"No listener registered for {listen_update_type.__name__}. "
                 f"Register one via client.register_listener() before calling ask()."
             )
             raise RuntimeError(msg)
@@ -646,12 +634,12 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
-        context = ListenerContext() if context is None else copy.copy(context)
+        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
 
         if context.message_id is None:
             context.message_id = m.id
 
-        if pass_message and context.message is None:
+        if context.message is None:
             context.message = m
 
         return await listener(
@@ -659,9 +647,9 @@ class Client(PyroClient):
             user_id=listen_user_id,
             message_id=listen_message_id,
             context=context,
-            filters=filters,
-            strict=strict,
-            timeout=timeout,
+            filters=listen_filters,
+            strict=listen_strict,
+            timeout=listen_timeout,
         )
 
 

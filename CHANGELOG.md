@@ -29,8 +29,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 - `UpdateListener.is_closed`: whether `stop` ran since the last `start`;
   `listen` raises `ListenerCancelled` while it is.
-- `filters=` and `strict=` on `listen`, `ask` and `ask_rich`: a Pyrogram
-  filter the awaited update must pass besides its key. An update whose key
+- `filters=` and `strict=` on `listen` (`listen_filters=` and
+  `listen_strict=` on `ask` and `ask_rich`): a Pyrogram filter the awaited
+  update must pass besides its key. An update whose key
   matches but that fails the filter is skipped and the listener keeps
   waiting, or, with `strict=True`, the wait ends with the new
   `ListenerRejected` (a `ListenerCancelled` that carries the rejected
@@ -48,9 +49,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `SimpleNamespace` with the typed fields `message_id` and `message`, plus
   any value the caller adds. Declared and added values are both read and set
   as attributes; subclass it to type fields of your own.
-- `pass_message=` on `ask` and `ask_rich` (default `True`): the copy of
-  `context` also gets the sent or edited message itself as
-  `context.message`, so `on_error_func` can edit or delete the question.
 - `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
   whose presses that no callback wait takes cancel the message listen tied
   to the pressed message (see the Changed entry below): every wait whose
@@ -79,19 +77,27 @@ Every breaking change lists what changed, who is affected and how to migrate.
   these arguments.
   Migration: return `None` from `extract_key_func` where `is_listenable_func`
   returned `False`.
-- **BREAKING:** `meta` is renamed `context` and is a `ListenerContext`, no
-  longer a value of any type or a dict: on `listen`, `ask` and `ask_rich` it
-  is keyword-only, and `ListenerModel.meta` is `ListenerModel.context`, never
-  `None`. `ListenerModel` takes its `future` as the second field, with no
-  default. `ask` copies `context` and sets the copy's `message_id` to the id
-  of the sent or edited message unless it is already set, so the id is
-  `context.message_id` instead of `meta["message_id"]`. Affects code passing
+- **BREAKING:** `meta` is renamed `context` on `listen` and
+  `listen_context` on `ask` and `ask_rich`, and is a `ListenerContext`, no
+  longer a value of any type or a dict; it is keyword-only, and
+  `ListenerModel.meta` is `ListenerModel.context`, never `None`.
+  `ListenerModel` takes its `future` as the second field, with no default.
+  `ask` copies the context and sets the copy's `message_id` and `message` to
+  the id of the sent or edited message and to the message itself, each
+  unless it is already set, so the id is `context.message_id` instead of
+  `meta["message_id"]`. Affects code passing
   or reading `meta`, or building `ListenerModel` itself. This `context` is
   separate from `Update.context`.
   Migration: `listen(chat, context=ListenerContext(step=1))` instead of
-  `listen(chat, {"step": 1})`, read `model.context.step` instead of
+  `listen(chat, {"step": 1})`, `ask(..., listen_context=ListenerContext(...))`
+  instead of `ask(..., meta=...)`, read `model.context.step` instead of
   `model.meta["step"]`, and build models as
   `ListenerModel(key, loop.create_future())`.
+- **BREAKING:** every listen parameter of `ask` and `ask_rich` (on `Client`
+  and `Message`) starts with `listen_`: `timeout` is `listen_timeout` and
+  `update_type` is `listen_update_type`. Affects every call passing them.
+  Migration: `ask(..., listen_timeout=30, listen_update_type=CallbackQuery)`
+  instead of `ask(..., timeout=30, update_type=CallbackQuery)`.
 - **BREAKING:** `CallbackQueryListener` no longer cancels message waits. A
   press that no callback wait takes cancels the message listen tied to the
   pressed message (the `ask` that sent it) only with the new

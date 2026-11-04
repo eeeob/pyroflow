@@ -123,7 +123,7 @@ class ListenerContext(SimpleNamespace):
     message_id: int | None = None
     """Id of the message `ask` sent or edited for the wait."""
     message: Message | None = None
-    """The message `ask` sent or edited, when `pass_message` is true."""
+    """The message `ask` sent or edited for the wait."""
 
 
 @dataclass(slots=True)

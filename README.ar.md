@@ -72,7 +72,7 @@ async def on_start(client, message):
         chat_id=message.chat.id,
         text="What is your name?",
         listen_user_id=message.from_user.id,
-        timeout=60,
+        listen_timeout=60,
     )
     await answer.reply(f"Hello, {answer.text}!")
 
@@ -146,7 +146,7 @@ answer = await client.ask(
     text="Choose an option:",
     reply_markup=keyboard,
     listen_user_id=user_id,
-    timeout=30,
+    listen_timeout=30,
 )
 
 # Edit an existing message, then wait for a callback query
@@ -155,8 +155,8 @@ callback = await client.ask(
     text="Updated — choose again:",
     message_id=sent_msg.id,
     listen_user_id=user_id,
-    timeout=30,
-    update_type=CallbackQuery,
+    listen_timeout=30,
+    listen_update_type=CallbackQuery,
 )
 ```
 
@@ -169,22 +169,21 @@ callback = await client.ask(
 | `message_id` | إن أُعطي، تُعدَّل الرسالة بدل إرسال رسالة جديدة |
 | `listen_user_id` | تصفية الـ update المنتظَرة حسب المستخدم |
 | `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة |
-| `timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
-| `update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
-| `context` | `ListenerContext` بقيم تُرفق بالـ listener |
-| `pass_message` | يضع الرسالة المرسلة أو المعدّلة في `context.message` (الافتراضي: `True`) |
-| `filters` | filter من Pyrogram يجب أن يجتازه الـ update المنتظَر أيضًا |
-| `strict` | `True`: الـ update الذي يرفضه `filters` ينهي الانتظار؛ `False`: يُتخطى ويستمر الانتظار |
+| `listen_timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
+| `listen_update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
+| `listen_context` | `ListenerContext` بقيم تُرفق بالـ listener |
+| `listen_filters` | filter من Pyrogram يجب أن يجتازه الـ update المنتظَر أيضًا |
+| `listen_strict` | `True`: الـ update الذي يرفضه `listen_filters` ينهي الانتظار؛ `False`: يُتخطى ويستمر الانتظار |
 
 **الاستثناءات:**
-- `ListenerTimeout`: لم يصل رد خلال `timeout` ثانية.
+- `ListenerTimeout`: لم يصل رد خلال `listen_timeout` ثانية.
 - `ListenerCancelled`: أُلغي الـ listener أثناء الانتظار.
-- `ListenerRejected`: مع `strict=True`، رفض `filters` update (وهو `ListenerCancelled` يحمل الـ update).
+- `ListenerRejected`: مع `listen_strict=True`، رفض `listen_filters` update (وهو `ListenerCancelled` يحمل الـ update).
 
-**الفلاتر.** `filters` يضيف filter من Pyrogram يجب أن يجتازه الـ update المنتظَر، إضافة إلى `listen_user_id` و`listen_message_id`.
+**الفلاتر.** `listen_filters` يضيف filter من Pyrogram يجب أن يجتازه الـ update المنتظَر، إضافة إلى `listen_user_id` و`listen_message_id`.
 
 - الـ update الذي يطابق المفتاح ويرفضه الفلتر يذهب إلى الـ handlers، ويستمر الانتظار.
-- مع `strict=True` ينهي ذلك الـ update الانتظار بـ `ListenerRejected`، ويحمل الـ update المرفوض.
+- مع `listen_strict=True` ينهي ذلك الـ update الانتظار بـ `ListenerRejected`، ويحمل الـ update المرفوض.
 
 ```python
 from pyrogram import filters
@@ -193,20 +192,20 @@ from pyroflow.errors import ListenerRejected
 # Wait for text; a /cancel command ends the question.
 answer = await message.ask(
     "What is your name?",
-    filters=filters.text & ~filters.command("cancel"),
-    strict=True,
+    listen_filters=filters.text & ~filters.command("cancel"),
+    listen_strict=True,
 )
 
 # Ask again until the answer passes the filter.
 while True:
     try:
-        answer = await message.ask("Send a number:", filters=filters.regex(r"^\d+$"), strict=True)
+        answer = await message.ask("Send a number:", listen_filters=filters.regex(r"^\d+$"), listen_strict=True)
         break
     except ListenerRejected:
         await message.reply("That is not a number.")
 ```
 
-`strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه.
+`listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه.
 
 للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`context` وفلتره) قبل أن يرفع `listen` الخطأ:
 
@@ -230,13 +229,13 @@ from pyroflow.models import ListenerContext
 class OrderContext(ListenerContext):
     step: int = 0
 
-answer = await message.ask("Your name?", context=OrderContext(step=1, note="signup"))
+answer = await message.ask("Your name?", listen_context=OrderContext(step=1, note="signup"))
 ```
 
-`ask` يمرر نسخة من `context`، ويضبط فيها افتراضيًا:
+`ask` يمرر نسخة من `listen_context`، ويضبط فيها:
 
 - `message_id`: رقم الرسالة التي أرسلها أو عدّلها.
-- `message`: الرسالة نفسها. مرّر `pass_message=False` لتركها.
+- `message`: الرسالة نفسها.
 
 ما تضبطه أنت مسبقًا يبقى كما هو. بالرسالة تستطيع `on_error_func` تنظيف السؤال:
 
@@ -265,12 +264,12 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 - `MessageListenCancelScope.ALL` (الافتراضي): كل انتظار مرتبط.
 - `FIRST`: الأكثر تحديدًا فقط، أي الأول بترتيب `sub_keys`.
 
-> ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
+> ⚠️ **انتظار لا ينتهي.** بلا `listen_strict`، يبقى الانتظار مفتوحًا حتى `listen_timeout`، أو إلى الأبد بلا `listen_timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.
 > - الفلتر لا يمكن أن يقبل هذا النوع أصلًا، مثل `filters.photo` أثناء انتظار `CallbackQuery`.
 > - المستخدم يرسل باستمرار ما يرفضه الفلتر.
 >
-> أعطِ هذا الانتظار `timeout` (في الاستدعاء أو على الـ listener)، أو استعمل `strict=True` إن كان أول update مرفوض يجب أن ينهي الانتظار، أو أنهِه بنفسك بـ `listener.cancel(key)`. وانتبه: `strict=True` ينهي الانتظار عند **أي** update مرفوض من نفس المفتاح، مثل صورة أثناء انتظار نص.
+> أعطِ هذا الانتظار مهلة (`listen_timeout` في `ask`، أو `timeout` في `listen` أو على الـ listener)، أو استعمل `listen_strict=True` (`strict=True` في `listen`) إن كان أول update مرفوض يجب أن ينهي الانتظار، أو أنهِه بنفسك بـ `listener.cancel(key)`. وانتبه: `listen_strict=True` ينهي الانتظار عند **أي** update مرفوض من نفس المفتاح، مثل صورة أثناء انتظار نص.
 
 
 `ask_rich()` تفعل الشيء نفسه مع rich message:
@@ -287,7 +286,7 @@ answer = await client.ask_rich(
     chat_id,
     InputRichMessage(html="Pick a <b>name</b>:"),
     listen_user_id=user_id,
-    timeout=30,
+    listen_timeout=30,
 )
 ```
 

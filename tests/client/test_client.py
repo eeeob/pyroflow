@@ -153,13 +153,13 @@ async def test_register_and_unregister_listener_forward_to_the_dispatcher() -> N
 async def test_ask_without_a_listener_raises_runtime_error_naming_the_type() -> None:
     c = make_client()
     with pytest.raises(RuntimeError, match="No listener registered for CallbackQuery"):
-        await c.ask(100, "hi", update_type=CallbackQuery)
+        await c.ask(100, "hi", listen_update_type=CallbackQuery)
 
 
 async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> None:
     c, listener, send, edit = _ask_client()
 
-    result = await c.ask(100, "hi", disable_notification=True, extra="kw", timeout=3)
+    result = await c.ask(100, "hi", disable_notification=True, extra="kw", listen_timeout=3)
 
     assert result is listener.result
     assert edit.calls == []
@@ -215,17 +215,15 @@ async def test_ask_send_mode_accepts_a_non_inline_reply_markup() -> None:
     assert send.calls[0]["reply_markup"] is markup
 
 
-async def test_ask_records_the_sent_message_and_its_id_in_a_copy_of_meta() -> None:
+async def test_ask_records_the_sent_message_and_its_id_in_a_copy_of_the_context() -> None:
     c, listener, send, _ = _ask_client()
     context = ListenerContext(step=1)
 
-    await c.ask(100, "hi", context=context)
-    await c.ask(100, "hi", context=context, pass_message=False)
+    await c.ask(100, "hi", listen_context=context)
 
     assert listener.calls[0]["context"] == ListenerContext(
         step=1, message_id=5, message=send.result
     )
-    assert listener.calls[1]["context"] == ListenerContext(step=1, message_id=5)
     assert context == ListenerContext(step=1)
 
 
@@ -296,14 +294,14 @@ async def test_ask_resolves_a_str_chat_id_to_a_peer_id() -> None:
 async def test_ask_waits_on_the_listener_of_the_given_update_type() -> None:
     c, listener, _, _ = _ask_client(update_type=CallbackQuery)
 
-    assert await c.ask(100, "hi", update_type=CallbackQuery) is listener.result
+    assert await c.ask(100, "hi", listen_update_type=CallbackQuery) is listener.result
 
 
 async def test_ask_keeps_the_fields_context_already_has_on_a_copy() -> None:
     c, listener, _, _ = _ask_client()
     context = ListenerContext(message_id=9, message="mine", step=1)
 
-    await c.ask(100, "hi", context=context)
+    await c.ask(100, "hi", listen_context=context)
 
     assert listener.calls[0]["context"] == context
     assert listener.calls[0]["context"] is not context
@@ -313,7 +311,7 @@ async def test_ask_passes_filters_and_strict_to_the_listener() -> None:
     c, listener, _, _ = _ask_client()
     text_only = pyro_filters.text
 
-    await c.ask(100, "hi", filters=text_only, strict=True)
+    await c.ask(100, "hi", listen_filters=text_only, listen_strict=True)
 
     assert listener.calls[0]["filters"] is text_only
     assert listener.calls[0]["strict"] is True
@@ -340,7 +338,7 @@ async def test_ask_raises_the_listener_error_unchanged() -> None:
 async def test_ask_rich_without_a_listener_raises_runtime_error_naming_the_type() -> None:
     c = make_client()
     with pytest.raises(RuntimeError, match="No listener registered for CallbackQuery"):
-        await c.ask_rich(100, object(), update_type=CallbackQuery)
+        await c.ask_rich(100, object(), listen_update_type=CallbackQuery)
 
 
 async def test_ask_rich_sends_with_send_rich_message() -> None:
@@ -356,7 +354,7 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
         reply_markup=markup,
         schedule_date=datetime(2026, 1, 1),
         extra="kw",
-        timeout=3,
+        listen_timeout=3,
     )
 
     assert result is listener.result
@@ -441,7 +439,7 @@ async def test_ask_rich_calls_a_callable_listen_message_id_with_the_sent_message
 async def test_ask_rich_waits_on_the_listener_of_the_given_update_type() -> None:
     c, listener, _, _ = _ask_client(update_type=CallbackQuery)
 
-    assert await c.ask_rich(100, object(), update_type=CallbackQuery) is listener.result
+    assert await c.ask_rich(100, object(), listen_update_type=CallbackQuery) is listener.result
 
 
 def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:

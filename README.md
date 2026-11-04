@@ -68,7 +68,7 @@ async def on_start(client, message):
         chat_id=message.chat.id,
         text="What is your name?",
         listen_user_id=message.from_user.id,
-        timeout=60,
+        listen_timeout=60,
     )
     await answer.reply(f"Hello, {answer.text}!")
 
@@ -134,7 +134,7 @@ answer = await client.ask(
     text="Choose an option:",
     reply_markup=keyboard,
     listen_user_id=user_id,
-    timeout=30,
+    listen_timeout=30,
 )
 
 # Edit an existing message, then wait for a callback query
@@ -143,8 +143,8 @@ callback = await client.ask(
     text="Updated — choose again:",
     message_id=sent_msg.id,
     listen_user_id=user_id,
-    timeout=30,
-    update_type=CallbackQuery,
+    listen_timeout=30,
+    listen_update_type=CallbackQuery,
 )
 ```
 
@@ -157,19 +157,18 @@ callback = await client.ask(
 | `message_id` | If provided, edits the message instead of sending a new one |
 | `listen_user_id` | Filter the awaited update by user |
 | `listen_message_id` | Filter the awaited update by message |
-| `timeout` | Seconds to wait before raising `ListenerTimeout` |
-| `update_type` | Update type to wait for — determines the return type (default: `Message`) |
-| `context` | A `ListenerContext` of values attached to the listener |
-| `pass_message` | Also set the sent or edited message as `context.message` (default: `True`) |
-| `filters` | A Pyrogram filter the awaited update must also pass |
-| `strict` | `True`: an update that fails `filters` ends the wait; `False`: it is skipped and the wait goes on |
+| `listen_timeout` | Seconds to wait before raising `ListenerTimeout` |
+| `listen_update_type` | Update type to wait for — determines the return type (default: `Message`) |
+| `listen_context` | A `ListenerContext` of values attached to the listener |
+| `listen_filters` | A Pyrogram filter the awaited update must also pass |
+| `listen_strict` | `True`: an update that fails `listen_filters` ends the wait; `False`: it is skipped and the wait goes on |
 
 **Raises:**
-- `ListenerTimeout` — no reply arrived within `timeout` seconds
+- `ListenerTimeout` — no reply arrived within `listen_timeout` seconds
 - `ListenerCancelled` — the listener was cancelled while waiting
-- `ListenerRejected` — with `strict=True`, an update failed `filters` (a `ListenerCancelled` carrying the update)
+- `ListenerRejected` — with `listen_strict=True`, an update failed `listen_filters` (a `ListenerCancelled` carrying the update)
 
-**Filters.** `filters` adds a Pyrogram filter the awaited update must pass besides `listen_user_id` and `listen_message_id`. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `strict=True` that update ends the wait with `ListenerRejected` instead, which carries the rejected update:
+**Filters.** `listen_filters` adds a Pyrogram filter the awaited update must pass besides `listen_user_id` and `listen_message_id`. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `listen_strict=True` that update ends the wait with `ListenerRejected` instead, which carries the rejected update:
 
 ```python
 from pyrogram import filters
@@ -178,20 +177,20 @@ from pyroflow.errors import ListenerRejected
 # Wait for text; a /cancel command ends the question.
 answer = await message.ask(
     "What is your name?",
-    filters=filters.text & ~filters.command("cancel"),
-    strict=True,
+    listen_filters=filters.text & ~filters.command("cancel"),
+    listen_strict=True,
 )
 
 # Ask again until the answer passes the filter.
 while True:
     try:
-        answer = await message.ask("Send a number:", filters=filters.regex(r"^\d+$"), strict=True)
+        answer = await message.ask("Send a number:", listen_filters=filters.regex(r"^\d+$"), listen_strict=True)
         break
     except ListenerRejected:
         await message.reply("That is not a number.")
 ```
 
-`strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below.
+`listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below.
 
 To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `context`, filter) before `listen` raises:
 
@@ -210,10 +209,10 @@ from pyroflow.models import ListenerContext
 class OrderContext(ListenerContext):
     step: int = 0
 
-answer = await message.ask("Your name?", context=OrderContext(step=1, note="signup"))
+answer = await message.ask("Your name?", listen_context=OrderContext(step=1, note="signup"))
 ```
 
-`ask` passes a copy of `context`, with `message_id` set to the id of the message it sent or edited, and `message` set to that message itself (unless you set them first). Pass `pass_message=False` to leave the message out. With it, `on_error_func` can clean up the question:
+`ask` passes a copy of `listen_context`, with `message_id` set to the id of the message it sent or edited, and `message` set to that message itself (unless you set them first). With it, `on_error_func` can clean up the question:
 
 ```python
 async def drop_question(exc, model):
@@ -231,12 +230,12 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 
 `cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message_id`) one press cancels: `MessageListenCancelScope.ALL` (the default) every one, `FIRST` only the most specific.
 
-> ⚠️ **A wait that never ends.** Without `strict`, a wait stays open until `timeout`, or forever without one, when every update its key can still match fails the filter:
+> ⚠️ **A wait that never ends.** Without `listen_strict`, a wait stays open until `listen_timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.
 > - The filter can never pass that update type, such as `filters.photo` while waiting for a `CallbackQuery`.
 > - The user keeps sending updates the filter rejects.
 >
-> Give such waits a `timeout` (on the call or on the listener), use `strict=True` when the first rejected update should end the wait, or end the wait yourself with `listener.cancel(key)`. Note that `strict=True` ends the wait on **any** rejected update of the key, such as a photo while text is awaited.
+> Give such waits a timeout (`listen_timeout` on `ask`, `timeout` on `listen` or on the listener), use `listen_strict=True` (`strict=True` on `listen`) when the first rejected update should end the wait, or end the wait yourself with `listener.cancel(key)`. Note that `listen_strict=True` ends the wait on **any** rejected update of the key, such as a photo while text is awaited.
 
 
 `ask_rich()` does the same with a rich message: it sends with `send_rich_message`, or edits with `edit_message_text(rich_message=...)` when `message_id` is given. `Message.ask_rich()` mirrors `Message.ask()`.
@@ -248,7 +247,7 @@ answer = await client.ask_rich(
     chat_id,
     InputRichMessage(html="Pick a <b>name</b>:"),
     listen_user_id=user_id,
-    timeout=30,
+    listen_timeout=30,
 )
 ```
 

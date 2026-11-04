@@ -14,12 +14,13 @@ if TYPE_CHECKING:
     async def _check_ask_edit(message: Message) -> None:
         assert_type(await message.ask("hi"), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask` returns the patch class, not the public `Message` (pyroflow/types.py:141-247)
         assert_type(await message.ask("hi", force_send=False), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask` returns the patch class, not the public `Message` (pyroflow/types.py:141-247)
-        assert_type(await message.ask("hi", update_type=CallbackQuery), CallbackQuery)
+        assert_type(await message.ask("hi", listen_update_type=CallbackQuery), CallbackQuery)
 
     async def _check_ask_send(message: Message) -> None:
         assert_type(await message.ask("hi", force_send=True), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask` returns the patch class, not the public `Message` (pyroflow/types.py:141-247)
         assert_type(
-            await message.ask("hi", force_send=True, update_type=CallbackQuery), CallbackQuery
+            await message.ask("hi", force_send=True, listen_update_type=CallbackQuery),
+            CallbackQuery,
         )
 
     async def _check_ask_bool_flag(message: Message, flag: bool) -> None:
@@ -27,22 +28,22 @@ if TYPE_CHECKING:
         await message.ask("hi", force_send=flag)
 
     async def _check_ask_rejects(message: Message) -> None:
-        await message.ask("hi", update_type=int)  # ty: ignore[no-matching-overload]
+        await message.ask("hi", listen_update_type=int)  # ty: ignore[no-matching-overload]
         await message.ask(1)  # ty: ignore[invalid-argument-type]
 
     async def _check_ask_rich_edit(message: Message, rich: InputRichMessage) -> None:
         assert_type(await message.ask_rich(rich), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask_rich` returns the patch class, not the public `Message`, like `Message.ask`
-        assert_type(await message.ask_rich(rich, update_type=CallbackQuery), CallbackQuery)
+        assert_type(await message.ask_rich(rich, listen_update_type=CallbackQuery), CallbackQuery)
 
     async def _check_ask_rich_send(message: Message, rich: InputRichMessage) -> None:
         assert_type(await message.ask_rich(rich, force_send=True), Message)  # ty: ignore[type-assertion-failure]  # bug: `Message.ask_rich` returns the patch class, not the public `Message`, like `Message.ask`
         assert_type(
-            await message.ask_rich(rich, force_send=True, update_type=CallbackQuery),
+            await message.ask_rich(rich, force_send=True, listen_update_type=CallbackQuery),
             CallbackQuery,
         )
 
     async def _check_ask_rich_rejects(message: Message, rich: InputRichMessage) -> None:
-        await message.ask_rich(rich, update_type=int)  # ty: ignore[no-matching-overload]
+        await message.ask_rich(rich, listen_update_type=int)  # ty: ignore[no-matching-overload]
         await message.ask_rich("hi")  # ty: ignore[invalid-argument-type]
 
     def _check_with_ctx(message: Message, update: Update) -> None:
