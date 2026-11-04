@@ -12,7 +12,7 @@ from pytrove import (
     dedupe,
     gather_abort,
     clean_none_kw,
-    yield_control,
+    safe_call,
 )
 
 from ..constants import BOT_COMMANDS_ATTR
@@ -20,6 +20,7 @@ from ..utils import split_bot_command_entry, mark_bot_commands
 
 if TYPE_CHECKING:
     from pyrogram import Client as PyroClient
+    from pyrogram.handlers.handler import Handler
     from pyrogram.types import BotCommand
 
     from ..typings import BotCommandGroupKeyT
@@ -42,7 +43,9 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     the commands of every registered handler after connecting (so `plugins`
     handlers are included), and `stop` deletes them before disconnecting. Each
     `(language_code, scope)` group is one Telegram call, so different scopes
-    never overwrite each other.
+    never overwrite each other. Only handlers added through `add_handler`
+    count, as `plugins` handlers are; one placed on `dispatcher` directly is
+    not seen.
 
     Warning:
         Telegram keeps one command list per bot, scope and language, with no
@@ -61,48 +64,45 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         """Lock held while the commands are published or deleted."""
         return asyncio.Lock()
 
-    async def _declared_bot_command_groups(
-        self,
-    ) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
-        """Group the commands every registered handler declares, once pending registrations land.
+    @cached_property
+    def _registered_handlers(self) -> list[tuple[Handler, int]]:
+        """Every `(handler, group)` passed to `add_handler` and not yet removed, in call order."""
+        return []
+
+    def add_handler(self, handler: Handler, group: int = 0) -> tuple[Handler, int]:
+        """Register `handler` as usual, and record it for `push_bot_commands`."""
+        result = super().add_handler(handler, group)
+        # Pyrogram يسجّل في task تنتظر أقفال الـ workers، وهي ممسوكة طوال تنفيذ كل handler
+        # (ومنه انتظار `ask`)؛ فانتظار التسجيل قد يطول بلا حد، أو يتوقف للأبد إن جاء
+        # من داخل handler. لذا نسجّل هنا فوراً، بالترتيب نفسه الذي ستنفّذ به tasks Pyrogram.
+        self._registered_handlers.append((handler, group))
+        return result
+
+    def remove_handler(self, handler: Handler, group: int = 0) -> None:
+        """Remove `handler` as usual, and drop its record, if it was added to `group`."""
+        super().remove_handler(handler, group)
+        # Pyrogram يتجاهل (`ValueError` داخل task) handler ليس في `group`، فنتجاهله مثله.
+        safe_call(self._registered_handlers.remove, (handler, group), include_exc=ValueError)
+
+    def _declared_bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
+        """Group the commands every recorded handler declares.
 
         Returns:
             `((language_code, scope), commands)` pairs, each group deduplicated
-            and non-empty, in handler order.
+            and non-empty, in registration order.
         """
-        # `add_handler`/`remove_handler` في Pyrogram تسجّل في task تأخذ أقفال `dispatcher.locks_list`
-        # بالترتيب وتفكها في النهاية. نترك الـ loop تدور مرة لتبدأ كل task مجدولة قبلنا
-        # فتأخذ الأقفال أو تقف في طابورها، ثم نأخذ الأقفال بالترتيب نفسه. `asyncio.Lock`
-        # يخدم طابوره بالترتيب، فلا نحصل عليها إلا بعد انتهاء كل تسجيل سبقنا.
-        await yield_control()
-        acquired = []
+        declared: list[tuple[BotCommandGroupKeyT, list[BotCommand]]] = []
 
-        try:
-            for lock in list(self.dispatcher.locks_list):
-                await lock.acquire()
-                acquired.append(lock)
+        for handler, _ in self._registered_handlers:
+            for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
+                language_code, scope, commands = split_bot_command_entry(entry)
+                key = (language_code, scope)
+                group = next((_commands for _key, _commands in declared if _key == key), None)
 
-            declared: list[tuple[BotCommandGroupKeyT, list[BotCommand]]] = []
+                if group is None:
+                    declared.append((key, group := []))
 
-            for handlers in self.dispatcher.groups.values():
-                for handler in handlers:
-                    for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
-                        language_code, scope, commands = split_bot_command_entry(entry)
-                        key = (language_code, scope)
-                        group = next(
-                            (_commands for _key, _commands in declared if _key == key), None
-                        )
-
-                        if group is None:
-                            declared.append((key, group := []))
-
-                        group.extend(to_list(commands))
-        finally:
-            # Release only what was acquired: `asyncio.Lock` has no owner, so
-            # releasing a lock we were still waiting on when cancelled would
-            # release it out from under its real holder.
-            for lock in reversed(acquired):
-                lock.release()
+                group.extend(to_list(commands))
 
         # `BotCommand` يعرّف `__eq__` بلا `__hash__`
         return [
@@ -112,15 +112,17 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         ]
 
     async def push_bot_commands(self) -> None:
-        """Send the commands of every registered handler to Telegram.
+        """Send the commands of every handler registered so far to Telegram.
 
         Each group is sent with `set_bot_commands`, and a group sent before
         that no handler declares any more is deleted with
-        `delete_bot_commands`. Waits for registrations still pending. Called
-        by `start`.
+        `delete_bot_commands`. A handler counts as soon as `add_handler`
+        returns, even if Pyrogram has not placed it yet, so this never waits
+        on the dispatcher and is safe to call from a handler. Called by
+        `start`.
         """
         async with self.bot_command_groups_lock:
-            groups = await self._declared_bot_command_groups()
+            groups = self._declared_bot_command_groups()
             keys = [key for key, _ in groups]
             stale = [key for key, _ in self.bot_command_groups if key not in keys]
             # Recorded before sending, so `remove_bot_commands` covers a partly failed push.
@@ -166,18 +168,26 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         await self.push_bot_commands()
         return result
 
-    async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
+    async def stop(
+        self, block: bool = True, clear_handlers: bool = True, *, remove_commands: bool = True
+    ) -> PyroClient:
         """Delete the published commands, then stop the client as usual.
 
         Args:
-            *args: Passed to `pyrogram.Client.stop`.
+            block: Passed to `pyrogram.Client.stop`.
+            clear_handlers: Passed to `pyrogram.Client.stop`; when `True`, the
+                handler records are dropped too, as Pyrogram drops the handlers.
             remove_commands: `False` keeps the commands on Telegram after stopping.
-            **kw: Passed to `pyrogram.Client.stop`.
         """
         if remove_commands:
             await self.remove_bot_commands()
 
-        return await super().stop(*args, **kw)
+        result = await super().stop(block, clear_handlers)
+
+        if clear_handlers:
+            self._registered_handlers.clear()
+
+        return result
 
 
 async_to_sync(BotCommandsMixin)
