@@ -30,14 +30,15 @@ if TYPE_CHECKING:
     from .client import Client
 
 
+# Python has no intersection type for "this mixin and `Client`", which `self` and `super()` need.
 if TYPE_CHECKING:
-    _BotCommandsMixinBase = Client
-    """Base of `BotCommandsMixin`: `Client` for type checkers so calls like `self.set_bot_commands()` resolve, plain `object` at runtime."""
+    _ClientForTypeCheckers = Client
+    """`Client` as type checkers see the mixin's base; at runtime it is `object`, so the mixin does not inherit `Client`."""
 else:
-    _BotCommandsMixinBase = object
+    _ClientForTypeCheckers = object
 
 
-class BotCommandsMixin(_BotCommandsMixinBase):
+class BotCommandsMixin(_ClientForTypeCheckers):
     """Opt-in `Client` mixin that publishes the bot commands of registered handlers.
 
     The commands are the ones declared with `mark_bot_commands`. Put the mixin

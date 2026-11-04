@@ -18,7 +18,7 @@ from pyrogram.types import (
 
 import pyroflow.client.bot_commands_mixin as module
 import pyroflow.utils.bot_commands as bot_commands_module
-from pyroflow.client.bot_commands_mixin import BotCommandsMixin, _BotCommandsMixinBase
+from pyroflow.client.bot_commands_mixin import BotCommandsMixin, _ClientForTypeCheckers
 from pyroflow.constants import BOT_COMMANDS_ATTR
 
 
@@ -103,7 +103,7 @@ async def _drain() -> None:
 
 def test_bot_commands_mixin_is_a_plain_object_at_runtime() -> None:
     assert BotCommandsMixin.__bases__ == (object,)
-    assert _BotCommandsMixinBase is object
+    assert _ClientForTypeCheckers is object
 
 
 def test_bot_commands_mixin_public_coroutines_carry_the_sync_wrapper() -> None:
