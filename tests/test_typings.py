@@ -9,7 +9,6 @@ from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
 from pyroflow.typings import (
-    AskErrorHandlersT,
     BotCommandEntryT,
     BotCommandGroupKeyT,
     BotCommandPartsT,
@@ -35,12 +34,6 @@ def test_bot_command_parts_and_group_key() -> None:
     assert get_args(BotCommandGroupKeyT) == (str | None, BotCommandScope | None)
 
 
-def test_ask_error_handlers_is_a_dict_of_exception_types() -> None:
-    assert get_origin(AskErrorHandlersT) is dict
-    key, _value = get_args(AskErrorHandlersT)
-    assert type[Exception] in get_args(key)
-
-
 def test_listen_message_id_is_int_or_callable() -> None:
     int_arg, callable_arg = get_args(ListenMessageIdT)
     assert int_arg is int
@@ -63,7 +56,6 @@ def test_typings_all() -> None:
         "BotCommandEntryT",
         "BotCommandPartsT",
         "BotCommandGroupKeyT",
-        "AskErrorHandlersT",
         "ListenMessageIdT",
         "MetaT",
     }

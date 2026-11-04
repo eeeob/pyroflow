@@ -15,9 +15,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
   publishes the bot commands declared on registered handlers.
 - `Update.context`: a per-update dict for arbitrary data.
-- `error_handlers=` on `ask()`, plus `Client.ask_error_handlers` and
-  `Client.register_ask_error_handler`/`unregister_ask_error_handler` for
-  client-wide handlers.
 - `listen_message_id` also accepts a callable that receives the sent message
   and returns the id to listen for.
 - `User.lang_code` and `Message.editable`.

@@ -11,7 +11,7 @@ from typing import (
 )
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
-from pytrove.typings import MaybeList, MaybeCoroutineCallable
+from pytrove.typings import MaybeList
 
 if TYPE_CHECKING:
     from .types import Message
@@ -33,12 +33,6 @@ BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeLis
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 """The key a collected command group is filed under by `BotCommandsMixin`."""
 
-AskErrorHandlersT: TypeAlias = dict[
-    type[Exception] | tuple[type[Exception], ...],
-    MaybeCoroutineCallable[[Exception, "Message"], object],
-]
-"""Handlers called as `(exc, message)` when a mapped error occurs while `ask()` awaits."""
-
 ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
 """A message id, or a fast synchronous callable mapping the sent or edited message to one (or `None`)."""
 
@@ -52,7 +46,6 @@ __all__ = (
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",
-    "AskErrorHandlersT",
     "ListenMessageIdT",
     "MetaT",
 )

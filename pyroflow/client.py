@@ -27,7 +27,6 @@ from .constants import ASK_MESSAGE_ID_META_KEY, BOT_COMMANDS_ATTR
 from .utils import (
     patch_cls,
     split_bot_command_entry,
-    handle_ask_error,
     mark_bot_commands,
 )
 from .types import Message, CallbackQuery
@@ -40,7 +39,6 @@ if TYPE_CHECKING:
     from pyrogram.types import BotCommand, BotCommandScope, InputRichMessage
     from pytrove.typings import (
         Number,
-        MaybeCoroutineCallable,
         MaybeList,
         StrInt,
     )
@@ -48,7 +46,6 @@ if TYPE_CHECKING:
     from .dispatcher import Dispatcher
     from .typings import (
         BotCommandGroupKeyT,
-        AskErrorHandlersT,
         ListenMessageIdT,
         MetaT,
         UpdateType,
@@ -70,15 +67,6 @@ class Client(PyroClient):
     # `patch_cls` يجعل `Dispatcher` الخاص بـ `pyroflow` هو نفسه الخاص بـ `pyrogram` وقت التشغيل
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
     """The dispatcher that routes updates to listeners and handlers."""
-    ask_error_handlers: dict[type[pyro_types.Update], AskErrorHandlersT]
-    """Client-wide `ask` error handlers of each update type, tried after the per-call ones."""
-
-    if not TYPE_CHECKING:  # for typehints
-
-        def __init__(self, *args: object, **kw: object) -> None:
-            """Run Pyrogram's own `__init__`, then start with no ask error handlers."""
-            self.old__init__(*args, **kw)
-            self.ask_error_handlers = {}
 
     @property
     def listeners(self) -> dict[type[pyro_types.Update], UpdateListener[Any]]:
@@ -120,53 +108,6 @@ class Client(PyroClient):
             """Forward to `Dispatcher.unregister_listener`."""
             return await self.dispatcher.unregister_listener(*args, **kw)
 
-    def register_ask_error_handler(
-        self,
-        exc_types: type[Exception] | tuple[type[Exception], ...],
-        handler: MaybeCoroutineCallable[[Exception, Message], object],
-        update_type: type[pyro_types.Update] = Message,
-    ) -> None:
-        """Add or replace the client-wide `ask` error handler for `exc_types`.
-
-        Can be called at any time, before or after the client starts.
-        Registering `exc_types` again under the same `update_type` replaces its
-        handler.
-
-        Args:
-            exc_types: One exception type, or a tuple of them, matched with
-                `isinstance(exc, exc_types)`.
-            handler: Awaited as `handler(exc, m)`, where `m` is the message
-                `ask` sent or edited.
-            update_type: The `update_type` of the `ask` calls this entry
-                applies to.
-        """
-        self.ask_error_handlers.setdefault(update_type, {})[exc_types] = handler
-
-    def unregister_ask_error_handler(
-        self,
-        exc_types: type[Exception] | tuple[type[Exception], ...],
-        update_type: type[pyro_types.Update] = Message,
-    ) -> bool:
-        """Remove the client-wide `ask` error handler registered for `exc_types`.
-
-        Both arguments must match the registration exactly: a tuple is not
-        split, so `ValueError` does not remove `(ValueError, TypeError)`.
-
-        Args:
-            exc_types: The exception type, or tuple, the handler was registered
-                under.
-            update_type: The `update_type` the handler was registered under.
-
-        Returns:
-            `True` if a handler was removed, `False` if none was registered.
-        """
-        handlers = self.ask_error_handlers.get(update_type)
-
-        if not handlers:
-            return False
-
-        return handlers.pop(exc_types, None) is not None
-
     @overload
     async def ask(
         self,
@@ -201,7 +142,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -239,7 +179,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
 
@@ -264,7 +203,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -289,7 +227,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
 
@@ -328,7 +265,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[pyro_types.Update] = Message,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> pyro_types.Update:
         """Send or edit a message, then wait for the next matching update.
@@ -377,12 +313,6 @@ class Client(PyroClient):
                 without one; see the warning in `UpdateListener.listen`.
             timeout: Seconds to wait before raising `ListenerTimeout`.
             update_type: The update type to wait for and return.
-            error_handlers: `{exc_type_or_tuple: handler}` tried in order when
-                waiting raises; the first key matching `isinstance(exc, key)` is
-                awaited as `handler(exc, m)`, where `m` is the sent or edited
-                message. If none matches, the client-wide handlers registered
-                for `update_type` are tried the same way. The exception is
-                re-raised either way.
             **kw: Passed to `send_message` or `edit_message_text`.
 
         Returns:
@@ -453,8 +383,6 @@ class Client(PyroClient):
             filters=filters,
             strict=strict,
             timeout=timeout,
-            update_type=update_type,
-            error_handlers=error_handlers,
         )
 
     @overload
@@ -484,7 +412,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -515,7 +442,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
 
@@ -537,7 +463,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -559,7 +484,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
 
@@ -594,7 +518,6 @@ class Client(PyroClient):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[pyro_types.Update] = Message,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> pyro_types.Update:
         """Send or edit a rich message, then wait for the next matching update.
@@ -627,7 +550,6 @@ class Client(PyroClient):
             strict: As in `ask`.
             timeout: As in `ask`.
             update_type: As in `ask`.
-            error_handlers: As in `ask`.
             **kw: Passed to `send_rich_message` or `edit_message_text`.
 
         Returns:
@@ -686,8 +608,6 @@ class Client(PyroClient):
             filters=filters,
             strict=strict,
             timeout=timeout,
-            update_type=update_type,
-            error_handlers=error_handlers,
         )
 
     def _ask_listener(self, update_type: type[pyro_types.Update]) -> UpdateListener[Any]:
@@ -736,8 +656,6 @@ class Client(PyroClient):
         filters: Filter | None,
         strict: bool,
         timeout: Number | None,
-        update_type: type[pyro_types.Update],
-        error_handlers: AskErrorHandlersT | None,
     ) -> pyro_types.Update:
         """Wait on `listener` for the update that answers `m`, the sent or edited message.
 
@@ -751,8 +669,6 @@ class Client(PyroClient):
             filters: As in `ask`.
             strict: As in `ask`.
             timeout: As in `ask`.
-            update_type: As in `ask`; selects the client-wide error handlers.
-            error_handlers: As in `ask`.
 
         Returns:
             The update `listener` returned.
@@ -769,26 +685,15 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
-        try:
-            return await listener(
-                chat_id=final_chat_id,
-                user_id=listen_user_id,
-                message_id=listen_message_id,
-                meta={ASK_MESSAGE_ID_META_KEY: m.id, **(meta or {})},
-                filters=filters,
-                strict=strict,
-                timeout=timeout,
-            )
-        except Exception as exc:
-            await handle_ask_error(
-                exc,
-                m,
-                error_handlers,
-                client_handlers.copy()
-                if (client_handlers := self.ask_error_handlers.get(update_type))
-                else None,
-            )
-            raise exc
+        return await listener(
+            chat_id=final_chat_id,
+            user_id=listen_user_id,
+            message_id=listen_message_id,
+            meta={ASK_MESSAGE_ID_META_KEY: m.id, **(meta or {})},
+            filters=filters,
+            strict=strict,
+            timeout=timeout,
+        )
 
 
 if TYPE_CHECKING:

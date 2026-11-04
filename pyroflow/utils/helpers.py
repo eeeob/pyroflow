@@ -1,4 +1,4 @@
-"""Internal helpers: the `UpdateBound` base, the update executor lookup, `ask` error dispatch and subsets."""
+"""Internal helpers: the `UpdateBound` base, the update executor lookup and subsets."""
 
 from __future__ import annotations as _annotations
 
@@ -7,16 +7,12 @@ from itertools import combinations
 from typing import Generic, TypeVar, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
-from pytrove import maybe_awaitable
 
 from ..typings import UpdateType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from concurrent.futures import ThreadPoolExecutor
-
-    from ..types import Message
-    from ..typings import AskErrorHandlersT
 
 
 class UpdateBound(Generic[UpdateType]):
@@ -102,47 +98,6 @@ class UpdateBound(Generic[UpdateType]):
             raise TypeError(msg)
 
 
-async def handle_ask_error(
-    exc: Exception,
-    m: Message,
-    *handlers: AskErrorHandlersT | None,
-) -> bool:
-    """Run the first handler across `handlers` whose key matches `exc`, as `handler(exc, m)`.
-
-    Mappings are scanned in order and their keys in insertion order, so earlier
-    mappings take precedence; `None` and empty mappings are skipped. A sync
-    handler runs in a worker thread. An exception raised by the handler is
-    logged and swallowed, so it never replaces `exc`.
-
-    Args:
-        exc: The exception to dispatch.
-        m: The message passed to the handler.
-        *handlers: Mappings of exception types to handlers, highest precedence first.
-
-    Returns:
-        `True` if a handler matched and ran, `False` otherwise.
-
-    Example:
-        >>> import asyncio
-        >>> seen = []
-        >>> handlers = {ValueError: lambda exc, m: seen.append(m)}
-        >>> asyncio.run(handle_ask_error(ValueError(), "message", None, handlers))
-        True
-        >>> seen
-        ['message']
-    """
-    for hdlrs in handlers:
-        if not hdlrs:
-            continue
-
-        for exc_types, handler in hdlrs.items():
-            if isinstance(exc, exc_types):
-                await maybe_awaitable(handler, exc, m, return_exc=True)
-                return True
-
-    return False
-
-
 def get_update_executor(update: object) -> ThreadPoolExecutor | None:
     """Return the executor of the client bound to `update`.
 
@@ -187,6 +142,5 @@ def subsets_largest_first(items: Sequence[_ItemT]) -> Iterator[tuple[_ItemT, ...
 __all__ = (
     "UpdateBound",
     "get_update_executor",
-    "handle_ask_error",
     "subsets_largest_first",
 )

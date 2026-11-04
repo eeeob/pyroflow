@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from pytrove.typings import Number
 
     from .client import Client
-    from .typings import UpdateType, AskErrorHandlersT, ListenMessageIdT, MetaT
+    from .typings import UpdateType, ListenMessageIdT, MetaT
 
 
 @patch_cls
@@ -158,7 +158,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
     @overload
@@ -179,7 +178,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
     @overload
@@ -215,7 +213,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
     @overload
@@ -251,7 +248,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -287,7 +283,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[PyroUpdate] = PyroMessage,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> PyroUpdate:
         """Send a new message or edit the current one, then wait for a matching update.
@@ -327,11 +322,6 @@ class Message(PyroMessage):
                 `ListenerRejected` instead of being skipped; see `Client.ask`.
             timeout: Seconds to wait before raising `ListenerTimeout`.
             update_type: Class of the update to wait for.
-            error_handlers: `{exc_type_or_tuple: handler}` mapping. If listening
-                raises, the handler of the first key matching `isinstance(exc, key)` is
-                awaited as `handler(exc, m)` with `m` the sent/edited message. If none
-                matches, the client-wide handlers for `update_type` are tried. The
-                exception is re-raised either way.
             **kw: Passed through to `Client.ask`.
 
         Returns:
@@ -392,7 +382,6 @@ class Message(PyroMessage):
             strict=strict,
             timeout=timeout,
             update_type=update_type,
-            error_handlers=error_handlers,
             **kw,
         )
 
@@ -411,7 +400,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
     @overload
@@ -429,7 +417,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
     @overload
@@ -459,7 +446,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> Message: ...
     @overload
@@ -489,7 +475,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> UpdateType: ...
 
@@ -519,7 +504,6 @@ class Message(PyroMessage):
         strict: bool = False,
         timeout: Number | None = None,
         update_type: type[PyroUpdate] = PyroMessage,
-        error_handlers: AskErrorHandlersT | None = None,
         **kw: Any,
     ) -> PyroUpdate:
         """Send a new rich message or edit the current one, then wait for a matching update.
@@ -548,7 +532,6 @@ class Message(PyroMessage):
             strict: As in `ask`.
             timeout: As in `ask`.
             update_type: As in `ask`.
-            error_handlers: As in `ask`.
             **kw: Passed through to `Client.ask_rich`.
 
         Returns:
@@ -599,7 +582,6 @@ class Message(PyroMessage):
             strict=strict,
             timeout=timeout,
             update_type=update_type,
-            error_handlers=error_handlers,
             **kw,
         )
 

@@ -1,5 +1,5 @@
 """Tests for `pyroflow.client`: the patched `Client` (listener accessors,
-register/unregister forwarders, ask error handlers, `ask`) and `BotCommandsMixin`.
+register/unregister forwarders, `ask`) and `BotCommandsMixin`.
 """
 
 from __future__ import annotations as _annotations
@@ -36,147 +36,11 @@ class ExcA(Exception):
     pass
 
 
-class ExcB(Exception):
-    pass
-
-
-# --- ask() error handling, end to end ---------------------------------------
-#
-# These go through Client.ask() itself, with send_message and the listener
-# faked out so no network is needed, so a change to ask()'s except block (e.g.
-# flattening the per-update_type scoping into one shared mapping) is caught.
-
-
-class _RaisingListener:
-    """Stands in for a registered UpdateListener whose wait raised ExcA."""
-
-    async def __call__(self, **kw: object) -> None:
-        msg = "boom"
-        raise ExcA(msg)
-
-
-def _install_raising_ask(
-    c: pyroflow.Client, update_type: type[Message | CallbackQuery] = Message
-) -> None:
-    c.dispatcher.listeners[update_type] = _RaisingListener()
-
-    async def fake_send(**kw: object) -> SimpleNamespace:
-        return SimpleNamespace(id=5, chat=None)
-
-    c.send_message = fake_send
-    c.send_rich_message = fake_send
-
-
-async def test_ask_routes_a_listening_error_to_the_scoped_client_handler() -> None:
-    c = make_client()
-    calls = []
-    _install_raising_ask(c, update_type=Message)
-
-    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append("message"), update_type=Message)
-    c.register_ask_error_handler(
-        ExcA, lambda exc, m: calls.append("callback_query"), update_type=CallbackQuery
-    )
-
-    with pytest.raises(ExcA):
-        await c.ask(100, "hi")
-
-    assert calls == ["message"], (
-        "ask()'s except block did not scope its client_handlers lookup to "
-        "the call's own update_type"
-    )
-
-
-# --- Client.ask_error_handlers attribute ------------------------------------
+# --- Client ---------------------------------------------------------------------
 
 
 def make_client() -> pyroflow.Client:
     return pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True)
-
-
-def test_ask_error_handlers_is_not_shared_between_instances() -> None:
-    """The classic mutable-default trap: each Client must get its own dict,
-    not one every instance ends up sharing."""
-    a, b = make_client(), make_client()
-    a.ask_error_handlers[ExcA] = "handler"
-    assert b.ask_error_handlers == {}
-
-
-# --- register_ask_error_handler() / unregister_ask_error_handler() ---------
-#
-# ask_error_handlers is keyed by update_type: {Message: {...}, CallbackQuery:
-# {...}}. register_/unregister_ each default update_type to Message, matching
-# ask()'s own default.
-
-
-def test_register_ask_error_handler_adds_an_entry_under_message_by_default() -> None:
-    c = make_client()
-    handler = lambda exc, m: None
-
-    c.register_ask_error_handler(ExcA, handler)
-
-    assert c.ask_error_handlers == {Message: {ExcA: handler}}
-
-
-def test_register_ask_error_handler_keeps_update_types_independent() -> None:
-    """A handler registered for Message must not become visible under
-    CallbackQuery, or vice versa — the two update types must not share a
-    single flat mapping."""
-    c = make_client()
-    msg_handler = lambda exc, m: None
-    cb_handler = lambda exc, m: None
-
-    c.register_ask_error_handler(ExcA, msg_handler, update_type=Message)
-    c.register_ask_error_handler(ExcA, cb_handler, update_type=CallbackQuery)
-
-    assert c.ask_error_handlers[Message] == {ExcA: msg_handler}
-    assert c.ask_error_handlers[CallbackQuery] == {ExcA: cb_handler}
-
-
-def test_register_ask_error_handler_replaces_an_existing_entry() -> None:
-    """No ValueError on re-registering — unlike register_listener() and
-    friends, this has no dispatcher lifecycle or duplicate check."""
-    c = make_client()
-    first = lambda exc, m: None
-    second = lambda exc, m: None
-
-    c.register_ask_error_handler(ExcA, first)
-    c.register_ask_error_handler(ExcA, second)
-
-    assert c.ask_error_handlers == {Message: {ExcA: second}}
-
-
-def test_unregister_ask_error_handler_removes_an_entry_and_reports_true() -> None:
-    c = make_client()
-    c.register_ask_error_handler(ExcA, lambda exc, m: None)
-
-    removed = c.unregister_ask_error_handler(ExcA)
-
-    assert removed is True
-    assert c.ask_error_handlers == {Message: {}}
-
-
-def test_unregister_ask_error_handler_requires_the_exact_key() -> None:
-    """A tuple key is not decomposed: registering (ExcA, ExcB) and then
-    unregistering plain ExcA must not remove it."""
-    c = make_client()
-    c.register_ask_error_handler((ExcA, ExcB), lambda exc, m: None)
-
-    removed = c.unregister_ask_error_handler(ExcA)
-
-    assert removed is False
-    assert len(c.ask_error_handlers[Message]) == 1
-
-
-def test_unregister_ask_error_handler_requires_the_exact_update_type() -> None:
-    """Registered under Message; unregistering the same exc_types under
-    CallbackQuery must not touch it."""
-    c = make_client()
-    c.register_ask_error_handler(ExcA, lambda exc, m: None, update_type=Message)
-
-    removed = c.unregister_ask_error_handler(ExcA, update_type=CallbackQuery)
-
-    assert removed is False
-    assert c.ask_error_handlers[Message] != {}
 
 
 # --- shared fakes for the rest of the module ---------------------------------
@@ -434,39 +298,6 @@ async def test_ask_waits_on_the_listener_of_the_given_update_type() -> None:
     assert await c.ask(100, "hi", update_type=CallbackQuery) is listener.result
 
 
-async def test_ask_call_error_handlers_take_precedence_over_client_handlers() -> None:
-    c = make_client()
-    _install_raising_ask(c)
-    calls = []
-    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append("client"))
-
-    with pytest.raises(ExcA):
-        await c.ask(100, "hi", error_handlers={ExcA: lambda exc, m: calls.append("call")})
-
-    assert calls == ["call"]
-
-
-async def test_ask_falls_back_to_client_handlers_when_call_handlers_do_not_match() -> None:
-    c = make_client()
-    _install_raising_ask(c)
-    calls = []
-    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append(("client", m.id)))
-
-    with pytest.raises(ExcA):
-        await c.ask(100, "hi", error_handlers={ExcB: lambda exc, m: calls.append("call")})
-
-    assert calls == [("client", 5)]
-
-
-async def test_ask_re_raises_with_no_handlers_registered() -> None:
-    c = make_client()
-    _install_raising_ask(c)
-    c.ask_error_handlers[Message] = {}
-
-    with pytest.raises(ExcA, match="boom"):
-        await c.ask(100, "hi")
-
-
 # --- ask_rich() -------------------------------------------------------------
 
 
@@ -577,20 +408,6 @@ async def test_ask_rich_waits_on_the_listener_of_the_given_update_type() -> None
     assert await c.ask_rich(100, object(), update_type=CallbackQuery) is listener.result
 
 
-async def test_ask_rich_routes_a_listening_error_to_the_error_handlers() -> None:
-    c = make_client()
-    _install_raising_ask(c)
-    calls = []
-    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append(("client", m.id)))
-
-    with pytest.raises(ExcA):
-        await c.ask_rich(100, object(), error_handlers={ExcA: lambda exc, m: calls.append("call")})
-    with pytest.raises(ExcA):
-        await c.ask_rich(100, object(), error_handlers={ExcB: lambda exc, m: calls.append("call")})
-
-    assert calls == ["call", ("client", 5)]
-
-
 # --- ask helpers --------------------------------------------------------------
 
 
@@ -632,8 +449,6 @@ async def _await_reply(
         "filters": None,
         "strict": False,
         "timeout": None,
-        "update_type": Message,
-        "error_handlers": None,
     }
     kw.update(overrides)
     return await c._await_reply(listener, m, chat_id, **kw)
@@ -703,23 +518,16 @@ async def test_await_reply_falls_back_to_chat_id_and_resolves_a_str() -> None:
     assert [call["chat_id"] for call in listener.calls] == [100, 42]
 
 
-async def test_await_reply_tries_call_then_scoped_client_handlers_and_re_raises() -> None:
-    c = make_client()
-    calls = []
-    c.register_ask_error_handler(ExcA, lambda exc, m: calls.append("message"))
-    c.register_ask_error_handler(
-        ExcA, lambda exc, m: calls.append("callback_query"), update_type=CallbackQuery
-    )
-    m = SimpleNamespace(id=5, chat=None)
+async def test_await_reply_raises_the_listener_error_unchanged() -> None:
+    class _RaisingListener:
+        async def __call__(self, **kw: object) -> None:
+            raise error
 
-    with pytest.raises(ExcA):
-        await _await_reply(
-            c, _RaisingListener(), m, error_handlers={ExcA: lambda exc, m: calls.append("call")}
-        )
-    with pytest.raises(ExcA):
-        await _await_reply(c, _RaisingListener(), m, update_type=CallbackQuery)
+    error = ExcA("boom")
 
-    assert calls == ["call", "callback_query"]
+    with pytest.raises(ExcA) as exc:
+        await _await_reply(make_client(), _RaisingListener(), SimpleNamespace(id=5, chat=None))
+    assert exc.value is error
 
 
 def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:

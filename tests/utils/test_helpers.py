@@ -1,13 +1,7 @@
-"""Tests for ``UpdateBound`` enforcement and ``handle_ask_error()``.
-
-handle_ask_error() is the exact function ask()'s except block calls, so
-matching and precedence are tested by calling it directly rather than by
-reimplementing its routing logic in the test.
-"""
+"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor` and `subsets_largest_first`."""
 
 from __future__ import annotations as _annotations
 
-import threading
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -18,19 +12,10 @@ import pytest
 from pyroflow.utils import (
     UpdateBound,
     get_update_executor,
-    handle_ask_error,
     helpers,
     subsets_largest_first,
 )
 from pyrogram.types import Message
-
-
-class ExcA(Exception):
-    pass
-
-
-class ExcB(Exception):
-    pass
 
 
 # --- UpdateBound ----------------------------------------------------------
@@ -41,113 +26,6 @@ def test_update_bound_rejects_non_update_type() -> None:
 
         class BadType(UpdateBound):  # pragma: no cover - class body raises
             __update_type__ = int
-
-
-# --- handle_ask_error(): matching -------------------------------------------
-
-
-async def test_non_matching_handler_does_not_run() -> None:
-    calls = []
-
-    async def handler(exc: Exception, m: object) -> None:
-        calls.append(exc)
-
-    ran = await handle_ask_error(ExcA(), "m", {ExcB: handler}, {})
-    assert ran is False
-    assert calls == []
-
-
-@pytest.mark.parametrize("call_handlers", [{}, None])
-async def test_empty_or_missing_mapping_is_a_noop(call_handlers: dict[Any, Any] | None) -> None:
-    assert await handle_ask_error(ExcA(), "m", call_handlers, {}) is False
-
-
-async def test_tuple_key_matches_any_listed_type() -> None:
-    calls = []
-
-    async def handler(exc: Exception, m: object) -> None:
-        calls.append(exc)
-
-    ran = await handle_ask_error(ExcA(), "m", {(ExcB, ExcA): handler}, {})
-    assert ran is True and len(calls) == 1
-
-
-# --- handle_ask_error(): call-vs-client precedence -------------------------
-
-
-async def test_call_level_handler_wins_over_an_identical_client_key() -> None:
-    calls = []
-    call_handlers = {ExcA: lambda exc, m: calls.append("call")}
-    client_handlers = {ExcA: lambda exc, m: calls.append("client")}
-
-    await handle_ask_error(ExcA(), "m", call_handlers, client_handlers)
-
-    assert calls == ["call"]
-
-
-async def test_client_handler_runs_only_when_the_call_had_no_match() -> None:
-    calls = []
-    call_handlers = {ExcB: lambda exc, m: calls.append("call")}
-    client_handlers = {ExcA: lambda exc, m: calls.append("client")}
-
-    await handle_ask_error(ExcA("boom"), "m", call_handlers, client_handlers)
-
-    assert calls == ["client"]
-
-
-async def test_client_handler_runs_when_the_call_passed_none() -> None:
-    calls = []
-    client_handlers = {ExcA: lambda exc, m: calls.append("client")}
-
-    await handle_ask_error(ExcA("boom"), "m", None, client_handlers)
-
-    assert calls == ["client"]
-
-
-async def test_handler_exception_is_swallowed() -> None:
-    def handler(exc: Exception, m: object) -> None:
-        raise RuntimeError
-
-    assert await handle_ask_error(ExcA(), "m", {ExcA: handler}) is True
-
-
-async def test_handler_receives_the_exception_and_message() -> None:
-    exc = ExcA()
-    seen: list[tuple[Exception, object]] = []
-
-    async def handler(e: Exception, m: object) -> None:
-        seen.append((e, m))
-
-    await handle_ask_error(exc, "msg", {ExcA: handler})
-
-    assert seen == [(exc, "msg")]
-
-
-async def test_first_matching_key_in_insertion_order_wins() -> None:
-    calls: list[str] = []
-    mapping = {
-        Exception: lambda exc, m: calls.append("broad"),
-        ExcA: lambda exc, m: calls.append("specific"),
-    }
-
-    await handle_ask_error(ExcA(), "m", mapping)
-
-    assert calls == ["broad"]
-
-
-async def test_sync_handler_runs_in_a_worker_thread() -> None:
-    threads: list[threading.Thread] = []
-
-    def handler(exc: Exception, m: object) -> None:
-        threads.append(threading.current_thread())
-
-    await handle_ask_error(ExcA(), "m", {ExcA: handler})
-
-    assert threads and threads[0] is not threading.current_thread()
-
-
-async def test_no_mappings_reports_false() -> None:
-    assert await handle_ask_error(ExcA(), "m") is False
 
 
 # --- UpdateBound: more branches ------------------------------------------
@@ -289,6 +167,5 @@ def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == (
         "UpdateBound",
         "get_update_executor",
-        "handle_ask_error",
         "subsets_largest_first",
     )
