@@ -12,7 +12,6 @@ from pyroflow.errors import (
     ListenerError,
     ListenerTimeout,
     PyroflowError,
-    UnresolvedUpdate,
     UpdateAlreadyHandled,
 )
 
@@ -72,7 +71,6 @@ def test_listener_cancelled_defaults() -> None:
     [
         (ListenerTimeout, ListenerError, "Listener for 5 timed out"),
         (ListenerAlreadyExists, ListenerError, "A listener already exists for 5"),
-        (UnresolvedUpdate, ListenerError, "No listener resolved update 5"),
         (UpdateAlreadyHandled, CoordinationError, "Update 5 was already handled"),
     ],
 )
@@ -92,7 +90,6 @@ def test_errors_all() -> None:
         "ListenerCancelled",
         "ListenerTimeout",
         "ListenerAlreadyExists",
-        "UnresolvedUpdate",
         "CoordinationError",
         "UpdateAlreadyHandled",
     )

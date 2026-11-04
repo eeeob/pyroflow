@@ -14,8 +14,11 @@ from ..utils import AsyncioLock
 from .update_coordinator import UpdateCoordinator
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pytrove.typings import Number
 
+    from ..models import ListenerKey
     from ..typings import CoordinatedUpdateKeyT, CoordinatedUpdateIdT
 
 
@@ -68,8 +71,8 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
     """Process-local coordinator backed by in-memory structures.
 
     The default backend. It serialises this process's workers and remembers
-    what this process handled; use `RedisUpdateCoordinator` to coordinate
-    across sessions.
+    what this process handled and which listeners it registered; use
+    `RedisUpdateCoordinator` to coordinate across sessions.
 
     Args:
         max_handled: The most handled ids kept; with `handled_ttl` it bounds
@@ -97,6 +100,8 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
             maxsize=max_handled, ttl=self.handled_ttl
         )
         """Expiring registry of handled update keys."""
+        self.listeners: dict[ListenerKey, str] = {}
+        """Listener registry: each registered key mapped to its owner id."""
 
     def lock(self, key: CoordinatedUpdateKeyT) -> TimedLock:
         """Return the process-local `TimedLock` for `key`.
@@ -117,9 +122,50 @@ class MemoryUpdateCoordinator(UpdateCoordinator):
 
         self.handled[key] = None
 
+    async def register_listener(
+        self, key: ListenerKey, owner_id: str, *, replace: bool
+    ) -> str | None:
+        """Store `owner_id` for `key` unless it is owned and `replace` is `False`; return the previous owner.
+
+        Example:
+            >>> from pyroflow.models import ListenerKey
+            >>> from pyroflow.types import Message
+            >>> async def main():
+            ...     coordinator = MemoryUpdateCoordinator(Message)
+            ...     first = await coordinator.register_listener(ListenerKey(1), "a", replace=False)
+            ...     kept = await coordinator.register_listener(ListenerKey(1), "b", replace=False)
+            ...     return first, kept, coordinator.listeners[ListenerKey(1)]
+            >>> asyncio.run(main())
+            (None, 'a', 'a')
+        """
+        previous = self.listeners.get(key)
+
+        if previous is None or replace:
+            self.listeners[key] = owner_id
+
+        return previous
+
+    async def listener_owners(self, keys: Sequence[ListenerKey]) -> list[str | None]:
+        """Return the owner id stored for each key, `None` for a free one."""
+        return [self.listeners.get(key) for key in keys]
+
+    async def unregister_listener(self, key: ListenerKey, owner_id: str) -> bool:
+        """Remove `key` if `owner_id` owns it; return whether it was removed."""
+        if self.listeners.get(key) != owner_id:
+            return False
+
+        del self.listeners[key]
+
+        return True
+
+    async def cancel_listener(self, key: ListenerKey) -> str | None:
+        """Remove `key` whoever owns it; return the removed owner id."""
+        return self.listeners.pop(key, None)
+
     async def stop(self) -> None:
-        """Clear the handled registry."""
+        """Clear the handled and listener registries."""
         self.handled.clear()
+        self.listeners.clear()
 
 
 __all__ = ("MemoryUpdateCoordinator",)

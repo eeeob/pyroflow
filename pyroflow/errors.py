@@ -57,10 +57,6 @@ class ListenerAlreadyExists(ListenerError):
     """A listener already exists for {value}"""  # noqa: D415  # the docstring is the runtime message template
 
 
-class UnresolvedUpdate(ListenerError):
-    """No listener resolved update {value}"""  # noqa: D415  # the docstring is the runtime message template
-
-
 class CoordinationError(PyroflowError):
     """Coordination error"""  # noqa: D415  # the docstring is the runtime message template
 
@@ -75,7 +71,6 @@ __all__ = (
     "ListenerCancelled",
     "ListenerTimeout",
     "ListenerAlreadyExists",
-    "UnresolvedUpdate",
     "CoordinationError",
     "UpdateAlreadyHandled",
 )

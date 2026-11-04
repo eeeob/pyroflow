@@ -119,7 +119,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **2.4 Backends move together.** A change to a Memory backend is matched in its Redis backend in the same change, and the other way round.
 
-**2.5 No lock inside the coordinator's registry calls.** `register`, `unregister`, `cancel` and `registered` of a `ListenerCoordinator` never take `lock()`. `UpdateListener` already holds `lock(key.chat_id)` when it calls them, and the lock is not reentrant: taking it again deadlocks the worker permanently, with no timeout to recover. State the lock does not cover gets a separate lock of its own.
+**2.5 One coordinator, no nested lock.** The listener and the coordinated of an update type share one `UpdateCoordinator`, which holds every piece of state the sessions share. Its listener registry calls (`register_listener`, `listener_owners`, `unregister_listener`, `cancel_listener`) are atomic on their own and never take `lock()`. `UpdateListener.resolve` runs while the dispatcher holds the update's lock, and the lock is not reentrant: taking it again there deadlocks the worker permanently, with no timeout to recover.
 
 **2.6 `redis` stays optional.** `redis` is imported only under `TYPE_CHECKING`, and the user passes the Redis client in, because `redis` is an optional extra (3.1).
 

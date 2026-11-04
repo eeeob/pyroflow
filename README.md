@@ -126,6 +126,8 @@ client.message_listen    # UpdateListener[Message]
 client.callback_listen   # UpdateListener[CallbackQuery]
 ```
 
+A listener takes the next matching update that is settled after it registers. An update the dispatcher is already deciding on goes to the handlers, and the listener waits for the one after it.
+
 ---
 
 ### ask()
@@ -193,23 +195,27 @@ A `UpdateCoordinated` coordinates one update type across sessions, for example w
 - **`extract_update_id`** — the update's unique identity, used to mark it as handled. It must be extractable from the update every time, with the same value, and never `None`. It is only extracted once the key is known.
 
 ```python
-from functools import partial
+from pyrogram.types import Message
 from redis.asyncio import Redis
-from pyroflow import Client, MessageCoordinated, RedisUpdateCoordinator
+from pyroflow import Client, MessageCoordinated, MessageListener, RedisUpdateCoordinator
 
 
 client = Client("my_session")
 redis = Redis()
-coordinator_factory = partial(RedisUpdateCoordinator, redis)
-coordinated = MessageCoordinated(coordinator_factory)
-client.register_coordinated(coordinated)
+coordinator = RedisUpdateCoordinator(redis, Message)
+client.register_coordinated(MessageCoordinated(coordinator=coordinator))
+client.register_listener(MessageListener(coordinator=coordinator))
 
 client.run()
 ```
 
+The `UpdateCoordinator` holds everything the sessions share for one update type: the locks, the handled marks and the listener registry. Pass the same coordinator to the listener and the coordinated of that type; registering them with different coordinators raises `ValueError`. A listener registers under the lock its update takes (the chat, by default), so an update is decided either before a listener registers or after it.
+
+When an update matches a listener registered by another session, this session leaves the update unmarked and runs no handler, and the session that waits for it takes it. Each registration is a lease of `listener_ttl` seconds (60 by default), renewed while its session runs, so a session that dies frees its listeners within one `listener_ttl`.
+
 Pass a Redis client that can reach the server. The coordinator never opens or closes it, so close it yourself once the client stops.
 
-Every session shares the same Redis keys, which is what coordinates them. Each coordinator also writes its own `fingerprint` into the value of every lock it takes. On stop it deletes the locks it still holds, and leaves other sessions' locks alone. The handled marks stay until `handled_ttl` expires, since the other sessions still rely on them.
+Every session shares the same Redis keys, which is what coordinates them. Each coordinator also writes its own `fingerprint` into the value of every lock and listener registration it writes. On stop it deletes the ones it still holds, and leaves other sessions' alone. The handled marks stay until `handled_ttl` expires, since the other sessions still rely on them.
 
 **Supported backends:**
 
@@ -231,10 +237,12 @@ A session that cannot handle an update should say so in its handler's filter: a 
 ```python
 # Coordinate per message instead of per chat.
 coordinated = MessageCoordinated(
-    coordinator_factory,
+    coordinator=coordinator,
     extract_key_func=lambda m: (m.chat.id, m.id),
 )
 ```
+
+A listener sharing that coordinator must register under the same lock, so give it a matching `extract_lock_key_func`.
 
 ---
 
@@ -260,7 +268,7 @@ except ListenerCancelled:
     await client.send_message(chat_id, "Session was cancelled.")
 ```
 
-Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`, `UnresolvedUpdate`), and `CoordinationError` is the family for coordination errors.
+Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`), and `CoordinationError` is the family for coordination errors.
 
 ---
 

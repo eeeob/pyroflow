@@ -26,7 +26,7 @@ from pyrogram.handlers import (
     MessageHandler,
     RawUpdateHandler,
 )
-from pyrogram.types import Message
+from pyrogram.types import CallbackQuery, Message
 
 from pyroflow import dispatcher as dispatcher_module
 from pyroflow.dispatcher import (
@@ -35,7 +35,9 @@ from pyroflow.dispatcher import (
     _CoordinatedRelease,
     _settle_handled,
 )
-from pyroflow.errors import UnresolvedUpdate, UpdateAlreadyHandled
+from pyroflow.enums import ListenOutcome
+from pyroflow.errors import UpdateAlreadyHandled
+from pyroflow.models import ListenerKey
 from pyroflow.update_coordinated import MessageCoordinated
 from pyroflow.update_listener import MessageListener
 from pyroflow.update_coordinator import RedisUpdateCoordinator
@@ -47,6 +49,8 @@ from .conftest import make_callback_query, make_message
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from pyroflow.update_coordinator import UpdateCoordinator
 
 
 PACKET = (None, None, None)
@@ -62,7 +66,7 @@ def make_coordinated(**kw: Any) -> MessageCoordinated:
 
     return MessageCoordinated(
         extract_key_func=extract_key_func,
-        coordinator_factory=lambda ut: MemoryUpdateCoordinator(ut, **kw),
+        coordinator=MemoryUpdateCoordinator(Message, **kw),
     )
 
 
@@ -411,7 +415,7 @@ async def test_redis_backend_marks_and_hands_over_across_sessions() -> None:
     pytest.importorskip("lupa")
     redis = fakeredis.aioredis.FakeRedis()
     coordinated = MessageCoordinated(
-        coordinator_factory=lambda ut: RedisUpdateCoordinator(redis, ut, blocking_timeout=1)
+        coordinator=RedisUpdateCoordinator(redis, Message, blocking_timeout=1)
     )
     msg = coordinatable_message()
     first = fake_dispatcher(coordinated, settles=False)
@@ -584,10 +588,8 @@ async def test_settle_handled_settles_the_current_update_as_handled() -> None:
 # --- Dispatcher: construction, start and stop -------------------------------
 
 
-class FakeComponent:
-    """A listener or coordinated stand-in bound to `Message`."""
-
-    __update_type__ = Message
+class FakeBackend:
+    """A coordinator stand-in that records its lifecycle."""
 
     def __init__(self, log: list[str], name: str, error: Exception | None = None) -> None:
         self.log = log
@@ -603,6 +605,24 @@ class FakeComponent:
         self.log.append(f"stop {self.name}")
         if self.error is not None:
             raise self.error
+
+
+class FakeComponent(FakeBackend):
+    """A listener or coordinated stand-in bound to `Message`, with its own coordinator unless given one."""
+
+    __update_type__ = Message
+
+    def __init__(
+        self,
+        log: list[str],
+        name: str,
+        error: Exception | None = None,
+        coordinator: FakeBackend | None = None,
+    ) -> None:
+        super().__init__(log, name, error)
+        self.coordinator = (
+            FakeBackend(log, f"{name} coordinator", error) if coordinator is None else coordinator
+        )
 
 
 def make_client(**kw: Any) -> SimpleNamespace:
@@ -643,7 +663,7 @@ async def test_start_and_stop_through_the_original_dispatcher() -> None:
     assert dispatcher.is_started is False
 
 
-async def test_start_runs_the_original_first_then_every_component() -> None:
+async def test_start_runs_the_original_then_the_coordinators_then_the_listeners() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
 
@@ -654,25 +674,42 @@ async def test_start_runs_the_original_first_then_every_component() -> None:
 
     dispatcher.oldstart = oldstart
     dispatcher.listeners[Message] = FakeComponent(order, "listener")  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[CallbackQuery] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
 
     assert await dispatcher.start(1, flag=True) == "result"
 
     assert dispatcher.is_started is True
     assert order[0] == "oldstart (1,) {'flag': True}"
-    assert sorted(order[1:]) == ["start coordinated", "start listener"]
+    assert sorted(order[1:3]) == ["start coordinated coordinator", "start listener coordinator"]
+    assert order[3:] == ["start listener"]
+
+
+async def test_start_starts_a_shared_coordinator_once() -> None:
+    order: list[str] = []
+    dispatcher = make_real_dispatcher()
+    shared = FakeBackend(order, "shared")
+    dispatcher.listeners[Message] = FakeComponent(order, "listener", coordinator=shared)  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated", coordinator=shared)  # ty: ignore[invalid-assignment]
+
+    await dispatcher.start()
+
+    assert order == ["start shared", "start listener"]
 
 
 async def test_start_survives_a_failing_component() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
     dispatcher.listeners[Message] = FakeComponent(order, "listener", RuntimeError("x"))  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[CallbackQuery] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
 
     await dispatcher.start()
 
     assert dispatcher.is_started is True
-    assert sorted(order) == ["start coordinated", "start listener"]
+    assert sorted(order) == [
+        "start coordinated coordinator",
+        "start listener",
+        "start listener coordinator",
+    ]
 
 
 async def test_start_leaves_the_dispatcher_stopped_if_the_original_fails() -> None:
@@ -690,7 +727,7 @@ async def test_start_leaves_the_dispatcher_stopped_if_the_original_fails() -> No
     assert dispatcher.is_started is False
 
 
-async def test_stop_stops_every_component_before_the_original() -> None:
+async def test_stop_stops_the_listeners_then_the_coordinators_before_the_original() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
     dispatcher.is_started = True
@@ -702,13 +739,14 @@ async def test_stop_stops_every_component_before_the_original() -> None:
 
     dispatcher.oldstop = oldstop
     dispatcher.listeners[Message] = FakeComponent(order, "listener", RuntimeError("x"))  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[CallbackQuery] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
 
     assert await dispatcher.stop(clear_handlers=False) == "result"
 
     assert dispatcher.is_started is False
-    assert sorted(order[:2]) == ["stop coordinated", "stop listener"]
-    assert order[2] == "oldstop () {'clear_handlers': False}"
+    assert order[0] == "stop listener"
+    assert sorted(order[1:3]) == ["stop coordinated coordinator", "stop listener coordinator"]
+    assert order[3] == "oldstop () {'clear_handlers': False}"
 
 
 # --- Dispatcher: registration -----------------------------------------------
@@ -759,15 +797,69 @@ async def test_register_rejects_a_running_dispatcher(kind: str, registry: str, l
 
 
 @REGISTRIES
-async def test_unregister_removes_and_stops(kind: str, registry: str, label: str) -> None:
+async def test_register_rejects_a_different_coordinator_than_its_pair(
+    kind: str, registry: str, label: str
+) -> None:
+    dispatcher = make_real_dispatcher()
+    other = "coordinateds" if registry == "listeners" else "listeners"
+    getattr(dispatcher, other)[Message] = FakeComponent([], "pair")
+
+    with pytest.raises(ValueError, match="must share one coordinator"):
+        getattr(dispatcher, f"register_{kind}")(FakeComponent([], kind))
+
+    assert getattr(dispatcher, registry) == {}
+
+
+@REGISTRIES
+async def test_register_accepts_the_coordinator_of_its_pair(
+    kind: str, registry: str, label: str
+) -> None:
+    dispatcher = make_real_dispatcher()
+    other = "coordinateds" if registry == "listeners" else "listeners"
+    pair = FakeComponent([], "pair")
+    getattr(dispatcher, other)[Message] = pair
+    component = FakeComponent([], kind, coordinator=pair.coordinator)
+
+    getattr(dispatcher, f"register_{kind}")(component)
+
+    assert getattr(dispatcher, registry) == {Message: component}
+
+
+async def test_unregister_listener_stops_it_and_its_unshared_coordinator() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
-    getattr(dispatcher, registry)[Message] = FakeComponent(order, kind)
+    dispatcher.listeners[Message] = FakeComponent(order, "listener")  # ty: ignore[invalid-assignment]
+
+    await dispatcher.unregister_listener(Message)
+
+    assert dispatcher.listeners == {}
+    assert order == ["stop listener", "stop listener coordinator"]
+
+
+async def test_unregister_coordinated_stops_only_its_unshared_coordinator() -> None:
+    order: list[str] = []
+    dispatcher = make_real_dispatcher()
+    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+
+    await dispatcher.unregister_coordinated(Message)
+
+    assert dispatcher.coordinateds == {}
+    assert order == ["stop coordinated coordinator"]
+
+
+@REGISTRIES
+async def test_unregister_keeps_a_coordinator_its_pair_still_uses(
+    kind: str, registry: str, label: str
+) -> None:
+    order: list[str] = []
+    dispatcher = make_real_dispatcher()
+    shared = FakeBackend(order, "shared")
+    dispatcher.listeners[Message] = FakeComponent(order, "listener", coordinator=shared)  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated", coordinator=shared)  # ty: ignore[invalid-assignment]
 
     await getattr(dispatcher, f"unregister_{kind}")(Message)
 
-    assert getattr(dispatcher, registry) == {}
-    assert order == [f"stop {kind}"]
+    assert "stop shared" not in order
 
 
 @REGISTRIES
@@ -789,14 +881,20 @@ async def test_unregister_unknown_type_is_a_noop(kind: str, registry: str, label
 class FakeListener:
     __update_type__ = Message
 
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        error: Exception | None = None,
+        outcome: ListenOutcome = ListenOutcome.RESOLVED,
+    ) -> None:
         self.resolved: list[object] = []
         self.error = error
+        self.outcome = outcome
 
-    async def resolve(self, update: object) -> None:
+    async def resolve(self, update: object) -> ListenOutcome:
         self.resolved.append(update)
         if self.error is not None:
             raise self.error
+        return self.outcome
 
 
 async def test_handle_listen_resolved_update_stops_propagation() -> None:
@@ -811,11 +909,11 @@ async def test_handle_listen_resolved_update_stops_propagation() -> None:
     assert listener.resolved == [msg]
 
 
-async def test_handle_listen_unresolved_update_propagates_on(
+async def test_handle_listen_unmatched_update_propagates_on(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     dispatcher = make_real_dispatcher()
-    listener = FakeListener(UnresolvedUpdate("x"))
+    listener = FakeListener(outcome=ListenOutcome.UNMATCHED)
     dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
     msg = make_message()
 
@@ -891,9 +989,9 @@ async def test_handle_listen_still_stops_an_update_a_peer_marked_first() -> None
     assert lock.releases == 1
 
 
-async def test_handle_listen_leaves_an_unresolved_update_unsettled() -> None:
+async def test_handle_listen_leaves_an_unmatched_update_unsettled() -> None:
     dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(UnresolvedUpdate("x"))  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(outcome=ListenOutcome.UNMATCHED)  # ty: ignore[invalid-assignment]
     release, coordinator, lock = make_release()
     token = _SETTLEMENT.set(release)
 
@@ -903,6 +1001,22 @@ async def test_handle_listen_leaves_an_unresolved_update_unsettled() -> None:
         _SETTLEMENT.reset(token)
 
     assert release._settled is False
+
+
+async def test_handle_listen_stops_a_foreign_update_without_settling_it() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.listeners[Message] = FakeListener(outcome=ListenOutcome.FOREIGN)  # ty: ignore[invalid-assignment]
+    release, coordinator, lock = make_release()
+    token = _SETTLEMENT.set(release)
+
+    try:
+        with pytest.raises(StopPropagation):
+            await dispatcher.handle_listen(make_message())
+    finally:
+        _SETTLEMENT.reset(token)
+
+    assert release._settled is False
+    assert coordinator.marked == []
 
 
 # --- Dispatcher._handle_update ----------------------------------------------
@@ -1223,3 +1337,82 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
     assert handled == ["stop", "boom", "ok"]
     assert caplog.text.count("Unexpected error in handler_worker") == 2
     assert dispatcher.updates_queue.qsize() == 1, "the worker must stop at the sentinel"
+
+
+# --- listening under coordination ---------------------------------------------
+
+
+def make_session(coordinator: UpdateCoordinator) -> tuple[Dispatcher, list[tuple[object, ...]]]:
+    """A dispatcher whose coordinated and listener share `coordinator`, with one recording handler."""
+    dispatcher = make_real_dispatcher()
+    dispatcher.register_coordinated(MessageCoordinated(coordinator=coordinator))
+    dispatcher.register_listener(MessageListener(coordinator=coordinator))
+    calls: list[tuple[object, ...]] = []
+    dispatcher.groups[0] = [MessageHandler(recording(calls, "handler"))]
+    return dispatcher, calls
+
+
+async def test_a_reply_reaching_another_session_first_waits_for_the_listening_one() -> None:
+    fakeredis = pytest.importorskip("fakeredis")
+    pytest.importorskip("lupa")
+    redis = fakeredis.aioredis.FakeRedis()
+    try:
+        a, a_calls = make_session(RedisUpdateCoordinator(redis, Message, blocking_timeout=1))
+        b, b_calls = make_session(RedisUpdateCoordinator(redis, Message, blocking_timeout=1))
+        coordinated = b.coordinateds[Message]
+        waiter = asyncio.create_task(a.listeners[Message].listen(100, 7))
+        await asyncio.sleep(0.05)
+        msg = make_message(100, 7, 5)
+
+        with pytest.raises(StopPropagation):
+            await b.handle_update(PACKET, msg, MessageHandler)
+
+        assert b_calls == []
+        assert await _is_claimed(coordinated, msg) is False
+
+        with pytest.raises(StopPropagation):
+            await a.handle_update(PACKET, msg, MessageHandler)
+
+        assert await waiter is msg
+        assert a_calls == []
+        assert await _is_claimed(coordinated, msg) is True
+
+        # The update is settled: the session that stood down now drops it.
+        await b.handle_update(PACKET, msg, MessageHandler)
+        assert b_calls == []
+    finally:
+        await redis.aclose()
+
+
+async def test_listen_waits_for_an_update_being_settled() -> None:
+    coordinator = MemoryUpdateCoordinator(Message, blocking_timeout=1)
+    dispatcher, calls = make_session(coordinator)
+    listener = dispatcher.listeners[Message]
+    gate = asyncio.Event()
+    (handler,) = dispatcher.groups[0]
+
+    async def slow_check(client: object, update: object) -> bool:
+        await gate.wait()
+        return True
+
+    handler.check = slow_check
+    first = make_message(100, 7, 5)
+    processing = asyncio.create_task(dispatcher.handle_update(PACKET, first, MessageHandler))
+    await asyncio.sleep(0.01)
+    waiter = asyncio.create_task(listener.listen(100, 7))
+    await asyncio.sleep(0.01)
+
+    assert ListenerKey(100, 7) not in listener.listeners
+
+    gate.set()
+    await processing
+    await asyncio.sleep(0.01)
+
+    assert calls == [("handler", first)]
+    assert not waiter.done()
+
+    second = make_message(100, 7, 6)
+    with pytest.raises(StopPropagation):
+        await dispatcher.handle_update(PACKET, second, MessageHandler)
+
+    assert await waiter is second

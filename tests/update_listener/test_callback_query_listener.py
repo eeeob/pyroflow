@@ -1,4 +1,4 @@
-"""Tests for ``CallbackQueryListener``: listenability, key extraction and ``on_unresolved``."""
+"""Tests for ``CallbackQueryListener``: listenability, key extraction and the ask a press cancels."""
 
 from __future__ import annotations as _annotations
 
@@ -8,7 +8,8 @@ from typing import Any, TYPE_CHECKING
 import pytest
 
 from pyroflow import CallbackQueryListener, MessageListener
-from pyroflow.errors import ListenerCancelled, UnresolvedUpdate
+from pyroflow.enums import ListenOutcome
+from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_callback_query
@@ -92,95 +93,87 @@ async def test_extract_key_is_none_for_an_unlistenable_callback() -> None:
     assert await CallbackQueryListener()._extract_key(make_callback_query(message=None)) is None
 
 
-async def test_on_unresolved_without_key_cancels_nothing() -> None:
+async def test_cancel_prompted_ask_without_key_cancels_nothing() -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, 7, meta={"message_id": 5})
     cbq = make_callback_query(_client=_FakeClient(mlis))
     lis = CallbackQueryListener(extract_key_func=lambda update: None)
 
-    with pytest.raises(UnresolvedUpdate):
-        await lis.on_unresolved(cbq)
+    await lis._cancel_prompted_ask(cbq)
 
     assert ListenerKey(100, 7) in mlis.listeners
     await _stop(mlis, task)
 
 
-# --- on_unresolved ---------------------------------------------------------------
+# --- _cancel_prompted_ask ---------------------------------------------------------
 
 
-async def test_on_unresolved_without_message_raises_without_touching_client() -> None:
+async def test_cancel_prompted_ask_without_message_never_touches_the_client() -> None:
     # `_client=None` proves the early return never reaches `message_listen`.
     cbq = make_callback_query(message=None, _client=None)
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
 
-async def test_on_unresolved_without_message_id_cancels_nothing() -> None:
+async def test_cancel_prompted_ask_without_message_id_cancels_nothing() -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, 7, 5, meta={"message_id": None})
     cbq = make_callback_query(_client=_FakeClient(mlis))
     cbq.message.id = None
 
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
     assert ListenerKey(100, 7, 5) in mlis.listeners
     await _stop(mlis, task)
 
 
-async def test_on_unresolved_without_message_listener_raises() -> None:
+async def test_cancel_prompted_ask_without_message_listener_does_nothing() -> None:
     cbq = make_callback_query(_client=_FakeClient(None))
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
 
-async def test_on_unresolved_cancels_message_listener_waiting_on_this_message() -> None:
+async def test_cancel_prompted_ask_cancels_message_listener_waiting_on_this_message() -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, 7, meta={"message_id": 5})
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
     assert ListenerKey(100, 7) not in mlis.listeners
     with pytest.raises(ListenerCancelled):
         await task
 
 
-async def test_on_unresolved_reaches_chat_only_message_listener() -> None:
+async def test_cancel_prompted_ask_reaches_chat_only_message_listener() -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, meta={"message_id": 5})
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
     with pytest.raises(ListenerCancelled):
         await task
 
 
 @pytest.mark.parametrize("meta", [{"message_id": 6}, {}, None, [5], "5"])
-async def test_on_unresolved_keeps_listener_for_other_message(meta: Any) -> None:
+async def test_cancel_prompted_ask_keeps_listener_for_other_message(meta: Any) -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, 7, meta=meta)
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
     assert ListenerKey(100, 7) in mlis.listeners
     assert not task.done()
     await _stop(mlis, task)
 
 
-async def test_on_unresolved_only_checks_first_matching_message_listener() -> None:
+async def test_cancel_prompted_ask_only_checks_first_matching_message_listener() -> None:
     mlis = MessageListener()
     specific = await _listen(mlis, 100, 7, meta={"message_id": 99})
     chat_wide = await _listen(mlis, 100, meta={"message_id": 5})
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
-    with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(cbq)
+    await CallbackQueryListener()._cancel_prompted_ask(cbq)
 
     assert ListenerKey(100, 7) in mlis.listeners
     assert ListenerKey(100) in mlis.listeners
@@ -196,10 +189,24 @@ async def test_resolve_unmatched_callback_cancels_message_listener() -> None:
     await asyncio.sleep(0)
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
-    with pytest.raises(UnresolvedUpdate):
-        await clis.resolve(cbq)
+    assert await clis.resolve(cbq) is ListenOutcome.UNMATCHED
 
     with pytest.raises(ListenerCancelled):
         await message_waiter
     assert not callback_waiter.done()
     await _stop(clis, callback_waiter)
+
+
+async def test_resolve_resolved_callback_leaves_the_message_listener() -> None:
+    mlis = MessageListener()
+    message_waiter = await _listen(mlis, 100, 7, meta={"message_id": 5})
+    clis = CallbackQueryListener()
+    callback_waiter = asyncio.create_task(clis.listen(100, 7))
+    await asyncio.sleep(0)
+    cbq = make_callback_query(_client=_FakeClient(mlis))
+
+    assert await clis.resolve(cbq) is ListenOutcome.RESOLVED
+
+    assert await callback_waiter is cbq
+    assert not message_waiter.done()
+    await _stop(mlis, message_waiter)

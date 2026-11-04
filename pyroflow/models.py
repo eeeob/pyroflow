@@ -13,9 +13,6 @@ from pytrove.typings import JsonValue as JsonValueT
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    # Type-only: `dataclasses` read only `ClassVar` annotations at runtime.
-    from .typings import ListenerCoordinatorIdT  # noqa: TC004
-
 
 # Defined before `ListenerKey`, whose class body passes it to `KeyDefaultDict`.
 def _get_plan(mask: int) -> tuple[int, ...]:
@@ -165,12 +162,12 @@ class ListenerModel:
     """Optional JSON-serializable metadata attached to the listener."""
     future: asyncio.Future = field(default_factory=asyncio.Future)
     """Resolved with the matching update, or failed with an error."""
-    coordinator_id: ListenerCoordinatorIdT | None = None
-    """Ownership token handed out by the coordinator at registration time.
+    owner_id: str | None = None
+    """Owner id the coordinator registered this listener under.
 
-    It tells apart listeners registered under the same key over time:
-    `UpdateListener.resolve` and `UpdateListener._cancel` compare it so a
-    signal still in flight never hits the listener that replaced this one.
+    It tells apart listeners registered under the same key over time, so a
+    stale registration or a late loss report never hits the listener that
+    replaced this one.
     """
 
     def resolve(self, update: object) -> None:

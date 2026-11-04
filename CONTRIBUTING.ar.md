@@ -145,7 +145,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **2.4 الـ backends تتغير معًا.** أي تغيير في `backend` الـ Memory يقابله تغيير في `backend` الـ Redis في التغيير نفسه، والعكس.
 
-**2.5 لا قفل داخل استدعاءات سجل الـ coordinator.** الدوال `register` و`unregister` و`cancel` و`registered` في `ListenerCoordinator` لا تأخذ `lock()` أبدًا. السبب أن `UpdateListener` يمسك `lock(key.chat_id)` حين يستدعيها، والقفل غير قابل لإعادة الدخول (`non-reentrant`). أخذه مرة ثانية يجمّد الـ `worker` نهائيًا (`deadlock`)، ولا `timeout` يُنقذه. الحالة التي لا يغطيها القفل تأخذ قفلًا منفصلًا خاصًا بها.
+**2.5 منسق واحد، ولا قفل متداخل.** الـ listener والـ coordinated لنوع update واحد يتشاركان `UpdateCoordinator` واحدًا، يحمل كل حالة تتشاركها الـ sessions. استدعاءات سجل الـ listeners فيه (`register_listener` و`listener_owners` و`unregister_listener` و`cancel_listener`) ذرية بذاتها ولا تأخذ `lock()` أبدًا. السبب أن `UpdateListener.resolve` يعمل والـ dispatcher يمسك قفل الـ update، والقفل غير قابل لإعادة الدخول (`non-reentrant`). أخذه مرة ثانية هناك يجمّد الـ `worker` نهائيًا (`deadlock`)، ولا `timeout` يُنقذه.
 
 **2.6 تبقى `redis` اختيارية.** لا يُستورد `redis` إلا تحت `TYPE_CHECKING`، ويمرّر المستخدم عميل Redis بنفسه، لأن `redis` `extra` اختياري (3.1).
 

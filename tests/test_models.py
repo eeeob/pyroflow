@@ -155,7 +155,7 @@ def test_listener_key_sub_keys_min_dep_bounds() -> None:
 async def test_listener_model_defaults_bind_to_the_running_loop() -> None:
     model = ListenerModel(ListenerKey(1))
     assert model.meta is None
-    assert model.coordinator_id is None
+    assert model.owner_id is None
     assert isinstance(model.future, asyncio.Future)
     assert model.future.get_loop() is asyncio.get_running_loop()
     assert ListenerModel(ListenerKey(1)).future is not model.future

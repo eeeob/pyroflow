@@ -54,16 +54,10 @@ def test_init_defaults_only_the_callables_not_passed() -> None:
     assert mc.extract_update_id_func == mc._extract_update_id
 
 
-def test_init_forwards_the_coordinator_factory() -> None:
-    seen: list[type] = []
+def test_init_keeps_the_given_coordinator() -> None:
+    coordinator = MemoryUpdateCoordinator(MessageCoordinated.__update_type__)
 
-    def factory(update_type: type) -> MemoryUpdateCoordinator:
-        seen.append(update_type)
-        return MemoryUpdateCoordinator(update_type)
-
-    MessageCoordinated(coordinator_factory=factory)
-
-    assert seen == [PyroMessage]
+    assert MessageCoordinated(coordinator=coordinator).coordinator is coordinator
 
 
 async def test_extract_key_is_the_chat_id() -> None:

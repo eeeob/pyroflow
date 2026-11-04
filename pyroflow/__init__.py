@@ -6,7 +6,6 @@ Importing this package patches Pyrogram's classes in place.
 __version__ = "0.2.1"
 """The installed release, as a PEP 440 version string."""
 
-from .listener_coordinator import *
 from .update_coordinated import *
 from .update_coordinator import *
 from .update_listener import *
@@ -20,7 +19,6 @@ from .types import *
 from . import filters
 
 __all__ = (
-    *listener_coordinator.__all__,
     *update_coordinated.__all__,
     *update_coordinator.__all__,
     *update_listener.__all__,

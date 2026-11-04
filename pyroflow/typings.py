@@ -28,9 +28,6 @@ CoordinatedUpdateKeyT: TypeAlias = tuple[StrInt, ...]
 CoordinatedUpdateIdT: TypeAlias = tuple[StrInt, ...]
 """An update's unique identity, used to mark it as handled."""
 
-ListenerCoordinatorIdT: TypeAlias = StrInt
-"""Ownership token a listener coordinator hands out at registration time."""
-
 BotCommandEntryT: TypeAlias = (
     MaybeList[BotCommand]
     | tuple[BotCommandScope, MaybeList[BotCommand]]
@@ -86,7 +83,6 @@ __all__ = (
     "AsyncLockProto",
     "CoordinatedUpdateKeyT",
     "CoordinatedUpdateIdT",
-    "ListenerCoordinatorIdT",
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",

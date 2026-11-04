@@ -39,8 +39,51 @@ Every breaking change lists what changed, who is affected and how to migrate.
   as `token` instead of a random UUID.
 - `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
+- `ListenOutcome` (`RESOLVED`, `FOREIGN`, `UNMATCHED`): what
+  `UpdateListener.resolve` decided for an update.
+- The listener registry lives in `UpdateCoordinator`: `register_listener`,
+  `listener_owners`, `unregister_listener`, `cancel_listener`, plus
+  `new_owner_id`, `is_mine` and `on_listener_lost`. Each call is atomic and
+  takes no lock. `RedisUpdateCoordinator` keeps each registration as a lease
+  of `listener_ttl` seconds (60 by default), renewed by `refresh_listeners`
+  every third of it while the coordinator runs.
+- `UpdateListener.extract_lock_key` (and `extract_lock_key_func`): the
+  coordinator lock `listen` registers under, the chat by default.
+- `UpdateListener.discard`: cancel a local listener without touching the
+  registry; `is_closed` tells whether `stop` ran since the last `start`.
 
 ### Changed
+
+- **BREAKING:** a listener and the coordinated of its update type share one
+  `UpdateCoordinator`, passed as `coordinator=` to both;
+  `UpdateCoordinated(coordinator_factory=...)` is now
+  `UpdateCoordinated(coordinator=...)`. Registering a listener and a
+  coordinated of one type with different coordinators raises `ValueError`,
+  and a coordinator serves one listener only. The dispatcher starts and stops
+  each coordinator once; `UpdateListener.start`/`stop` no longer touch it.
+  Affects code passing `coordinator_factory` to either.
+  Migration:
+  `coordinator = RedisUpdateCoordinator(redis, Message)`, then
+  `MessageCoordinated(coordinator=coordinator)` and
+  `MessageListener(coordinator=coordinator)`.
+- **BREAKING:** `UpdateListener.resolve` returns a `ListenOutcome` instead of
+  raising `UnresolvedUpdate`. When the update matches a listener another
+  session registered, it returns `FOREIGN` and the dispatcher stops the update
+  without handlers and without marking it, for that session to take. An
+  `is_bypass` match cancels the listener in whatever session waits on it.
+  Affects code calling or overriding `resolve`.
+  Migration: compare the result with `ListenOutcome`; an `on_unresolved`
+  override becomes a `resolve` override that acts on `UNMATCHED`.
+- **BREAKING:** `listen` registers under the coordinator lock of
+  `extract_lock_key` and takes only updates settled after it registered;
+  `cancel(key)` cancels the listener in every session and its only argument
+  is the key. `ListenerModel.coordinator_id` is `owner_id`, a
+  `<fingerprint>:<random>` string. A peer's waiter learns its registration
+  was taken over or cancelled at its next renewal (within `listener_ttl / 3`).
+  Affects code passing `cancel_coordinator`, `is_duplicate` or
+  `coordinator_id` to `cancel`, or reading `coordinator_id`.
+  Migration: call `cancel(key)`, or `discard(key, owner_id)` for the local
+  listener only; read `owner_id`.
 
 - **BREAKING:** `UpdateCoordinator.mark_handled` raises the new
   `UpdateAlreadyHandled` (a `CoordinationError`) when the id is already
@@ -154,6 +197,15 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Removed
 
+- **BREAKING:** `pyroflow.listener_coordinator` (`ListenerCoordinator`,
+  `MemoryListenerCoordinator`, `RedisListenerCoordinator`), with its per-chat
+  Redis lock, `lock_timeout`, `lock_blocking_timeout` and cancel pub/sub
+  channel; `UpdateListener.coordinator_factory`, `on_unresolved` and
+  `_cancel`; `UnresolvedUpdate`; `ListenerCoordinatorIdT`; and
+  `UpdateCoordinated.start`/`stop`. Affects code using any of them.
+  Migration: pass an `UpdateCoordinator` as `coordinator=` (see Changed);
+  Redis keys `listen|registry|...` and `listen|lock|...` are no longer read,
+  so delete them once every session runs this version.
 - **BREAKING:** handler histories are gone: `UpdateHistory`, `MessageHistory`,
   `CallbackQueryHistory`, `UpdateHistoryStore`, `MemoryUpdateHistoryStore`,
   `UpdateRecord`, `UpdateHistoryKeyT`, `Client`/`Dispatcher.register_history`
@@ -195,6 +247,18 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Fixed
 
+- A reply that reached another session first no longer goes to that
+  session's handlers while the `listen` that waits for it hangs: every session
+  checks the shared registry, and the one that does not own the listener
+  stands down.
+- An update being processed while a listener registers is decided once:
+  either it goes to the handlers and the listener waits for the next one, or
+  the listener takes it.
+- A failed unregister at the end of `listen` is logged instead of hiding the
+  result or error of the wait, and a lost cancel signal no longer raises
+  `RuntimeError("... out of sync")` on the next `listen`.
+- Redis listener registrations of a session that died expire within
+  `listener_ttl` instead of staying forever.
 - `RedisListenerCoordinator.stop()` propagates its caller's cancellation
   instead of swallowing it.
 - `MessageListener` no longer raises `AttributeError` for messages without

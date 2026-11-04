@@ -21,6 +21,7 @@ from cachetools import TTLCache
 from pyrogram.types import Message
 
 from pyroflow.errors import UpdateAlreadyHandled
+from pyroflow.models import ListenerKey
 from pyroflow.update_coordinator import memory_update_coordinator
 from pyroflow.update_coordinator.memory_update_coordinator import (
     MemoryUpdateCoordinator,
@@ -267,6 +268,70 @@ async def test_stop_leaves_held_locks_alone() -> None:
 
     assert lock.locked()
     assert coord.lock((1, 2)) is lock
+
+
+# --- the listener registry ------------------------------------------------
+
+
+async def test_register_listener_claims_a_free_key() -> None:
+    coord = _coord()
+
+    assert await coord.register_listener(ListenerKey(1), "a", replace=False) is None
+    assert coord.listeners == {ListenerKey(1): "a"}
+
+
+async def test_register_listener_without_replace_keeps_the_owner() -> None:
+    coord = _coord()
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    assert await coord.register_listener(ListenerKey(1), "b", replace=False) == "a"
+    assert coord.listeners[ListenerKey(1)] == "a"
+
+
+async def test_register_listener_with_replace_overwrites_and_returns_the_owner() -> None:
+    coord = _coord()
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    assert await coord.register_listener(ListenerKey(1), "b", replace=True) == "a"
+    assert coord.listeners[ListenerKey(1)] == "b"
+
+
+async def test_listener_owners_follow_the_order_of_keys() -> None:
+    coord = _coord()
+    await coord.register_listener(ListenerKey(1, 2), "a", replace=False)
+
+    assert await coord.listener_owners([ListenerKey(1, 2), ListenerKey(1), ListenerKey(1, 2)]) == [
+        "a",
+        None,
+        "a",
+    ]
+
+
+async def test_unregister_listener_removes_only_its_owner() -> None:
+    coord = _coord()
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    assert await coord.unregister_listener(ListenerKey(1), "b") is False
+    assert await coord.unregister_listener(ListenerKey(1), "a") is True
+    assert await coord.unregister_listener(ListenerKey(1), "a") is False
+    assert coord.listeners == {}
+
+
+async def test_cancel_listener_removes_any_owner() -> None:
+    coord = _coord()
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    assert await coord.cancel_listener(ListenerKey(1)) == "a"
+    assert await coord.cancel_listener(ListenerKey(1)) is None
+
+
+async def test_stop_clears_the_listener_registry() -> None:
+    coord = _coord()
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    await coord.stop()
+
+    assert coord.listeners == {}
 
 
 def test_all_exports_only_the_coordinator() -> None:

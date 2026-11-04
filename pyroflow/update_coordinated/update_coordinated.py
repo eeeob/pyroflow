@@ -12,8 +12,6 @@ from ..update_coordinator import UpdateCoordinator, MemoryUpdateCoordinator
 from ..utils import UpdateBound, get_update_executor
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from pytrove.typings import MaybeCoroutineCallable
 
     from ..typings import CoordinatedUpdateKeyT, CoordinatedUpdateIdT
@@ -33,14 +31,15 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
       handled. Extracted only once the key is known; never `None`.
 
     An update counts as handled, and its lock is released, as soon as a
-    listener resolves it or one handler's filter passes it.
+    listener resolves it or one handler's filter passes it. Pass the same
+    `coordinator` to the `UpdateListener` of this update type, so listening
+    and processing share one lock and one registry.
 
     Each callable may be sync or async; a sync one runs in a thread, on the
     client's executor when it has one.
 
     Args:
-        coordinator_factory: Builds the `UpdateCoordinator` from the update
-            type. Defaults to `MemoryUpdateCoordinator`.
+        coordinator: The backend; a new `MemoryUpdateCoordinator` if `None`.
         extract_key_func: `(update) -> key | None` backing `extract_key`. If
             `None`, a subclass must override that method.
         extract_update_id_func: `(update) -> key` backing `extract_update_id`.
@@ -59,20 +58,32 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
 
     def __init__(
         self,
-        coordinator_factory: Callable[[type[UpdateType]], UpdateCoordinator] | None = None,
+        coordinator: UpdateCoordinator | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], CoordinatedUpdateKeyT | None]
         | None = None,
         extract_update_id_func: MaybeCoroutineCallable[[UpdateType], CoordinatedUpdateIdT]
         | None = None,
         **kw: Any,
     ) -> None:
-        """Initialise the policy; see the class docstring for the parameters."""
+        """Initialise the policy; see the class docstring for the parameters.
+
+        Raises:
+            ValueError: If `coordinator` handles another update type.
+        """
         super().__init__(**kw)
 
-        if coordinator_factory is None:
-            coordinator_factory = MemoryUpdateCoordinator
+        update_type = self.__class__.__update_type__
 
-        self.coordinator = coordinator_factory(self.__class__.__update_type__)
+        if coordinator is None:
+            coordinator = MemoryUpdateCoordinator(update_type)
+        elif coordinator.update_type is not update_type:
+            msg = (
+                f"{self.__class__.__name__} needs a coordinator for {update_type.__name__}, "
+                f"got one for {coordinator.update_type.__name__}"
+            )
+            raise ValueError(msg)
+
+        self.coordinator = coordinator
         """Backend that locks keys and remembers handled updates."""
 
         self.extract_key_func = extract_key_func
@@ -146,14 +157,6 @@ class UpdateCoordinated(ABC, UpdateBound[UpdateType]):
             executor=get_update_executor(update),
             log_exc=False,
         )
-
-    async def start(self) -> None:
-        """Start the coordinator."""
-        await self.coordinator.start()
-
-    async def stop(self) -> None:
-        """Stop the coordinator."""
-        await self.coordinator.stop()
 
 
 __all__ = ("UpdateCoordinated",)

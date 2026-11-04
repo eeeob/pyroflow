@@ -261,10 +261,13 @@ def test_callback_listen_raises_key_error_when_unregistered() -> None:
 
 
 class _Stoppable:
+    """A listener or coordinated stand-in that is its own coordinator, so unregistering stops it either way."""
+
     __update_type__ = Message
 
     def __init__(self) -> None:
         self.stopped = False
+        self.coordinator = self
 
     async def stop(self) -> None:
         self.stopped = True

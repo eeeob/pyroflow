@@ -134,6 +134,8 @@ client.message_listen    # UpdateListener[Message]
 client.callback_listen   # UpdateListener[CallbackQuery]
 ```
 
+الـ listener يأخذ أول update مطابق يُحسم بعد تسجيله. الـ update الذي يحسمه الـ dispatcher لحظة التسجيل يذهب إلى الـ handlers، وينتظر الـ listener الذي بعده.
+
 ---
 
 ### ask()
@@ -215,24 +217,30 @@ answer = await client.ask_rich(
   - لا تُستخرج إلا بعد معرفة المفتاح.
 
 ```python
-from functools import partial
+from pyrogram.types import Message
 from redis.asyncio import Redis
-from pyroflow import Client, MessageCoordinated, RedisUpdateCoordinator
+from pyroflow import Client, MessageCoordinated, MessageListener, RedisUpdateCoordinator
 
 
 client = Client("my_session")
 redis = Redis()
-coordinator_factory = partial(RedisUpdateCoordinator, redis)
-coordinated = MessageCoordinated(coordinator_factory)
-client.register_coordinated(coordinated)
+coordinator = RedisUpdateCoordinator(redis, Message)
+client.register_coordinated(MessageCoordinated(coordinator=coordinator))
+client.register_listener(MessageListener(coordinator=coordinator))
 
 client.run()
 ```
 
+الـ `UpdateCoordinator` يحمل كل ما تتشاركه الـ sessions لنوع update واحد: الأقفال، وعلامات المعالجة، وسجل الـ listeners.
+- مرّر نفس المنسق إلى الـ listener والـ coordinated لهذا النوع. تسجيلهما بمنسقين مختلفين يرفع `ValueError`.
+- الـ listener يُسجَّل تحت القفل الذي يأخذه الـ update (المحادثة افتراضيًا)، فيُحسم الـ update إما قبل تسجيل الـ listener أو بعده.
+- إن طابق update listener سجّلته session أخرى، تتركه هذه الـ session بلا تعليم ولا handlers، وتأخذه الـ session التي تنتظره.
+- كل تسجيل lease مدته `listener_ttl` ثانية (60 افتراضيًا)، يتجدد ما دامت الـ session تعمل. الـ session التي تموت تتحرر listeners خاصتها خلال `listener_ttl` واحد.
+
 مرّر client لـ Redis يصل إلى الخادم. المنسق لا يفتحه ولا يغلقه، فأغلقه بنفسك بعد إيقاف الـ client.
 
-كل الـ sessions تستخدم نفس مفاتيح Redis، وبهذا يتم التنسيق بينها. ويكتب كل منسق `fingerprint` خاصاً به في قيمة كل قفل يأخذه:
-- عند الإيقاف يحذف الأقفال التي ما زال يحملها، ولا يلمس أقفال الـ sessions الأخرى.
+كل الـ sessions تستخدم نفس مفاتيح Redis، وبهذا يتم التنسيق بينها. ويكتب كل منسق `fingerprint` خاصاً به في قيمة كل قفل وكل تسجيل listener يكتبه:
+- عند الإيقاف يحذف ما زال يحمله منها، ولا يلمس ما يخص الـ sessions الأخرى.
 - علامات المعالجة تبقى حتى ينتهي `handled_ttl`، لأن الـ sessions الأخرى تعتمد عليها.
 
 **الـ backends المدعومة:**
@@ -257,10 +265,12 @@ client.run()
 ```python
 # التنسيق على مستوى الرسالة بدل المحادثة.
 coordinated = MessageCoordinated(
-    coordinator_factory,
+    coordinator=coordinator,
     extract_key_func=lambda m: (m.chat.id, m.id),
 )
 ```
+
+الـ listener الذي يشارك هذا المنسق يجب أن يُسجَّل تحت نفس القفل، فأعطه `extract_lock_key_func` مطابقًا.
 
 ---
 
@@ -288,7 +298,7 @@ except ListenerCancelled:
 
 كل الأخطاء ترث `PyroflowError`:
 
-- `ListenerError`: أخطاء الانتظار و`ask` (`ListenerTimeout`، `ListenerCancelled`، `ListenerAlreadyExists`، `UnresolvedUpdate`).
+- `ListenerError`: أخطاء الانتظار و`ask` (`ListenerTimeout`، `ListenerCancelled`، `ListenerAlreadyExists`).
 - `CoordinationError`: عائلة أخطاء التنسيق.
 
 ---

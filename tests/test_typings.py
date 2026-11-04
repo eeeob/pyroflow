@@ -17,7 +17,6 @@ from pyroflow.typings import (
     BotCommandGroupKeyT,
     BotCommandPartsT,
     ListenMessageIdT,
-    ListenerCoordinatorIdT,
     CoordinatedUpdateIdT,
     CoordinatedUpdateKeyT,
     UpdateType,
@@ -32,10 +31,6 @@ def test_update_type_is_bound_to_pyrogram_update() -> None:
 def test_key_and_id_aliases_are_variadic_tuples_of_ids(alias: object) -> None:
     assert get_origin(alias) is tuple
     assert get_args(alias) == (int | str, ...)
-
-
-def test_listener_coordinator_id_is_str_or_int() -> None:
-    assert set(get_args(ListenerCoordinatorIdT)) == {str, int}
 
 
 def test_bot_command_entry_shapes() -> None:
@@ -80,7 +75,6 @@ def test_typings_all() -> None:
         "AsyncLockProto",
         "CoordinatedUpdateKeyT",
         "CoordinatedUpdateIdT",
-        "ListenerCoordinatorIdT",
         "BotCommandEntryT",
         "BotCommandPartsT",
         "BotCommandGroupKeyT",

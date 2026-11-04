@@ -4,6 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
+from ..enums import ListenOutcome
 from ..models import ListenerKey
 from ..types import CallbackQuery
 from .update_listener import UpdateListener
@@ -77,8 +78,27 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         # `_is_listenable` يضمن أن `message` و `chat` ليسا `None` قبل استخراج المفتاح
         return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `_is_listenable` guarantees `message` and `chat` are set
 
-    async def on_unresolved(self, update: CallbackQuery) -> None:
-        """Cancel the message listener waiting on this callback's message, then raise.
+    async def resolve(self, update: CallbackQuery) -> ListenOutcome:
+        """Resolve the callback; when no callback listener takes it, cancel the ask on its message.
+
+        A button pressed on a message that a text `ask` waits on ends that
+        ask: see `_cancel_prompted_ask`.
+
+        Args:
+            update: The incoming callback query.
+
+        Returns:
+            The outcome of `UpdateListener.resolve`.
+        """
+        outcome = await super().resolve(update)
+
+        if outcome is ListenOutcome.UNMATCHED:
+            await self._cancel_prompted_ask(update)
+
+        return outcome
+
+    async def _cancel_prompted_ask(self, update: CallbackQuery) -> None:
+        """Cancel the message listener of this process waiting on the callback's message.
 
         Only the first message listener matching one of the sub-keys of the
         callback's `extract_key` is considered, and it is cancelled only if its
@@ -88,35 +108,27 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
 
         Args:
             update: The incoming callback query.
-
-        Raises:
-            UnresolvedUpdate: Always, via the base implementation.
         """
-        client = update._client
         m = update.message
 
         if not m or not getattr(m, "id", None):
-            return await super().on_unresolved(update)
+            return
 
         key = await self.extract_key(update)
 
         if key is None:
-            return await super().on_unresolved(update)
+            return
 
         try:
-            m_listen = client.message_listen
+            m_listen = update._client.message_listen
         except KeyError:
-            pass
-        else:
-            m_listeners = m_listen.listeners
+            return
 
-            for sub in key.sub_keys():
-                if listener := m_listeners.get(sub):
-                    if isinstance(listener.meta, dict) and listener.meta.get("message_id") == m.id:
-                        await m_listen.cancel(sub)
-                    break
-
-        return await super().on_unresolved(update)
+        for sub in key.sub_keys():
+            if listener := m_listen.listeners.get(sub):
+                if isinstance(listener.meta, dict) and listener.meta.get("message_id") == m.id:
+                    await m_listen.cancel(sub)
+                break
 
 
 __all__ = ("CallbackQueryListener",)

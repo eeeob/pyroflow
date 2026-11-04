@@ -11,7 +11,8 @@ from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pytrove import maybe_awaitable, gather_helper, safe_await
 
-from .errors import UnresolvedUpdate, UpdateAlreadyHandled
+from .enums import ListenOutcome
+from .errors import UpdateAlreadyHandled
 from .utils import patch_cls
 
 if TYPE_CHECKING:
@@ -120,6 +121,9 @@ class Dispatcher(PyroDispatcher):
     registered listener gets the update
     first and, if it resolves it, propagation stops; then the first matching
     handler of each group runs.
+
+    The listener and the coordinated of one update type share one
+    `UpdateCoordinator`; the dispatcher starts and stops each coordinator once.
     """
 
     old__init__: Callable[..., None]
@@ -158,8 +162,11 @@ class Dispatcher(PyroDispatcher):
         self.is_started = True
 
         await gather_helper(
+            (coordinator.start() for coordinator in self._coordinators()),
+            return_exc=True,
+        )
+        await gather_helper(
             (listener.start() for listener in self.listeners.values()),
-            (coordinated.start() for coordinated in self.coordinateds.values()),
             return_exc=True,
         )
 
@@ -174,7 +181,10 @@ class Dispatcher(PyroDispatcher):
         """
         await gather_helper(
             (listener.stop() for listener in self.listeners.values()),
-            (coordinated.stop() for coordinated in self.coordinateds.values()),
+            return_exc=True,
+        )
+        await gather_helper(
+            (coordinator.stop() for coordinator in self._coordinators()),
             return_exc=True,
         )
 
@@ -183,6 +193,31 @@ class Dispatcher(PyroDispatcher):
         self.is_started = False
 
         return r
+
+    def _coordinators(self) -> list[UpdateCoordinator]:
+        """Return every coordinator the listeners and coordinateds use, each once."""
+        components = (*self.listeners.values(), *self.coordinateds.values())
+
+        return list({id(c.coordinator): c.coordinator for c in components}.values())
+
+    def _check_shared_coordinator(self, update_type: type[PyroUpdate]) -> None:
+        """Raise if the listener and the coordinated of `update_type` use different coordinators.
+
+        Raises:
+            ValueError: If both exist and do not share one coordinator.
+        """
+        listener = self.listeners.get(update_type)
+        coordinated = self.coordinateds.get(update_type)
+
+        if listener is None or coordinated is None:
+            return
+
+        if listener.coordinator is not coordinated.coordinator:
+            msg = (
+                f"The {update_type.__name__} listener and coordinated must share one "
+                f"coordinator: pass the same UpdateCoordinator to both"
+            )
+            raise ValueError(msg)
 
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.
@@ -194,7 +229,8 @@ class Dispatcher(PyroDispatcher):
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError: If a listener is already registered for that update type.
+            ValueError: If a listener is already registered for that update
+                type, or the coordinated of that type uses another coordinator.
         """
         if self.is_started:
             msg = "Cannot register listener while dispatcher is already running"
@@ -208,6 +244,12 @@ class Dispatcher(PyroDispatcher):
 
         self.listeners[update_type] = listener
 
+        try:
+            self._check_shared_coordinator(update_type)
+        except ValueError:
+            del self.listeners[update_type]
+            raise
+
     def register_coordinated(self, coordinated: UpdateCoordinated[UpdateType]) -> None:
         """Register an `UpdateCoordinated` for its declared update type.
 
@@ -218,7 +260,8 @@ class Dispatcher(PyroDispatcher):
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError: If a coordinated is already registered for that update type.
+            ValueError: If a coordinated is already registered for that update
+                type, or the listener of that type uses another coordinator.
         """
         if self.is_started:
             msg = "Cannot register coordinated while dispatcher is already running"
@@ -232,10 +275,17 @@ class Dispatcher(PyroDispatcher):
 
         self.coordinateds[update_type] = coordinated
 
+        try:
+            self._check_shared_coordinator(update_type)
+        except ValueError:
+            del self.coordinateds[update_type]
+            raise
+
     async def unregister_listener(self, update_type: type[PyroUpdate]) -> None:
         """Unregister and stop the listener for the given update type.
 
-        Does nothing if no listener is registered for that type.
+        Its coordinator is stopped too, unless the coordinated of that type
+        still uses it. Does nothing if no listener is registered for that type.
 
         Args:
             update_type: The Pyrogram update class whose listener to remove.
@@ -247,10 +297,14 @@ class Dispatcher(PyroDispatcher):
 
         await listener.stop()
 
-    async def unregister_coordinated(self, update_type: type[PyroUpdate]) -> None:
-        """Unregister and stop the coordinated for the given update type.
+        if listener.coordinator not in self._coordinators():
+            await listener.coordinator.stop()
 
-        Does nothing if no coordinated is registered for that type.
+    async def unregister_coordinated(self, update_type: type[PyroUpdate]) -> None:
+        """Unregister the coordinated for the given update type.
+
+        Its coordinator is stopped, unless the listener of that type still
+        uses it. Does nothing if no coordinated is registered for that type.
 
         Args:
             update_type: The Pyrogram update class whose coordinated to remove.
@@ -260,22 +314,22 @@ class Dispatcher(PyroDispatcher):
         if coordinated is None:
             return
 
-        await coordinated.stop()
+        if coordinated.coordinator not in self._coordinators():
+            await coordinated.coordinator.stop()
 
     async def handle_listen(self, parsed_update: PyroUpdate) -> None:
         """Offer the update to the listener registered for its type.
 
-        Listener errors are logged, not raised.
+        A listener error is logged and the update goes on to the handlers.
 
         Args:
             parsed_update: The parsed Pyrogram update to resolve.
 
-        A resolved coordinated update is marked as handled and its lock
-        released before propagation stops.
-
         Raises:
-            StopPropagation: If the listener resolved the update, so no handler
-                runs.
+            StopPropagation: If a listener of this session resolved the update
+                (a coordinated one is first marked as handled and its lock
+                released), or a listener of another session owns it (it is
+                released unmarked, for that session to take). No handler runs.
         """
         listener = self.listeners.get(type(parsed_update))
 
@@ -283,13 +337,15 @@ class Dispatcher(PyroDispatcher):
             return
 
         try:
-            await listener.resolve(parsed_update)
-        except UnresolvedUpdate:
-            pass
+            outcome = await listener.resolve(parsed_update)
         except Exception:
             log.exception("Unexpected error in handle_listen")
-        else:
+            return
+
+        if outcome is ListenOutcome.RESOLVED:
             await _settle_handled()
+            parsed_update.stop_propagation()
+        elif outcome is ListenOutcome.FOREIGN:
             parsed_update.stop_propagation()
 
     async def _handle_update(

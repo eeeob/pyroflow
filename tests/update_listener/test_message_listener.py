@@ -12,7 +12,7 @@ import pytest
 
 from pyroflow import MessageListener
 from pyroflow.errors import ListenerCancelled
-from pyroflow.models import ListenerKey
+from pyroflow.models import ListenerKey, ListenerModel
 from pyroflow.update_listener import message_listener
 
 from ..conftest import make_message
@@ -134,11 +134,12 @@ async def test_stop_clears_cache_even_when_base_stop_fails(
     lis = MessageListener()
     lis._bot_commands_cache[1] = frozenset({"start"})
 
-    async def boom() -> None:
+    def boom(key: ListenerKey) -> bool:
         msg = "boom"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(lis.coordinator, "stop", boom)
+    lis.listeners[ListenerKey(1)] = ListenerModel(ListenerKey(1))
+    monkeypatch.setattr(lis, "discard", boom)
 
     with pytest.raises(RuntimeError, match="boom"):
         await lis.stop()

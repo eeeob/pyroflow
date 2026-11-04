@@ -22,6 +22,7 @@ from redis.asyncio.lock import Lock  # noqa: E402
 from redis.exceptions import LockError  # noqa: E402
 
 from pyroflow.errors import UpdateAlreadyHandled  # noqa: E402
+from pyroflow.models import ListenerKey  # noqa: E402
 from pyroflow.update_coordinator import redis_update_coordinator  # noqa: E402
 from pyroflow.update_coordinator.redis_update_coordinator import (  # noqa: E402
     RedisUpdateCoordinator,
@@ -54,6 +55,7 @@ def test_init_stores_the_client_and_defaults(redis: fake_aioredis.FakeRedis) -> 
 
     assert coord.redis is redis
     assert coord.lock_ttl == TimeUnit.HOUR == 3600
+    assert coord.listener_ttl == 60
     assert coord.sleep == 0.1
 
 
@@ -73,6 +75,20 @@ def test_build_key_renders_each_section_exactly(redis: fake_aioredis.FakeRedis) 
 
     assert coord.build_key((-100123, 42), "lock") == "update|lock|Message|-100123|42"
     assert coord.build_key((-100123, 42), "handled") == "update|handled|Message|-100123|42"
+    assert coord.build_key((-100123, 42), "listen") == "update|listen|Message|-100123|42"
+
+
+def test_listener_key_marks_missing_components(redis: fake_aioredis.FakeRedis) -> None:
+    coord = RedisUpdateCoordinator(redis, Message)
+
+    assert coord._listener_key(ListenerKey(1, None, 3)) == "update|listen|Message|1|_|3"
+    assert coord._listener_key(ListenerKey(1)) == "update|listen|Message|1|_|_"
+
+
+def test_decode_turns_bytes_into_text() -> None:
+    assert redis_update_coordinator._decode(b"a") == "a"
+    assert redis_update_coordinator._decode("b") == "b"
+    assert redis_update_coordinator._decode(None) is None
 
 
 def test_build_key_uses_the_update_type_name(redis: fake_aioredis.FakeRedis) -> None:
@@ -350,6 +366,200 @@ async def test_start_and_stop_with_no_locks_keep_handled_keys(
     assert await coord.start() is None
     assert await coord.stop() is None
     assert await coord.is_handled((1, 2)) is True
+
+
+# --- the listener registry ------------------------------------------------
+
+
+async def test_register_listener_writes_an_expiring_owner(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis, listener_ttl=30)
+    key = ListenerKey(1, 2)
+
+    assert await coord.register_listener(key, "a", replace=False) is None
+
+    redis_key = coord._listener_key(key)
+    assert await redis.get(redis_key) == b"a"
+    assert 0 < await redis.pttl(redis_key) <= 30_000
+    assert coord._owned_listeners == {redis_key: (key, "a")}
+
+
+async def test_register_listener_without_replace_keeps_a_peer(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord, peer = _coord(redis), _coord(redis)
+    await peer.register_listener(ListenerKey(1), "peer", replace=False)
+
+    assert await coord.register_listener(ListenerKey(1), "a", replace=False) == "peer"
+    assert await redis.get(coord._listener_key(ListenerKey(1))) == b"peer"
+    assert coord._owned_listeners == {}
+
+
+async def test_register_listener_with_replace_takes_over(redis: fake_aioredis.FakeRedis) -> None:
+    coord, peer = _coord(redis), _coord(redis)
+    await peer.register_listener(ListenerKey(1), "peer", replace=False)
+
+    assert await coord.register_listener(ListenerKey(1), "a", replace=True) == "peer"
+    assert await redis.get(coord._listener_key(ListenerKey(1))) == b"a"
+
+
+async def test_listener_owners_reads_every_key_in_order(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+    await coord.register_listener(ListenerKey(1, 2), "a", replace=False)
+
+    assert await coord.listener_owners([ListenerKey(1, 2), ListenerKey(1)]) == ["a", None]
+    assert await coord.listener_owners([]) == []
+
+
+async def test_unregister_listener_compares_the_owner(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    assert await coord.unregister_listener(ListenerKey(1), "b") is False
+    assert coord._owned_listeners != {}
+    assert await coord.unregister_listener(ListenerKey(1), "a") is True
+    assert await coord.unregister_listener(ListenerKey(1), "a") is False
+    assert coord._owned_listeners == {}
+    assert await redis.exists(coord._listener_key(ListenerKey(1))) == 0
+
+
+async def test_cancel_listener_removes_any_owner(redis: fake_aioredis.FakeRedis) -> None:
+    coord, peer = _coord(redis), _coord(redis)
+    await peer.register_listener(ListenerKey(1), "peer", replace=False)
+
+    assert await coord.cancel_listener(ListenerKey(1)) == "peer"
+    assert await coord.cancel_listener(ListenerKey(1)) is None
+
+
+async def test_a_registration_expires_without_renewal(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis, listener_ttl=0.05)
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+
+    await asyncio.sleep(0.1)
+
+    assert await coord.listener_owners([ListenerKey(1)]) == [None]
+
+
+async def test_refresh_listeners_renews_owned_registrations(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord = _coord(redis, listener_ttl=30)
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+    redis_key = coord._listener_key(ListenerKey(1))
+    await redis.pexpire(redis_key, 100)
+
+    await coord.refresh_listeners()
+
+    assert await redis.pttl(redis_key) > 100
+
+
+async def test_refresh_listeners_reports_a_registration_a_peer_took(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord, peer = _coord(redis), _coord(redis)
+    lost: list[tuple[ListenerKey, str]] = []
+    coord.on_listener_lost = lambda key, owner_id: lost.append((key, owner_id))
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+    await coord.register_listener(ListenerKey(2), "b", replace=False)
+    await peer.register_listener(ListenerKey(1), "peer", replace=True)
+
+    await coord.refresh_listeners()
+
+    assert lost == [(ListenerKey(1), "a")]
+    assert list(coord._owned_listeners.values()) == [(ListenerKey(2), "b")]
+    assert await redis.get(coord._listener_key(ListenerKey(1))) == b"peer"
+
+
+async def test_refresh_listeners_keeps_a_newer_own_registration(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord = _coord(redis)
+    await coord.register_listener(ListenerKey(1), "a", replace=False)
+    await redis.set(coord._listener_key(ListenerKey(1)), "peer")
+    script = coord._script(coord.LUA_REFRESH_LISTENERS_SCRIPT)
+
+    async def refresh_then_reregister(**kw: Any) -> Any:
+        lost = await script(**kw)
+        await coord.register_listener(ListenerKey(1), "newer", replace=True)
+        return lost
+
+    coord._scripts[coord.LUA_REFRESH_LISTENERS_SCRIPT] = refresh_then_reregister  # ty: ignore[invalid-assignment]
+    await coord.refresh_listeners()
+
+    assert list(coord._owned_listeners.values()) == [(ListenerKey(1), "newer")]
+
+
+async def test_refresh_listeners_without_registrations_touches_nothing(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord = _coord(redis)
+
+    assert await coord.refresh_listeners() is None
+    assert coord._scripts == {}
+
+
+async def test_renew_forever_logs_a_failed_renewal(
+    redis: fake_aioredis.FakeRedis, caplog: pytest.LogCaptureFixture
+) -> None:
+    coord = _coord(redis, listener_ttl=0.03)
+    renewed = asyncio.Event()
+
+    async def boom() -> None:
+        renewed.set()
+        msg = "down"
+        raise RuntimeError(msg)
+
+    coord.refresh_listeners = boom  # ty: ignore[invalid-assignment]
+    task = asyncio.create_task(coord._renew_forever())
+    try:
+        await asyncio.wait_for(renewed.wait(), 1)
+        await asyncio.sleep(0.03)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert "Failed to renew Message listener registrations" in caplog.text
+
+
+async def test_start_renews_registrations_until_stop(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis, listener_ttl=0.15)
+    await coord.start()
+    try:
+        await coord.register_listener(ListenerKey(1), "x", replace=False)
+        await asyncio.sleep(0.3)
+
+        assert await coord.listener_owners([ListenerKey(1)]) == ["x"]
+    finally:
+        await coord.stop()
+
+    assert coord._heartbeat is None
+
+
+async def test_start_replaces_a_fingerprint_a_registration_carries(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord = _coord(redis)
+    taken = coord.fingerprint
+    await redis.set(coord._listener_key(ListenerKey(1)), f"{taken}:other-session")
+
+    await coord.start()
+    try:
+        assert coord.fingerprint != taken
+    finally:
+        await coord.stop()
+
+
+async def test_stop_deletes_only_the_registrations_this_coordinator_holds(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord, peer = _coord(redis), _coord(redis)
+    await coord.register_listener(ListenerKey(1), coord.new_owner_id(), replace=False)
+    await peer.register_listener(ListenerKey(2), peer.new_owner_id(), replace=False)
+
+    await coord.stop()
+
+    assert await coord.listener_owners([ListenerKey(1)]) == [None]
+    assert (await coord.listener_owners([ListenerKey(2)]))[0] is not None
+    assert coord._owned_listeners == {}
 
 
 def test_all_exports_only_the_coordinator() -> None:
