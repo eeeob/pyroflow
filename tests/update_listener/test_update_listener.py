@@ -430,7 +430,7 @@ async def test_listen_does_not_report_an_error_raised_before_the_wait() -> None:
 async def test_listen_passes_its_arguments_to_on_listen_func_before_registering() -> None:
     seen: list[tuple[dict[str, object], bool]] = []
     lis = _make()
-    lis.on_listen_func = lambda **kw: seen.append((kw, ListenerKey(1, 2, 3) in lis.listeners))
+    lis.on_listen_func = lambda kw: seen.append((kw, ListenerKey(1, 2, 3) in lis.listeners))
 
     task = await _pending(lis, 1, 2, 3, meta={"a": 1}, filters=TEXT_A, strict=True, timeout=5)
     await _drain(task)
@@ -452,7 +452,7 @@ async def test_listen_passes_its_arguments_to_on_listen_func_before_registering(
 
 
 async def test_listen_starts_no_wait_when_on_listen_func_raises() -> None:
-    def refuse(**kw: object) -> None:
+    def refuse(kw: object) -> None:
         msg = "refused"
         raise ValueError(msg)
 

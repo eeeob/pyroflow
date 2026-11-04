@@ -56,10 +56,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             and before `listen` raises the error. Errors raised before a wait
             starts, such as `ListenerAlreadyExists`, are not reported. A
             failing callback is logged and never hides the error.
-        on_listen_func: `(**listen_kwargs) -> object`, called by `listen` with
-            its arguments by name (`chat_id`, `user_id`, `message_id`,
-            `meta`, `filters`, `strict` and `timeout`, as passed) before the
-            wait is registered; its result is ignored. It must be sync and
+        on_listen_func: `(listen_kwargs) -> object`, called by `listen` with
+            one dict of its arguments by name (`chat_id`, `user_id`,
+            `message_id`, `meta`, `filters`, `strict` and `timeout`, as
+            passed) before the wait is registered; its result is ignored. It must be sync and
             fast, as it runs inline on the event loop; an error it raises
             propagates from `listen` and no wait starts.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
@@ -86,7 +86,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         duplicate_policy: DuplicatePolicy | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
         on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
-        on_listen_func: Callable[..., object] | None = None,
+        on_listen_func: Callable[[dict[str, object]], object] | None = None,
         timeout: Number | None = None,
         **kw: object,
     ) -> None:
@@ -274,13 +274,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if self.on_listen_func is not None:
             # Inline, not through `maybe_awaitable`: yielding here could let the awaited update slip past.
             self.on_listen_func(
-                chat_id=chat_id,
-                user_id=user_id,
-                message_id=message_id,
-                meta=meta,
-                filters=filters,
-                strict=strict,
-                timeout=timeout,
+                {
+                    "chat_id": chat_id,
+                    "user_id": user_id,
+                    "message_id": message_id,
+                    "meta": meta,
+                    "filters": filters,
+                    "strict": strict,
+                    "timeout": timeout,
+                }
             )
 
         current = self.listeners.get(key)

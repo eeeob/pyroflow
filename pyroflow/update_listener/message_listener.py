@@ -9,9 +9,6 @@ from ..models import ListenerKey
 from ..types import Message
 from .update_listener import UpdateListener
 
-if TYPE_CHECKING:
-    from pyrogram.filters import Filter
-
 
 log = logging.getLogger(__name__)
 
@@ -55,16 +52,7 @@ class MessageListener(UpdateListener[Message]):
             if self.on_listen_func is None:
                 self.on_listen_func = self._warn_single_update_filter
 
-    def _warn_single_update_filter(
-        self,
-        *,
-        chat_id: int,
-        user_id: int | None,
-        message_id: int | None,
-        filters: Filter | None,
-        strict: bool,
-        **kw: object,
-    ) -> None:
+    def _warn_single_update_filter(self, listen_kwargs: dict[str, object]) -> None:
         """Default `on_listen_func`: warn of a wait a rejected message would leave open.
 
         A key's `message_id` is the incoming message's own id, so it names a
@@ -72,18 +60,15 @@ class MessageListener(UpdateListener[Message]):
         can match and the wait stays open until its timeout.
 
         Args:
-            chat_id: As in `listen`.
-            user_id: As in `listen`.
-            message_id: As in `listen`.
-            filters: As in `listen`.
-            strict: As in `listen`.
-            **kw: The other `listen` arguments, unused.
+            listen_kwargs: The arguments of the `listen` call, by name.
         """
-        if message_id is not None and filters is not None and not strict:
+        kw = listen_kwargs
+
+        if kw["message_id"] is not None and kw["filters"] is not None and not kw["strict"]:
             log.warning(
                 "Listener for %s waits for a single update with a non-strict filter; "
                 "if the filter rejects it, the wait stays open until its timeout",
-                ListenerKey(chat_id, user_id, message_id),
+                ListenerKey(kw["chat_id"], kw["user_id"], kw["message_id"]),  # ty: ignore[invalid-argument-type]  # `listen` passes them with its own types
             )
 
     async def _extract_key(self, update: Message) -> ListenerKey | None:

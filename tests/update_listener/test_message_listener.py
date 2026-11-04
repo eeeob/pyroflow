@@ -64,13 +64,15 @@ def test_warn_single_update_filter_warns_of_a_wait_a_rejected_message_leaves_ope
 ) -> None:
     with caplog.at_level(logging.WARNING, logger=message_listener_module.log.name):
         MessageListener()._warn_single_update_filter(
-            chat_id=1,
-            user_id=2,
-            message_id=message_id,
-            meta=None,
-            filters=filters_,
-            strict=strict,
-            timeout=None,
+            {
+                "chat_id": 1,
+                "user_id": 2,
+                "message_id": message_id,
+                "meta": None,
+                "filters": filters_,
+                "strict": strict,
+                "timeout": None,
+            }
         )
 
     assert ("waits for a single update with a non-strict filter" in caplog.text) is warned
