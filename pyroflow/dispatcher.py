@@ -173,7 +173,13 @@ class Dispatcher(PyroDispatcher):
         return r
 
     async def stop(self, *args: Any, **kw: Any) -> None:
-        """Stop the dispatcher and all registered listeners and coordinators.
+        """Stop the listeners, then the original dispatcher, then the coordinators.
+
+        The listeners go first: their waiters fail, so a handler blocked in
+        `ask` returns and the original `stop` can drain the workers. The
+        coordinators go last, so the locks and registrations of updates still
+        being processed survive until the workers are done. The coordinators
+        are stopped even if the original `stop` raises.
 
         Args:
             *args: Passed directly to the original dispatcher.
@@ -183,12 +189,14 @@ class Dispatcher(PyroDispatcher):
             (listener.stop() for listener in self.listeners.values()),
             return_exc=True,
         )
-        await gather_helper(
-            (coordinator.stop() for coordinator in self._coordinators()),
-            return_exc=True,
-        )
 
-        r = await self.oldstop(*args, **kw)
+        try:
+            r = await self.oldstop(*args, **kw)
+        finally:
+            await gather_helper(
+                (coordinator.stop() for coordinator in self._coordinators()),
+                return_exc=True,
+            )
 
         self.is_started = False
 

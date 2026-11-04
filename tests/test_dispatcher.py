@@ -36,7 +36,7 @@ from pyroflow.dispatcher import (
     _settle_handled,
 )
 from pyroflow.enums import ListenOutcome
-from pyroflow.errors import ListenerTimeout, UpdateAlreadyHandled
+from pyroflow.errors import ListenerCancelled, ListenerTimeout, UpdateAlreadyHandled
 from pyroflow.models import ListenerKey
 from pyroflow.update_coordinated import MessageCoordinated
 from pyroflow.update_listener import MessageListener
@@ -727,7 +727,7 @@ async def test_start_leaves_the_dispatcher_stopped_if_the_original_fails() -> No
     assert dispatcher.is_started is False
 
 
-async def test_stop_stops_the_listeners_then_the_coordinators_before_the_original() -> None:
+async def test_stop_stops_the_listeners_then_the_original_then_the_coordinators() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
     dispatcher.is_started = True
@@ -744,9 +744,47 @@ async def test_stop_stops_the_listeners_then_the_coordinators_before_the_origina
     assert await dispatcher.stop(clear_handlers=False) == "result"
 
     assert dispatcher.is_started is False
-    assert order[0] == "stop listener"
-    assert sorted(order[1:3]) == ["stop coordinated coordinator", "stop listener coordinator"]
-    assert order[3] == "oldstop () {'clear_handlers': False}"
+    assert order[:2] == ["stop listener", "oldstop () {'clear_handlers': False}"]
+    assert sorted(order[2:]) == ["stop coordinated coordinator", "stop listener coordinator"]
+
+
+async def test_stop_still_stops_the_coordinators_if_the_original_fails() -> None:
+    order: list[str] = []
+    dispatcher = make_real_dispatcher()
+    dispatcher.is_started = True
+
+    async def oldstop() -> None:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    dispatcher.oldstop = oldstop
+    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await dispatcher.stop()
+
+    assert order == ["stop coordinated coordinator"]
+    assert dispatcher.is_started is True
+
+
+async def test_stop_lets_a_handler_waiting_in_listen_finish_before_draining() -> None:
+    dispatcher = make_real_dispatcher()
+    listener = MessageListener()
+    dispatcher.register_listener(listener)
+    waiter = asyncio.create_task(listener.listen(100, 7))
+    await asyncio.sleep(0.01)
+
+    async def oldstop() -> None:
+        # The original stop drains the workers; a handler blocked in `listen` must be released by now.
+        await asyncio.sleep(0)
+        assert waiter.done()
+
+    dispatcher.oldstop = oldstop
+
+    await dispatcher.stop()
+
+    with pytest.raises(ListenerCancelled):
+        await waiter
 
 
 # --- Dispatcher: registration -----------------------------------------------

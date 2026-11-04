@@ -255,6 +255,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Fixed
 
+- `Dispatcher.stop` stops the listeners first, then drains the workers, then
+  stops the coordinators. A handler blocked in `ask` no longer holds up the
+  shutdown until its timeout, and the coordinators no longer delete the locks
+  of updates still being processed.
 - A reply that reached another session first no longer goes to that
   session's handlers while the `listen` that waits for it hangs: every session
   checks the shared registry, and the one that does not own the listener
