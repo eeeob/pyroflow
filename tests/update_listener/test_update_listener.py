@@ -341,12 +341,13 @@ async def test__forget_drops_only_that_listener() -> None:
 
 async def test_listen_registers_locally_and_in_the_coordinator() -> None:
     lis = _make()
-    task = await _pending(lis, 1, 2, 3, {"step": 1})
+    task = await _pending(lis, 1, 2, 3, {"step": 1}, prompt_id=9)
     key = ListenerKey(1, 2, 3)
     try:
         listener = lis.listeners[key]
         assert listener.key == key
         assert listener.meta == {"step": 1}
+        assert listener.prompt_id == 9
         assert listener.owner_id is not None
         assert lis.coordinator.is_mine(listener.owner_id)
         assert _registry(lis) == {key: listener.owner_id}

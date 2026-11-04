@@ -162,6 +162,8 @@ class ListenerModel:
     """Optional JSON-serializable metadata attached to the listener."""
     future: asyncio.Future = field(default_factory=asyncio.Future)
     """Resolved with the matching update, or failed with an error."""
+    prompt_id: int | None = None
+    """The message `ask` sent or edited before waiting; a button pressed on it cancels the wait."""
     owner_id: str | None = None
     """Owner id the coordinator registered this listener under.
 

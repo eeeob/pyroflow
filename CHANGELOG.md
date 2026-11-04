@@ -84,6 +84,14 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `coordinator_id` to `cancel`, or reading `coordinator_id`.
   Migration: call `cancel(key)`, or `discard(key, owner_id)` for the local
   listener only; read `owner_id`.
+- **BREAKING:** `ask` no longer copies `meta` or adds the sent message id
+  under `meta["message_id"]`; it passes `meta` through unchanged and records
+  the sent or edited message as the listener's new `prompt_id`
+  (`listen(..., prompt_id=...)`, `ListenerModel.prompt_id`). A button pressed
+  on that message cancels the ask when no callback listener takes the press;
+  the ask is found from the presser and the pressed message, so an ask aimed
+  at another user is left alone. Affects code reading `meta["message_id"]`.
+  Migration: read `listener_model.prompt_id`.
 
 - **BREAKING:** `UpdateCoordinator.mark_handled` raises the new
   `UpdateAlreadyHandled` (a `CoordinationError`) when the id is already

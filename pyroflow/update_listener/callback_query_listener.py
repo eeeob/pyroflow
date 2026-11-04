@@ -6,7 +6,7 @@ from typing import Any, TYPE_CHECKING
 
 from ..enums import ListenOutcome
 from ..models import ListenerKey
-from ..types import CallbackQuery
+from ..types import CallbackQuery, Message
 from .update_listener import UpdateListener
 
 
@@ -98,37 +98,33 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         return outcome
 
     async def _cancel_prompted_ask(self, update: CallbackQuery) -> None:
-        """Cancel the message listener of this process waiting on the callback's message.
+        """Cancel the message listener of this process whose `prompt_id` is the pressed message.
 
-        Only the first message listener matching one of the sub-keys of the
-        callback's `extract_key` is considered, and it is cancelled only if its
-        `meta["message_id"]` equals the callback's message id. Nothing is
-        cancelled when the callback carries no message id, `extract_key`
-        returns `None`, or the client has no message listener.
+        The candidates are the sub-keys of `(chat, presser, pressed message)`,
+        so a press only ends an ask aimed at the presser or at anyone in the
+        chat; the first whose `prompt_id` matches is cancelled. Nothing is
+        cancelled when the callback carries no message, chat or message id, or
+        the client has no message listener.
 
         Args:
             update: The incoming callback query.
         """
         m = update.message
 
-        if not m or not getattr(m, "id", None):
+        if m is None or m.chat is None or not getattr(m, "id", None):
             return
 
-        key = await self.extract_key(update)
+        m_listen = update._client.listeners.get(Message)
 
-        if key is None:
+        if m_listen is None:
             return
 
-        try:
-            m_listen = update._client.message_listen
-        except KeyError:
-            return
+        for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
+            listener = m_listen.listeners.get(sub)
 
-        for sub in key.sub_keys():
-            if listener := m_listen.listeners.get(sub):
-                if isinstance(listener.meta, dict) and listener.meta.get("message_id") == m.id:
-                    await m_listen.cancel(sub)
-                break
+            if listener is not None and listener.prompt_id == m.id:
+                await m_listen.cancel(sub)
+                return
 
 
 __all__ = ("CallbackQueryListener",)

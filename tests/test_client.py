@@ -321,7 +321,8 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
             "chat_id": 100,
             "user_id": None,
             "message_id": None,
-            "meta": {"message_id": 5},
+            "meta": None,
+            "prompt_id": 5,
             "timeout": 3,
         }
     ]
@@ -361,22 +362,15 @@ async def test_ask_send_mode_accepts_a_non_inline_reply_markup() -> None:
     assert send.calls[0]["reply_markup"] is markup
 
 
-async def test_ask_copies_a_dict_meta_and_adds_the_message_id() -> None:
+async def test_ask_passes_meta_through_and_the_sent_message_as_prompt() -> None:
     c, listener, _, _ = _ask_client()
     meta = {"step": 1}
 
     await c.ask(100, "hi", meta=meta)
 
-    assert listener.calls[0]["meta"] == {"step": 1, "message_id": 5}
+    assert listener.calls[0]["meta"] is meta
+    assert listener.calls[0]["prompt_id"] == 5
     assert meta == {"step": 1}
-
-
-async def test_ask_keeps_an_existing_message_id_in_meta() -> None:
-    c, listener, _, _ = _ask_client()
-
-    await c.ask(100, "hi", meta={"message_id": 99})
-
-    assert listener.calls[0]["meta"] == {"message_id": 99}
 
 
 async def test_ask_passes_a_non_dict_meta_through_unchanged() -> None:
@@ -531,7 +525,8 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
             "chat_id": 100,
             "user_id": None,
             "message_id": None,
-            "meta": {"message_id": 5},
+            "meta": None,
+            "prompt_id": 5,
             "timeout": 3,
         }
     ]
@@ -672,34 +667,16 @@ async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() ->
             "chat_id": -1001,
             "user_id": 7,
             "message_id": None,
-            "meta": {"message_id": 5},
+            "meta": None,
+            "prompt_id": 5,
             "timeout": 3,
         }
     ]
 
 
-@pytest.mark.parametrize(
-    ("meta", "expected"),
-    [
-        ({"step": 1}, {"step": 1, "message_id": 5}),
-        ({"message_id": 99}, {"message_id": 99}),
-    ],
-)
-async def test_await_reply_copies_a_dict_meta_and_adds_the_message_id(
-    meta: dict[str, int], expected: dict[str, int]
-) -> None:
+@pytest.mark.parametrize("meta", [{"step": 1}, ["a", 1]])
+async def test_await_reply_passes_meta_through_unchanged(meta: object) -> None:
     c, listener = make_client(), _RecordingListener()
-    original = dict(meta)
-
-    await _await_reply(c, listener, make_message(), meta=meta)
-
-    assert listener.calls[0]["meta"] == expected
-    assert meta == original
-
-
-async def test_await_reply_passes_a_non_dict_meta_through_unchanged() -> None:
-    c, listener = make_client(), _RecordingListener()
-    meta = ["a", 1]
 
     await _await_reply(c, listener, make_message(), meta=meta)
 

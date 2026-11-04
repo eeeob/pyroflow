@@ -360,9 +360,8 @@ class Client(PyroClient):
                 a callable that receives the sent or edited message and returns
                 the id (or `None` for no filter). The callable runs synchronously
                 on the event loop, so it must not block.
-            meta: Metadata attached to the listener. A `dict` (or `None`) is
-                copied and gets the sent message id under `"message_id"` unless
-                it already has that key.
+            meta: Metadata attached to the listener, passed through unchanged.
+                The sent or edited message is the listener's `prompt_id`.
             timeout: Seconds to wait before raising `ListenerTimeout`.
             update_type: The update type to wait for and return.
             error_handlers: `{exc_type_or_tuple: handler}` tried in order when
@@ -725,11 +724,6 @@ class Client(PyroClient):
         Returns:
             The update `listener` returned.
         """
-        if meta is None or isinstance(meta, dict):
-            meta = {} if meta is None else meta.copy()
-            if "message_id" not in meta:
-                meta["message_id"] = m.id
-
         if not isinstance(listen_message_id, int) and callable(listen_message_id):
             # Must be a fast, synchronous, non-blocking call — it runs
             # inline on the event loop, not through `to_thread`/`maybe_awaitable`.
@@ -748,6 +742,7 @@ class Client(PyroClient):
                 user_id=listen_user_id,
                 message_id=listen_message_id,
                 meta=meta,
+                prompt_id=m.id,
                 timeout=timeout,
             )
         except Exception as exc:

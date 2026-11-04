@@ -216,6 +216,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         message_id: int | None = None,
         meta: JsonValueT | None = None,
         *,
+        prompt_id: int | None = None,
         timeout: Number | None = None,
     ) -> UpdateType:
         """Wait for the next update matching the given key.
@@ -230,6 +231,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             user_id: The user to wait for; `None` matches any user.
             message_id: The message to wait on; `None` matches any message.
             meta: Arbitrary metadata attached to the listener model.
+            prompt_id: The message that asked for this update, stored as
+                `ListenerModel.prompt_id`; `ask` passes the message it sent.
             timeout: Seconds to wait; `None` falls back to the listener's own
                 `timeout`, and waits indefinitely when that is `None` too.
 
@@ -275,7 +278,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 self.discard(key, is_duplicate=True)
 
             # Local first, so `resolve` never meets a registration of ours without its waiter.
-            listener = ListenerModel(key, meta, owner_id=owner_id)
+            listener = ListenerModel(key, meta, prompt_id=prompt_id, owner_id=owner_id)
             self.listeners[key] = listener
 
             try:
