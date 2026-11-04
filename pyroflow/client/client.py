@@ -12,6 +12,7 @@ from pyrogram import (
     utils as pyro_ut,
 )
 
+from ..enums import ListenMessageId
 from ..models import ListenerContext
 from ..utils import patch_cls
 from ..types import Message, CallbackQuery
@@ -278,9 +279,8 @@ class Client(PyroClient):
             suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: Filter the awaited update by user.
             listen_message_id: Filter the awaited update by message: an id, or
-                a callable that receives the sent or edited message and returns
-                the id (or `None` for no filter). The callable runs synchronously
-                on the event loop, so it must not block.
+                `ListenMessageId.SENT` for the message sent or edited here, such
+                as to wait for a press on its buttons.
             listen_context: Values attached to the listener. It is copied,
                 and the copy's `message_id` and `message` are set to the id
                 of the sent or edited message and to the message itself,
@@ -368,10 +368,8 @@ class Client(PyroClient):
                 ),
             )
 
-        if not isinstance(listen_message_id, int) and callable(listen_message_id):
-            # Must be a fast, synchronous, non-blocking call — it runs
-            # inline on the event loop, not through `to_thread`/`maybe_awaitable`.
-            listen_message_id = listen_message_id(m)
+        if listen_message_id is ListenMessageId.SENT:
+            listen_message_id = m.id
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 
@@ -622,10 +620,8 @@ class Client(PyroClient):
                 ),
             )
 
-        if not isinstance(listen_message_id, int) and callable(listen_message_id):
-            # Must be a fast, synchronous, non-blocking call — it runs
-            # inline on the event loop, not through `to_thread`/`maybe_awaitable`.
-            listen_message_id = listen_message_id(m)
+        if listen_message_id is ListenMessageId.SENT:
+            listen_message_id = m.id
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 

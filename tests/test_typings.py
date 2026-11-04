@@ -2,12 +2,12 @@
 
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable
 from typing import get_args, get_origin
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
+from pyroflow.enums import ListenMessageId
 from pyroflow.typings import (
     BotCommandEntryT,
     BotCommandGroupKeyT,
@@ -33,15 +33,8 @@ def test_bot_command_parts_and_group_key() -> None:
     assert get_args(BotCommandGroupKeyT) == (str | None, BotCommandScope | None)
 
 
-def test_listen_message_id_is_int_or_callable() -> None:
-    int_arg, callable_arg = get_args(ListenMessageIdT)
-    assert int_arg is int
-    assert get_origin(callable_arg) is Callable
-    params, ret = get_args(callable_arg)
-    # The forward reference is a str or a ForwardRef depending on the Python version.
-    assert len(params) == 1
-    assert "Message" in str(params[0])
-    assert ret == int | None
+def test_listen_message_id_is_int_or_the_sentinel_enum() -> None:
+    assert get_args(ListenMessageIdT) == (int, ListenMessageId)
 
 
 def test_typings_all() -> None:

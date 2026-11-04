@@ -2,18 +2,15 @@
 
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable
 from typing import (
     TypeVar,
     TypeAlias,
-    TYPE_CHECKING,
 )
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 from pytrove.typings import MaybeList
 
-if TYPE_CHECKING:
-    from .types import Message
+from .enums import ListenMessageId
 
 
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
@@ -32,8 +29,8 @@ BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeLis
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 """The key a collected command group is filed under by `BotCommandsMixin`."""
 
-ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
-"""A message id, or a fast synchronous callable mapping the sent or edited message to one (or `None`)."""
+ListenMessageIdT: TypeAlias = int | ListenMessageId
+"""A message id, or `ListenMessageId.SENT` for the message `ask` sent or edited."""
 
 
 __all__ = (

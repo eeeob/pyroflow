@@ -168,7 +168,7 @@ callback = await client.ask(
 | `text` | نص الرسالة |
 | `message_id` | إن أُعطي، تُعدَّل الرسالة بدل إرسال رسالة جديدة |
 | `listen_user_id` | تصفية الـ update المنتظَرة حسب المستخدم |
-| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة |
+| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `ListenMessageId.SENT` (من `pyroflow.enums`) للرسالة التي أرسلها `ask` أو عدّلها، مثل انتظار ضغطة على أزرارها |
 | `listen_timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `listen_update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
 | `listen_context` | `ListenerContext` بقيم تُرفق بالـ listener |
@@ -306,7 +306,7 @@ await client.unregister_listener(Message)
 from pyroflow.errors import ListenerTimeout, ListenerCancelled
 
 try:
-    reply = await client.ask(chat_id, "Your input?", listen_user_id=uid, timeout=30)
+    reply = await client.ask(chat_id, "Your input?", listen_user_id=uid, listen_timeout=30)
 except ListenerTimeout:
     await client.send_message(chat_id, "You took too long. Try again.")
 except ListenerCancelled:

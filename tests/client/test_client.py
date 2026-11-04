@@ -19,6 +19,7 @@ from pyrogram.types import (
 )
 
 import pyroflow.client.client as client_module
+from pyroflow.enums import ListenMessageId
 from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message
 
@@ -236,19 +237,12 @@ async def test_ask_passes_an_int_listen_message_id_and_user_id_through() -> None
     assert listener.calls[0]["user_id"] == 7
 
 
-async def test_ask_calls_a_callable_listen_message_id_with_the_sent_message() -> None:
-    sent = make_message(chat_id=100, message_id=5)
-    c, listener, _, _ = _ask_client(sent)
-    seen = []
+async def test_ask_listens_on_the_sent_message_for_listen_message_id_sent() -> None:
+    c, listener, _, _ = _ask_client(make_message(chat_id=100, message_id=5))
 
-    def pick(m: Message) -> int:
-        seen.append(m)
-        return m.id + 1
+    await c.ask(100, "hi", listen_message_id=ListenMessageId.SENT)
 
-    await c.ask(100, "hi", listen_message_id=pick)
-
-    assert seen == [sent]
-    assert listener.calls[0]["message_id"] == 6
+    assert listener.calls[0]["message_id"] == 5
 
 
 async def test_ask_listens_in_the_chat_of_the_sent_message() -> None:
@@ -427,13 +421,12 @@ async def test_ask_rich_edit_mode_rejects_a_non_inline_reply_markup() -> None:
     assert edit.calls == c.send_rich_message.calls == listener.calls == []
 
 
-async def test_ask_rich_calls_a_callable_listen_message_id_with_the_sent_message() -> None:
-    sent = make_message(chat_id=100, message_id=5)
-    c, listener, _, _ = _ask_client(sent)
+async def test_ask_rich_listens_on_the_sent_message_for_listen_message_id_sent() -> None:
+    c, listener, _, _ = _ask_client(make_message(chat_id=100, message_id=5))
 
-    await c.ask_rich(100, object(), listen_message_id=lambda m: m.id + 1)
+    await c.ask_rich(100, object(), listen_message_id=ListenMessageId.SENT)
 
-    assert listener.calls[0]["message_id"] == 6
+    assert listener.calls[0]["message_id"] == 5
 
 
 async def test_ask_rich_waits_on_the_listener_of_the_given_update_type() -> None:

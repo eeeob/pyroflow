@@ -82,4 +82,21 @@ class MessageListenCancelScope(StrEnum):
     """Only the most specific one, the first in `ListenerKey.sub_keys` order."""
 
 
-__all__ = ("DuplicatePolicy", "MessageListenCancelPolicy", "MessageListenCancelScope")
+class ListenMessageId(StrEnum):
+    """A `listen_message_id` of `ask` that stands for a message only known once it is sent.
+
+    Example:
+        >>> ListenMessageId.SENT == "sent"
+        True
+    """
+
+    SENT = auto()
+    """The id of the message `ask` sent or edited, such as for a press on its buttons."""
+
+
+__all__ = (
+    "DuplicatePolicy",
+    "MessageListenCancelPolicy",
+    "MessageListenCancelScope",
+    "ListenMessageId",
+)

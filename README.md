@@ -156,7 +156,7 @@ callback = await client.ask(
 | `text` | Message text |
 | `message_id` | If provided, edits the message instead of sending a new one |
 | `listen_user_id` | Filter the awaited update by user |
-| `listen_message_id` | Filter the awaited update by message |
+| `listen_message_id` | Filter the awaited update by message: an id, or `ListenMessageId.SENT` (from `pyroflow.enums`) for the message `ask` sent or edited, such as to wait for a press on its buttons |
 | `listen_timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `listen_update_type` | Update type to wait for — determines the return type (default: `Message`) |
 | `listen_context` | A `ListenerContext` of values attached to the listener |
@@ -267,7 +267,7 @@ await client.unregister_listener(Message)
 from pyroflow.errors import ListenerTimeout, ListenerCancelled
 
 try:
-    reply = await client.ask(chat_id, "Your input?", listen_user_id=uid, timeout=30)
+    reply = await client.ask(chat_id, "Your input?", listen_user_id=uid, listen_timeout=30)
 except ListenerTimeout:
     await client.send_message(chat_id, "You took too long. Try again.")
 except ListenerCancelled:

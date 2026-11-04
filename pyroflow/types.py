@@ -313,9 +313,8 @@ class Message(PyroMessage):
             suggested_post_parameters: Parameters of a suggested channel post.
             reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
             listen_user_id: Only accept updates from this user.
-            listen_message_id: Only accept updates for this message id, or a sync
-                callable that receives the sent/edited message and returns the id (or
-                `None` for no filter). It runs inline on the event loop, so keep it fast.
+            listen_message_id: Only accept updates for this message id, or
+                `ListenMessageId.SENT` for the sent or edited message.
             listen_context: Values attached to the created listener; see
                 `Client.ask`.
             listen_filters: A Pyrogram filter the awaited update must pass; see

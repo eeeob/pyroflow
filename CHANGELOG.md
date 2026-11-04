@@ -15,8 +15,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
   publishes the bot commands declared on registered handlers.
 - `Update.context`: a per-update dict for arbitrary data.
-- `listen_message_id` also accepts a callable that receives the sent message
-  and returns the id to listen for.
+- `ListenMessageId.SENT` as `listen_message_id` on `ask` and `ask_rich`:
+  wait for an update on the message `ask` sent or edited, such as a press on
+  its buttons.
 - `User.lang_code` and `Message.editable`.
 - `py.typed`: the package ships its type hints.
 - `ListenerKey.to_dict()`: the key's fields by name.

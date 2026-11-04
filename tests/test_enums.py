@@ -8,7 +8,12 @@ from enum import auto
 import pytest
 
 import pyroflow.enums
-from pyroflow.enums import DuplicatePolicy, MessageListenCancelPolicy, MessageListenCancelScope
+from pyroflow.enums import (
+    DuplicatePolicy,
+    ListenMessageId,
+    MessageListenCancelPolicy,
+    MessageListenCancelScope,
+)
 
 
 def test_duplicate_policy_behaves_like_str_enum() -> None:
@@ -38,11 +43,16 @@ def test_message_listen_cancel_scope_values() -> None:
     assert [str(scope) for scope in MessageListenCancelScope] == ["all", "first"]
 
 
+def test_listen_message_id_values() -> None:
+    assert [str(value) for value in ListenMessageId] == ["sent"]
+
+
 def test_enums_all() -> None:
     assert pyroflow.enums.__all__ == (
         "DuplicatePolicy",
         "MessageListenCancelPolicy",
         "MessageListenCancelScope",
+        "ListenMessageId",
     )
 
 
