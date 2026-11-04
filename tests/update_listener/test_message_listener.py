@@ -68,38 +68,6 @@ async def test_listen_warns_of_a_wait_a_rejected_message_leaves_open(
     assert ("waits for a single update with a non-strict filter" in caplog.text) is warned
 
 
-# --- _is_listenable -------------------------------------------------------------
-
-
-async def test_is_listenable_accepts_incoming_message() -> None:
-    assert await MessageListener()._is_listenable(make_message()) is True
-
-
-async def test_is_listenable_accepts_message_without_sender() -> None:
-    assert await MessageListener()._is_listenable(make_message(from_user=None)) is True
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"outgoing": True},
-        {"service": True},
-        {"empty": True},
-        {"edit_date": datetime(2024, 1, 1)},
-        {"edit_hidden": True},
-        {"chat": None},
-    ],
-)
-async def test_is_listenable_rejects(overrides: dict[str, Any]) -> None:
-    assert await MessageListener()._is_listenable(make_message(**overrides)) is False
-
-
-async def test_is_listenable_rejects_own_messages() -> None:
-    msg = make_message()
-    msg.from_user.is_self = True
-    assert await MessageListener()._is_listenable(msg) is False
-
-
 # --- _extract_key -----------------------------------------------------------------
 
 
@@ -113,5 +81,22 @@ async def test_extract_key_without_sender_has_no_user() -> None:
     assert await MessageListener()._extract_key(msg) == ListenerKey(100, None, 5)
 
 
-async def test_extract_key_is_none_for_an_unlistenable_message() -> None:
-    assert await MessageListener()._extract_key(make_message(outgoing=True)) is None
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"outgoing": True},
+        {"service": True},
+        {"empty": True},
+        {"edit_date": datetime(2024, 1, 1)},
+        {"edit_hidden": True},
+        {"chat": None},
+    ],
+)
+async def test_extract_key_is_none_for_an_unlistenable_message(overrides: dict[str, Any]) -> None:
+    assert await MessageListener()._extract_key(make_message(**overrides)) is None
+
+
+async def test_extract_key_is_none_for_own_messages() -> None:
+    msg = make_message()
+    msg.from_user.is_self = True
+    assert await MessageListener()._extract_key(msg) is None

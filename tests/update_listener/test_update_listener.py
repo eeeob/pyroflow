@@ -269,39 +269,6 @@ async def test_reject_without_a_listener_is_false_and_leaves_a_finished_one_as_i
     assert await done.future == "update"
 
 
-# --- on_error ---------------------------------------------------------------------
-
-
-async def test_on_error_without_func_does_nothing() -> None:
-    assert await _make().on_error(ListenerTimeout(1), _model(ListenerKey(1))) is None
-
-
-async def test_on_error_passes_the_error_and_the_model_to_sync_and_async_funcs() -> None:
-    seen: list[tuple[object, object]] = []
-
-    async def record(exc: object, model: object) -> None:
-        seen.append((exc, model))
-
-    error, model = ListenerTimeout(1), _model(ListenerKey(1))
-    await _make(on_error_func=record).on_error(error, model)
-    await _make(on_error_func=lambda e, m: seen.append((e, m))).on_error(error, model)
-
-    assert seen == [(error, model), (error, model)]
-
-
-async def test_on_error_logs_a_failing_func_and_returns(caplog: pytest.LogCaptureFixture) -> None:
-    def boom(exc: object, model: object) -> None:
-        msg = "boom"
-        raise RuntimeError(msg)
-
-    with caplog.at_level(logging.ERROR):
-        assert (
-            await _make(on_error_func=boom).on_error(ListenerTimeout(1), _model(ListenerKey(1)))
-            is None
-        )
-    assert "boom" in caplog.text
-
-
 # --- listen ---------------------------------------------------------------------
 
 
@@ -420,6 +387,32 @@ async def test_listen_reports_the_error_that_ended_the_wait(
         await task
 
     assert seen == [(exc.value, model)]
+
+
+async def test_listen_reports_to_an_async_func_after_removing_the_wait() -> None:
+    seen: list[bool] = []
+    lis = _make()
+
+    async def record(exc: object, model: object) -> None:
+        seen.append(ListenerKey(1) in lis.listeners)
+
+    lis.on_error_func = record
+    with pytest.raises(ListenerTimeout):
+        await lis.listen(1, timeout=0.01)
+
+    assert seen == [False]
+
+
+async def test_listen_logs_a_failing_on_error_func_and_raises_the_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def boom(exc: object, model: object) -> None:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(ListenerTimeout):
+        await _make(on_error_func=boom).listen(1, timeout=0.01)
+    assert "boom" in caplog.text
 
 
 async def test_listen_does_not_report_an_error_raised_before_the_wait() -> None:

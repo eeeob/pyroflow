@@ -262,7 +262,6 @@ class Dispatcher(PyroDispatcher):
 
                 async with lock:
                     await self.handle_update(packet, parsed_update, handler_type)
-
             except StopPropagation:
                 pass
             except Exception:

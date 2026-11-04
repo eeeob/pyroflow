@@ -63,22 +63,7 @@ def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
     assert lis.timeout == 3
 
 
-# --- _is_listenable / _extract_key -------------------------------------------------
-
-
-async def test_is_listenable_accepts_callback_on_message_in_chat() -> None:
-    assert await CallbackQueryListener()._is_listenable(make_callback_query()) is True
-
-
-async def test_is_listenable_rejects_callback_without_message() -> None:
-    cbq = make_callback_query(message=None)
-    assert await CallbackQueryListener()._is_listenable(cbq) is False
-
-
-async def test_is_listenable_rejects_message_without_chat() -> None:
-    cbq = make_callback_query()
-    cbq.message.chat = None
-    assert await CallbackQueryListener()._is_listenable(cbq) is False
+# --- _extract_key -----------------------------------------------------------------
 
 
 async def test_extract_key_uses_message_chat_sender_and_message_id() -> None:
@@ -86,8 +71,14 @@ async def test_extract_key_uses_message_chat_sender_and_message_id() -> None:
     assert await CallbackQueryListener()._extract_key(cbq) == ListenerKey(-100, 9, 42)
 
 
-async def test_extract_key_is_none_for_an_unlistenable_callback() -> None:
+async def test_extract_key_is_none_for_a_callback_without_message() -> None:
     assert await CallbackQueryListener()._extract_key(make_callback_query(message=None)) is None
+
+
+async def test_extract_key_is_none_for_a_message_without_chat() -> None:
+    cbq = make_callback_query()
+    cbq.message.chat = None
+    assert await CallbackQueryListener()._extract_key(cbq) is None
 
 
 async def test_cancel_prompted_ask_does_not_depend_on_extract_key() -> None:

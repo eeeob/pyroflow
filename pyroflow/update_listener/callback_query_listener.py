@@ -47,19 +47,6 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
-    async def _is_listenable(self, update: CallbackQuery) -> bool:
-        """Return whether `_extract_key` keys the callback: attached to a message in a chat.
-
-        Args:
-            update: The incoming callback query.
-
-        Returns:
-            `True` if the callback has a message and that message has a chat.
-        """
-        m = update.message
-
-        return m is not None and m.chat is not None
-
     async def _extract_key(self, update: CallbackQuery) -> ListenerKey | None:
         """Default `extract_key_func`: key the callback by chat, user and message.
 
@@ -68,15 +55,14 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
 
         Returns:
             The key `(message chat id, sender id, message id)`, or `None` if
-            `_is_listenable` rejects the callback.
+            the callback has no message or its message has no chat.
         """
-        if not await self._is_listenable(update):
-            return None
-
         m = update.message
 
-        # `_is_listenable` يضمن أن `message` و `chat` ليسا `None` قبل استخراج المفتاح
-        return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `_is_listenable` guarantees `message` and `chat` are set
+        if m is None or m.chat is None:
+            return None
+
+        return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
 
     async def resolve(self, update: CallbackQuery) -> bool:
         """Resolve the callback; when no callback listener takes it, cancel the ask on its message.

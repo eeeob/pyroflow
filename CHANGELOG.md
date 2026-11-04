@@ -40,10 +40,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   update). `MessageListener` logs a warning for a non-strict filter on a key
   with a `message_id`, which names one message and can leave the wait open.
 - `UpdateListener.reject(key, update)`: end a wait with `ListenerRejected`.
-- `UpdateListener(on_error_func=...)` and `UpdateListener.on_error`: called
-  with the error and the `ListenerModel` when a `ListenerError` ends a wait
-  (a timeout, a cancellation or a strict rejection), before `listen` raises
-  it. A failing callback is logged and never hides the error.
+- `UpdateListener(on_error_func=...)`: called with the error and the
+  `ListenerModel` when a `ListenerError` ends a wait (a timeout, a
+  cancellation or a strict rejection), before `listen` raises it. A failing callback is logged and never hides the error.
 - `pyroflow.typings.MetaT` (`dict[Hashable, Any]`), the type of `meta`, and
   `pyroflow.constants.ASK_MESSAGE_ID_META_KEY`.
 - `pyroflow.utils.subsets_largest_first(items)`: every subset of `items`,

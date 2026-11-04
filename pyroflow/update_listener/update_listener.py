@@ -52,8 +52,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             waiting listener; `DuplicatePolicy.REPLACE` if `None`.
         extract_key_func: `(update) -> ListenerKey | None`, sync or async,
             used by `extract_key`; `None` skips the update.
-        on_error_func: `(exc, listener_model) -> object`, sync or async, used
-            by `on_error` when a `ListenerError` ends a wait.
+        on_error_func: `(exc, listener_model) -> object`, sync or async,
+            called when a `ListenerError` ends a wait (a timeout, a
+            cancellation or a strict rejection), after the wait is removed
+            and before `listen` raises the error. Errors raised before a wait
+            starts, such as `ListenerAlreadyExists`, are not reported. A
+            failing callback is logged and never hides the error.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         **kw: Passed to the next class in the MRO.
 
@@ -96,7 +100,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self.extract_key_func = extract_key_func
         """Optional key extractor behind `extract_key`."""
         self.on_error_func = on_error_func
-        """Optional callback behind `on_error`."""
+        """Optional callback for the `ListenerError` that ends a wait."""
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
@@ -187,24 +191,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             listener.set_exc(ListenerRejected(key, update))
 
         return True
-
-    async def on_error(self, exc: ListenerError, listener: ListenerModel) -> None:
-        """Report a `ListenerError` that ended the wait of `listener`.
-
-        Called by `listen` before it raises `exc`: on a timeout, a
-        cancellation (including `stop` and a replacing listener) and a strict
-        rejection. Errors raised before a wait starts, such as
-        `ListenerAlreadyExists`, are not reported. A failing `on_error_func`
-        is logged and never hides `exc`.
-
-        Args:
-            exc: The error the wait ended with.
-            listener: The model of the wait that ended.
-        """
-        if self.on_error_func is None:
-            return
-
-        await maybe_awaitable(self.on_error_func, exc, listener, return_exc=True, log_exc=True)
 
     async def listen(
         self,
@@ -310,19 +296,23 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if timeout is None:
             timeout = self.timeout
 
+        error: ListenerError | None = None
+
         try:
             return await asyncio.wait_for(listener.future, timeout)
         except asyncio.TimeoutError:
             error = ListenerTimeout(key)
-            await self.on_error(error, listener)
             raise error from None
-        except ListenerError as error:
-            await self.on_error(error, listener)
+        except ListenerError as exc:
+            error = exc
             raise
         finally:
             # A newer listener may have replaced this one under `key`.
             if self.listeners.get(key) is listener:
                 del self.listeners[key]
+
+            if error is not None and (on_error := self.on_error_func) is not None:
+                await maybe_awaitable(on_error, error, listener, return_exc=True, log_exc=True)
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
