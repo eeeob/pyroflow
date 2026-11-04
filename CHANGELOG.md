@@ -44,16 +44,18 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `UpdateListener(on_error_func=...)`: called with the error and the
   `ListenerModel` when a `ListenerError` ends a wait (a timeout, a
   cancellation or a strict rejection), before `listen` raises it. A failing callback is logged and never hides the error.
-- `pyroflow.typings.MetaT` (`dict[Hashable, Any]`), the type of `meta`, and
-  `pyroflow.constants.ASK_MESSAGE_ID_META_KEY`.
-- `pass_message=` on `ask` and `ask_rich` (default `True`): `meta` also gets
-  the sent or edited message itself under the new
-  `pyroflow.constants.ASK_MESSAGE_META_KEY` (`"message"`), so
-  `on_error_func` can edit or delete the question.
+- `pyroflow.models.ListenerContext`, the type of a wait's `context`: a
+  `SimpleNamespace` with the typed fields `message_id` and `message`, plus
+  any value the caller adds. Declared and added values are both read and set
+  as attributes; subclass it to type fields of your own.
+- `pass_message=` on `ask` and `ask_rich` (default `True`): the copy of
+  `context` also gets the sent or edited message itself as
+  `context.message`, so `on_error_func` can edit or delete the question.
 - `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
   whose presses that no callback wait takes cancel the message listen tied
   to the pressed message (see the Changed entry below). Its
-  `message_id_meta_key=` sets the `meta` key holding that message's id, and
+  `message_id_context_key=` names the `context` attribute holding that
+  message's id (default `MESSAGE_ID_CONTEXT_KEY`, `"message_id"`), and
   `cancel_policy=` (the new `pyroflow.enums.MessageListenCancelPolicy`)
   which presses cancel: `ALWAYS`, `UNRESOLVED` (the default) or `RESOLVED`.
 - `pyroflow.utils.subsets_largest_first(items)`: every subset of `items`,
@@ -76,15 +78,19 @@ Every breaking change lists what changed, who is affected and how to migrate.
   these arguments.
   Migration: return `None` from `extract_key_func` where `is_listenable_func`
   returned `False`.
-- **BREAKING:** `meta` is a dict (`MetaT`) and keyword-only in `listen`;
-  `ListenerModel` takes its `future` as the second field, with no default.
-  `ask` copies `meta` and adds the sent or edited message's id under
-  `ASK_MESSAGE_ID_META_KEY` (`"message_id"`, as before) unless `meta` already
-  has it; a non-dict `meta` is no longer accepted. Affects code passing a
-  non-dict `meta`, passing `meta` positionally to `listen`, or building
-  `ListenerModel` itself.
-  Migration: pass `meta` as a dict by keyword (`listen(chat, meta={...})`),
-  and build models as `ListenerModel(key, loop.create_future())`.
+- **BREAKING:** `meta` is renamed `context` and is a `ListenerContext`, no
+  longer a value of any type or a dict: on `listen`, `ask` and `ask_rich` it
+  is keyword-only, and `ListenerModel.meta` is `ListenerModel.context`, never
+  `None`. `ListenerModel` takes its `future` as the second field, with no
+  default. `ask` copies `context` and sets the copy's `message_id` to the id
+  of the sent or edited message unless it is already set, so the id is
+  `context.message_id` instead of `meta["message_id"]`. Affects code passing
+  or reading `meta`, or building `ListenerModel` itself. This `context` is
+  separate from `Update.context`.
+  Migration: `listen(chat, context=ListenerContext(step=1))` instead of
+  `listen(chat, {"step": 1})`, read `model.context.step` instead of
+  `model.meta["step"]`, and build models as
+  `ListenerModel(key, loop.create_future())`.
 - **BREAKING:** `CallbackQueryListener` no longer cancels message waits. A
   press that no callback wait takes cancels the message listen tied to the
   pressed message (the `ask` that sent it) only with the new

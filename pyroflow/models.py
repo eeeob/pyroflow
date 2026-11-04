@@ -3,17 +3,19 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import Field, dataclass, fields, is_dataclass
+from dataclasses import Field, dataclass, field, fields, is_dataclass
+from types import SimpleNamespace
 from typing import ClassVar, TYPE_CHECKING
 
 from pyrogram.filters import Filter
 from pytrove import classproperty
 
-from .typings import MetaT
 from .utils import subsets_largest_first
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from .types import Message
 
 
 @dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
@@ -103,9 +105,30 @@ class ListenerKey:
             yield ListenerKey(self.chat_id, **{name: getattr(self, name) for name in kept})
 
 
+class ListenerContext(SimpleNamespace):
+    """Values attached to a wait: typed base fields, plus any the caller adds.
+
+    Every value, declared or added, is read and set as an attribute. A field
+    that is not set reads its class default. Subclass to declare and type
+    fields of your own.
+
+    Example:
+        >>> class OrderContext(ListenerContext):
+        ...     step: int = 0
+        >>> context = OrderContext(step=2, note="x")
+        >>> context.step, context.note, context.message_id
+        (2, 'x', None)
+    """
+
+    message_id: int | None = None
+    """Id of the message `ask` sent or edited for the wait."""
+    message: Message | None = None
+    """The message `ask` sent or edited, when `pass_message` is true."""
+
+
 @dataclass(slots=True)
 class ListenerModel:
-    """A registered listener: its key, the future its update resolves, metadata and filter.
+    """A registered listener: its key, the future its update resolves, its context and filter.
 
     Example:
         >>> async def main():
@@ -121,8 +144,8 @@ class ListenerModel:
     """The slot the listener is registered under."""
     future: asyncio.Future
     """Resolved with the matching update, or failed with an error."""
-    meta: MetaT | None = None
-    """Optional metadata attached to the listener."""
+    context: ListenerContext = field(default_factory=ListenerContext)
+    """Values attached to the listener."""
     filters: Filter | None = None
     """Pyrogram filter an update must pass besides the key, or `None` for none."""
     strict: bool = False
@@ -143,5 +166,6 @@ class ListenerModel:
 
 __all__ = (
     "ListenerKey",
+    "ListenerContext",
     "ListenerModel",
 )

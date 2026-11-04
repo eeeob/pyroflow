@@ -4,15 +4,12 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
-from ..constants import ASK_MESSAGE_ID_META_KEY
 from ..enums import MessageListenCancelPolicy
 from ..models import ListenerKey
 from ..types import Message
 from .callback_query_listener import CallbackQueryListener
 
 if TYPE_CHECKING:
-    from collections.abc import Hashable
-
     from ..types import CallbackQuery
 
 
@@ -21,8 +18,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
     After a press is resolved, and when `cancel_policy` allows it, the
     client's message listener (`Client.message_listen`) is searched for a
-    wait tied to the pressed message: its `meta[message_id_meta_key]` is that
-    message's id, as `ask` records it. That wait ends with
+    wait tied to the pressed message: the attribute of its `context` named by
+    `message_id_context_key` is that message's id, as `ask` records it. That wait ends with
     `ListenerCancelled`. Only message waits are cancelled, and only those
     aimed at the presser or at anyone in the chat.
 
@@ -34,10 +31,12 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         >>> from types import SimpleNamespace
         >>> from pyrogram.types import CallbackQuery, Chat, User
         >>> from pyroflow.errors import ListenerCancelled
+        >>> from pyroflow.models import ListenerContext
         >>> from pyroflow.update_listener import MessageListener
         >>> async def main():
         ...     messages = MessageListener()
-        ...     waiter = asyncio.create_task(messages.listen(1, 2, meta={"message_id": 3}))
+        ...     context = ListenerContext(message_id=3)
+        ...     waiter = asyncio.create_task(messages.listen(1, 2, context=context))
         ...     await asyncio.sleep(0)
         ...     query = CallbackQuery(
         ...         id="q",
@@ -55,10 +54,13 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         'cancelled'
     """
 
+    MESSAGE_ID_CONTEXT_KEY: str = "message_id"
+    """Default `message_id_context_key`: the `ListenerContext` field `ask` sets."""
+
     def __init__(
         self,
         *args: Any,
-        message_id_meta_key: Hashable = ASK_MESSAGE_ID_META_KEY,
+        message_id_context_key: str = MESSAGE_ID_CONTEXT_KEY,
         cancel_policy: MessageListenCancelPolicy = MessageListenCancelPolicy.UNRESOLVED,
         **kw: Any,
     ) -> None:
@@ -66,18 +68,18 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
         Args:
             *args: Passed to `CallbackQueryListener`.
-            message_id_meta_key: The `meta` key holding the id of the message a
-                message wait is tied to. `ask` writes it under
-                `ASK_MESSAGE_ID_META_KEY`, so change it only for waits whose
-                `meta` carries the id under another key.
+            message_id_context_key: The name of the `context` attribute holding
+                the id of the message a message wait is tied to. `ask` sets
+                `message_id`, so change it only for waits whose `context`
+                carries the id under another name.
             cancel_policy: Which presses cancel: every press, only those no
                 callback wait took (the default), or only those one took.
             **kw: Passed to `CallbackQueryListener`.
         """
         super().__init__(*args, **kw)
 
-        self.message_id_meta_key = message_id_meta_key
-        """`meta` key holding the id of the message a message wait is tied to."""
+        self.message_id_context_key = message_id_context_key
+        """Name of the `context` attribute holding the id of the message a message wait is tied to."""
         self.cancel_policy = cancel_policy
         """Which presses cancel the message listen tied to the pressed message."""
 
@@ -107,7 +109,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
         The candidates are the sub-keys of `(chat, presser, pressed message)`,
         so a press only ends a wait aimed at the presser or at anyone in the
-        chat; the first whose `meta[message_id_meta_key]` is the pressed
+        chat; the first whose `context` attribute named by
+        `message_id_context_key` is the pressed
         message's id is cancelled. Nothing is cancelled when the callback
         carries no message, chat or message id, or the client has no message
         listener.
@@ -128,7 +131,10 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             listener = m_listen.listeners.get(sub)
 
-            if listener is not None and (listener.meta or {}).get(self.message_id_meta_key) == m.id:
+            if (
+                listener is not None
+                and getattr(listener.context, self.message_id_context_key, None) == m.id
+            ):
                 m_listen.cancel(sub)
                 return
 

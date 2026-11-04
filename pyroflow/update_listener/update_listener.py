@@ -18,15 +18,13 @@ from ..errors import (
     ListenerTimeout,
 )
 from ..enums import DuplicatePolicy
-from ..models import ListenerKey, ListenerModel
+from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from pyrogram.filters import Filter
     from pytrove.typings import MaybeCoroutineCallable, Number
-
-    from ..typings import MetaT
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -58,7 +56,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             failing callback is logged and never hides the error.
         on_listen_func: `(listen_kwargs) -> object`, called by `listen` with
             one dict of its arguments by name (`chat_id`, `user_id`,
-            `message_id`, `meta`, `filters`, `strict` and `timeout`, as
+            `message_id`, `context`, `filters`, `strict` and `timeout`, as
             passed) before the wait is registered; its result is ignored. It must be sync and
             fast, as it runs inline on the event loop; an error it raises
             propagates from `listen` and no wait starts.
@@ -202,7 +200,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         user_id: int | None = None,
         message_id: int | None = None,
         *,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -217,7 +215,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             chat_id: The chat to listen in.
             user_id: The user to wait for; `None` matches any user.
             message_id: The message to wait on; `None` matches any message.
-            meta: Metadata attached to the listener model.
+            context: Values attached to the listener model; `None` attaches an
+                empty `ListenerContext`.
             filters: A Pyrogram filter the update must pass besides its key.
             strict: What an update whose key matches but that fails `filters`
                 does: `True` ends the wait with `ListenerRejected`, `False`
@@ -278,7 +277,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                     "chat_id": chat_id,
                     "user_id": user_id,
                     "message_id": message_id,
-                    "meta": meta,
+                    "context": context,
                     "filters": filters,
                     "strict": strict,
                     "timeout": timeout,
@@ -296,7 +295,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         future = asyncio.get_running_loop().create_future()
         self.listeners[key] = listener = ListenerModel(
-            key, future, meta, filters=filters, strict=strict
+            key,
+            future,
+            ListenerContext() if context is None else context,
+            filters=filters,
+            strict=strict,
         )
 
         if timeout is None:

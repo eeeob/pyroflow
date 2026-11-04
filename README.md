@@ -159,8 +159,8 @@ callback = await client.ask(
 | `listen_message_id` | Filter the awaited update by message |
 | `timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `update_type` | Update type to wait for — determines the return type (default: `Message`) |
-| `meta` | Arbitrary metadata attached to the listener |
-| `pass_message` | Also put the sent or edited message in `meta` under `"message"` (default: `True`) |
+| `context` | A `ListenerContext` of values attached to the listener |
+| `pass_message` | Also set the sent or edited message as `context.message` (default: `True`) |
 | `filters` | A Pyrogram filter the awaited update must also pass |
 | `strict` | `True`: an update that fails `filters` ends the wait; `False`: it is skipped and the wait goes on |
 
@@ -193,7 +193,7 @@ while True:
 
 `strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below.
 
-To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `meta`, filter) before `listen` raises:
+To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `context`, filter) before `listen` raises:
 
 ```python
 def report(exc, model):
@@ -202,15 +202,26 @@ def report(exc, model):
 client.register_listener(MessageListener(on_error_func=report))
 ```
 
-By default `ask` also puts the message it sent or edited in `meta`: its id under `"message_id"` (`ASK_MESSAGE_ID_META_KEY`) and the message itself under `"message"` (`ASK_MESSAGE_META_KEY`). Pass `pass_message=False` to leave the message out. With it, `on_error_func` can clean up the question:
+A wait's `context` is a `ListenerContext`: typed fields plus any values you add, all read and set as attributes. Subclass it to type your own fields. It is separate from `Update.context`.
+
+```python
+from pyroflow.models import ListenerContext
+
+class OrderContext(ListenerContext):
+    step: int = 0
+
+answer = await message.ask("Your name?", context=OrderContext(step=1, note="signup"))
+```
+
+`ask` passes a copy of `context`, with `message_id` set to the id of the message it sent or edited, and `message` set to that message itself (unless you set them first). Pass `pass_message=False` to leave the message out. With it, `on_error_func` can clean up the question:
 
 ```python
 async def drop_question(exc, model):
-    if question := (model.meta or {}).get("message"):
-        await question.delete()
+    if model.context.message:
+        await model.context.message.delete()
 ```
 
-`MessageListenCancellingCallbackQueryListener` is a `CallbackQueryListener` that also cancels message listens: a press that no callback wait takes cancels the message wait tied to the pressed message (its `meta["message_id"]`), which raises `ListenerCancelled` in `ask`. Register it instead of `CallbackQueryListener` to get this; for example, a "back" button on a question then ends the wait for its answer:
+`MessageListenCancellingCallbackQueryListener` is a `CallbackQueryListener` that also cancels message listens: a press that no callback wait takes cancels the message wait tied to the pressed message (its `context.message_id`), which raises `ListenerCancelled` in `ask`. Register it instead of `CallbackQueryListener` to get this; for example, a "back" button on a question then ends the wait for its answer:
 
 ```python
 from pyroflow import MessageListenCancellingCallbackQueryListener
@@ -218,7 +229,7 @@ from pyroflow import MessageListenCancellingCallbackQueryListener
 client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
-`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `message_id_meta_key` changes the `meta` key that holds the message id (default `"message_id"`).
+`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `message_id_context_key` names the `context` attribute that holds the message id (default `"message_id"`).
 
 > ⚠️ **A wait that never ends.** Without `strict`, a wait stays open until `timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.

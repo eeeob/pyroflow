@@ -27,6 +27,7 @@ import pyroflow.client as client_module
 import pyroflow.utils.bot_commands as bot_commands_module
 from pyroflow.client import BotCommandsMixin, _BotCommandsMixinBase
 from pyroflow.constants import BOT_COMMANDS_ATTR
+from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message
 
 from .conftest import make_message
@@ -176,7 +177,7 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
             "chat_id": 100,
             "user_id": None,
             "message_id": None,
-            "meta": {"message_id": 5, "message": send.result},
+            "context": ListenerContext(message_id=5, message=send.result),
             "filters": None,
             "strict": False,
             "timeout": 3,
@@ -220,14 +221,16 @@ async def test_ask_send_mode_accepts_a_non_inline_reply_markup() -> None:
 
 async def test_ask_records_the_sent_message_and_its_id_in_a_copy_of_meta() -> None:
     c, listener, send, _ = _ask_client()
-    meta = {"step": 1}
+    context = ListenerContext(step=1)
 
-    await c.ask(100, "hi", meta=meta)
-    await c.ask(100, "hi", meta=meta, pass_message=False)
+    await c.ask(100, "hi", context=context)
+    await c.ask(100, "hi", context=context, pass_message=False)
 
-    assert listener.calls[0]["meta"] == {"message_id": 5, "message": send.result, "step": 1}
-    assert listener.calls[1]["meta"] == {"message_id": 5, "step": 1}
-    assert meta == {"step": 1}
+    assert listener.calls[0]["context"] == ListenerContext(
+        step=1, message_id=5, message=send.result
+    )
+    assert listener.calls[1]["context"] == ListenerContext(step=1, message_id=5)
+    assert context == ListenerContext(step=1)
 
 
 async def test_ask_passes_an_int_listen_message_id_and_user_id_through() -> None:
@@ -340,7 +343,7 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
             "chat_id": 100,
             "user_id": None,
             "message_id": None,
-            "meta": {"message_id": 5, "message": c.send_rich_message.result},
+            "context": ListenerContext(message_id=5, message=c.send_rich_message.result),
             "filters": None,
             "strict": False,
             "timeout": 3,
@@ -447,7 +450,7 @@ async def _await_reply(
     kw: dict[str, object] = {
         "listen_user_id": None,
         "listen_message_id": None,
-        "meta": None,
+        "context": None,
         "pass_message": True,
         "filters": None,
         "strict": False,
@@ -470,7 +473,7 @@ async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() ->
             "chat_id": -1001,
             "user_id": 7,
             "message_id": None,
-            "meta": {"message_id": 5, "message": m},
+            "context": ListenerContext(message_id=5, message=m),
             "filters": None,
             "strict": False,
             "timeout": 3,
@@ -478,13 +481,14 @@ async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() ->
     ]
 
 
-async def test_await_reply_keeps_the_message_keys_meta_already_has() -> None:
+async def test_await_reply_keeps_the_fields_a_copy_of_context_already_has() -> None:
     c, listener = make_client(), _RecordingListener()
-    meta = {"message_id": 9, "message": "mine", "step": 1}
+    context = ListenerContext(message_id=9, message="mine", step=1)
 
-    await _await_reply(c, listener, make_message(), meta=meta)
+    await _await_reply(c, listener, make_message(), context=context)
 
-    assert listener.calls[0]["meta"] == meta
+    assert listener.calls[0]["context"] == context
+    assert listener.calls[0]["context"] is not context
 
 
 async def test_await_reply_without_pass_message_records_only_the_id() -> None:
@@ -492,7 +496,7 @@ async def test_await_reply_without_pass_message_records_only_the_id() -> None:
 
     await _await_reply(c, listener, make_message(), pass_message=False)
 
-    assert listener.calls[0]["meta"] == {"message_id": 5}
+    assert listener.calls[0]["context"] == ListenerContext(message_id=5)
 
 
 async def test_await_reply_passes_filters_and_strict_to_the_listener() -> None:

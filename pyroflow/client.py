@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import asyncio
+import copy
 from functools import cached_property
 from typing import Any, cast, overload, TYPE_CHECKING
 
@@ -23,7 +24,8 @@ from pytrove import (
     yield_control,
 )
 
-from .constants import ASK_MESSAGE_ID_META_KEY, ASK_MESSAGE_META_KEY, BOT_COMMANDS_ATTR
+from .constants import BOT_COMMANDS_ATTR
+from .models import ListenerContext
 from .utils import (
     patch_cls,
     split_bot_command_entry,
@@ -47,7 +49,6 @@ if TYPE_CHECKING:
     from .typings import (
         BotCommandGroupKeyT,
         ListenMessageIdT,
-        MetaT,
         UpdateType,
     )
     from .update_listener import UpdateListener
@@ -137,7 +138,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -175,7 +176,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -200,7 +201,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -225,7 +226,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -264,7 +265,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -305,14 +306,14 @@ class Client(PyroClient):
                 a callable that receives the sent or edited message and returns
                 the id (or `None` for no filter). The callable runs synchronously
                 on the event loop, so it must not block.
-            meta: Metadata attached to the listener. It is copied, and the id
-                of the sent or edited message is added under
-                `ASK_MESSAGE_ID_META_KEY` unless `meta` already has that key;
-                with `MessageListenCancellingCallbackQueryListener` registered, a button
-                pressed on that message cancels the wait.
-            pass_message: Also add the sent or edited message itself under
-                `ASK_MESSAGE_META_KEY` (unless `meta` already has that key),
-                so `on_error_func` can edit or delete it.
+            context: Values attached to the listener. It is copied, and the
+                copy's `message_id` is set to the id of the sent or edited
+                message unless it is already set; with
+                `MessageListenCancellingCallbackQueryListener` registered, a
+                button pressed on that message cancels the wait.
+            pass_message: Also set the copy's `message` to the sent or edited
+                message itself (unless it is already set), so `on_error_func`
+                can edit or delete it.
             filters: A Pyrogram filter the awaited update must pass besides
                 `listen_user_id` and `listen_message_id`.
             strict: What an update that matches the key but fails `filters`
@@ -388,7 +389,7 @@ class Client(PyroClient):
             chat_id,
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
-            meta=meta,
+            context=context,
             pass_message=pass_message,
             filters=filters,
             strict=strict,
@@ -417,7 +418,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -448,7 +449,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -470,7 +471,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -492,7 +493,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -527,7 +528,7 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -560,7 +561,7 @@ class Client(PyroClient):
             suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
-            meta: As in `ask`.
+            context: As in `ask`.
             pass_message: As in `ask`.
             filters: As in `ask`.
             strict: As in `ask`.
@@ -620,7 +621,7 @@ class Client(PyroClient):
             chat_id,
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
-            meta=meta,
+            context=context,
             pass_message=pass_message,
             filters=filters,
             strict=strict,
@@ -669,7 +670,7 @@ class Client(PyroClient):
         *,
         listen_user_id: int | None,
         listen_message_id: ListenMessageIdT | None,
-        meta: MetaT | None,
+        context: ListenerContext | None,
         pass_message: bool,
         filters: Filter | None,
         strict: bool,
@@ -683,7 +684,7 @@ class Client(PyroClient):
             chat_id: Chat to listen in when `m` has no chat id.
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
-            meta: As in `ask`.
+            context: As in `ask`.
             pass_message: As in `ask`.
             filters: As in `ask`.
             strict: As in `ask`.
@@ -704,15 +705,19 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
+        context = ListenerContext() if context is None else copy.copy(context)
+
+        if context.message_id is None:
+            context.message_id = m.id
+
+        if pass_message and context.message is None:
+            context.message = m
+
         return await listener(
             chat_id=final_chat_id,
             user_id=listen_user_id,
             message_id=listen_message_id,
-            meta={
-                ASK_MESSAGE_ID_META_KEY: m.id,
-                **({ASK_MESSAGE_META_KEY: m} if pass_message else {}),
-                **(meta or {}),
-            },
+            context=context,
             filters=filters,
             strict=strict,
             timeout=timeout,

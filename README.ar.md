@@ -171,8 +171,8 @@ callback = await client.ask(
 | `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة |
 | `timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
-| `meta` | metadata اختيارية تُرفق بالـ listener |
-| `pass_message` | يضيف الرسالة المرسلة أو المعدّلة إلى `meta` تحت `"message"` (الافتراضي: `True`) |
+| `context` | `ListenerContext` بقيم تُرفق بالـ listener |
+| `pass_message` | يضع الرسالة المرسلة أو المعدّلة في `context.message` (الافتراضي: `True`) |
 | `filters` | filter من Pyrogram يجب أن يجتازه الـ update المنتظَر أيضًا |
 | `strict` | `True`: الـ update الذي يرفضه `filters` ينهي الانتظار؛ `False`: يُتخطى ويستمر الانتظار |
 
@@ -208,7 +208,7 @@ while True:
 
 `strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه.
 
-للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`meta` وفلتره) قبل أن يرفع `listen` الخطأ:
+للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`context` وفلتره) قبل أن يرفع `listen` الخطأ:
 
 ```python
 def report(exc, model):
@@ -217,20 +217,36 @@ def report(exc, model):
 client.register_listener(MessageListener(on_error_func=report))
 ```
 
-`ask` يضع في `meta` افتراضيًا الرسالة التي أرسلها أو عدّلها:
+`context` الانتظار من نوع `ListenerContext`:
 
-- رقمها تحت `"message_id"` (`ASK_MESSAGE_ID_META_KEY`).
-- الرسالة نفسها تحت `"message"` (`ASK_MESSAGE_META_KEY`). مرّر `pass_message=False` لتركها.
+- فيه حقول لها أنواع، وأي قيم تضيفها أنت.
+- الكل يُقرأ ويُضبط بالنقطة (attribute).
+- لإعطاء حقولك أنواعًا، أنشئ كلاسًا فرعيًا منه.
+- هو غير `Update.context`.
 
-بها تستطيع `on_error_func` تنظيف السؤال:
+```python
+from pyroflow.models import ListenerContext
+
+class OrderContext(ListenerContext):
+    step: int = 0
+
+answer = await message.ask("Your name?", context=OrderContext(step=1, note="signup"))
+```
+
+`ask` يمرر نسخة من `context`، ويضبط فيها افتراضيًا:
+
+- `message_id`: رقم الرسالة التي أرسلها أو عدّلها.
+- `message`: الرسالة نفسها. مرّر `pass_message=False` لتركها.
+
+ما تضبطه أنت مسبقًا يبقى كما هو. بالرسالة تستطيع `on_error_func` تنظيف السؤال:
 
 ```python
 async def drop_question(exc, model):
-    if question := (model.meta or {}).get("message"):
-        await question.delete()
+    if model.context.message:
+        await model.context.message.delete()
 ```
 
-`MessageListenCancellingCallbackQueryListener` هو `CallbackQueryListener` يلغي أيضًا انتظار الرسائل: الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة (`meta["message_id"]` فيه)، فيرفع `ask` الخطأ `ListenerCancelled`. سجّله بدل `CallbackQueryListener` لتحصل على ذلك. مثلًا، زر "رجوع" على رسالة سؤال ينهي عندها انتظار جوابه:
+`MessageListenCancellingCallbackQueryListener` هو `CallbackQueryListener` يلغي أيضًا انتظار الرسائل: الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة (`context.message_id` فيه)، فيرفع `ask` الخطأ `ListenerCancelled`. سجّله بدل `CallbackQueryListener` لتحصل على ذلك. مثلًا، زر "رجوع" على رسالة سؤال ينهي عندها انتظار جوابه:
 
 ```python
 from pyroflow import MessageListenCancellingCallbackQueryListener
@@ -244,7 +260,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 - `RESOLVED`: الضغطة التي أخذها انتظار callback فقط.
 - `ALWAYS`: كل ضغطة.
 
-و`message_id_meta_key` يغيّر مفتاح `meta` الذي يحمل رقم الرسالة (الافتراضي `"message_id"`).
+و`message_id_context_key` يحدد اسم الـ attribute في `context` الذي يحمل رقم الرسالة (الافتراضي `"message_id"`).
 
 > ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.

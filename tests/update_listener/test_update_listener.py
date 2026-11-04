@@ -25,7 +25,7 @@ from pyroflow.errors import (
     ListenerRejected,
     ListenerTimeout,
 )
-from pyroflow.models import ListenerKey, ListenerModel
+from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
 from pyroflow.update_listener import update_listener as update_listener_module
 from pyroflow.update_listener.update_listener import UpdateListener
 
@@ -272,7 +272,8 @@ async def test_reject_without_a_listener_is_false_and_leaves_a_finished_one_as_i
 
 async def test_listen_registers_the_listener_before_yielding() -> None:
     lis = _make()
-    coro = lis.listen(1, 2, 3, meta={"step": 1})
+    context = ListenerContext(step=1)
+    coro = lis.listen(1, 2, 3, context=context)
     task = asyncio.ensure_future(coro)
     # One loop turn starts the coroutine; it registers before it first waits.
     await asyncio.sleep(0)
@@ -280,7 +281,7 @@ async def test_listen_registers_the_listener_before_yielding() -> None:
     try:
         listener = lis.listeners[key]
         assert listener.key == key
-        assert listener.meta == {"step": 1}
+        assert listener.context is context
     finally:
         await _drain(task)
 
@@ -432,7 +433,8 @@ async def test_listen_passes_its_arguments_to_on_listen_func_before_registering(
     lis = _make()
     lis.on_listen_func = lambda kw: seen.append((kw, ListenerKey(1, 2, 3) in lis.listeners))
 
-    task = await _pending(lis, 1, 2, 3, meta={"a": 1}, filters=TEXT_A, strict=True, timeout=5)
+    context = ListenerContext(a=1)
+    task = await _pending(lis, 1, 2, 3, context=context, filters=TEXT_A, strict=True, timeout=5)
     await _drain(task)
 
     assert seen == [
@@ -441,7 +443,7 @@ async def test_listen_passes_its_arguments_to_on_listen_func_before_registering(
                 "chat_id": 1,
                 "user_id": 2,
                 "message_id": 3,
-                "meta": {"a": 1},
+                "context": context,
                 "filters": TEXT_A,
                 "strict": True,
                 "timeout": 5,

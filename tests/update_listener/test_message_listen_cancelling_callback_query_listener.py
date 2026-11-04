@@ -13,10 +13,9 @@ from pyroflow import (
     CallbackQueryListener,
     MessageListener,
 )
-from pyroflow.constants import ASK_MESSAGE_ID_META_KEY
 from pyroflow.enums import MessageListenCancelPolicy
 from pyroflow.errors import ListenerCancelled
-from pyroflow.models import ListenerKey
+from pyroflow.models import ListenerContext, ListenerKey
 from pyroflow.types import Message
 
 from ..conftest import make_callback_query
@@ -35,8 +34,7 @@ class _FakeClient:
 async def _listen(
     lis: MessageListener, *key: int | None, prompt_id: int | None = None
 ) -> asyncio.Task:
-    meta = None if prompt_id is None else {ASK_MESSAGE_ID_META_KEY: prompt_id}
-    task = asyncio.create_task(lis.listen(*key, meta=meta))
+    task = asyncio.create_task(lis.listen(*key, context=ListenerContext(message_id=prompt_id)))
     for _ in range(10):
         if ListenerKey(*key) in lis.listeners:
             break
@@ -63,23 +61,24 @@ def test_is_a_callback_query_listener() -> None:
 
 def test_init_defaults() -> None:
     lis = MessageListenCancellingCallbackQueryListener()
-    assert lis.message_id_meta_key == ASK_MESSAGE_ID_META_KEY
+    assert lis.message_id_context_key == "message_id"
+    assert MessageListenCancellingCallbackQueryListener.MESSAGE_ID_CONTEXT_KEY == "message_id"
     assert lis.cancel_policy is MessageListenCancelPolicy.UNRESOLVED
     assert lis.extract_key_func == lis._extract_key
 
 
 def test_init_stores_its_arguments_and_forwards_the_rest() -> None:
     lis = MessageListenCancellingCallbackQueryListener(
-        message_id_meta_key="prompt", cancel_policy=MessageListenCancelPolicy.ALWAYS, timeout=3
+        message_id_context_key="prompt", cancel_policy=MessageListenCancelPolicy.ALWAYS, timeout=3
     )
-    assert lis.message_id_meta_key == "prompt"
+    assert lis.message_id_context_key == "prompt"
     assert lis.cancel_policy is MessageListenCancelPolicy.ALWAYS
     assert lis.timeout == 3
 
 
-async def test_cancel_message_listen_reads_the_id_under_message_id_meta_key() -> None:
+async def test_cancel_message_listen_reads_the_id_named_by_message_id_context_key() -> None:
     mlis = MessageListener()
-    other_key = asyncio.create_task(mlis.listen(100, 7, meta={"prompt": 5}))
+    other_key = asyncio.create_task(mlis.listen(100, 7, context=ListenerContext(prompt=5)))
     await asyncio.sleep(0)
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
@@ -87,7 +86,7 @@ async def test_cancel_message_listen_reads_the_id_under_message_id_meta_key() ->
     assert not other_key.done()
 
     MessageListenCancellingCallbackQueryListener(
-        message_id_meta_key="prompt"
+        message_id_context_key="prompt"
     )._cancel_message_listen(cbq)
     with pytest.raises(ListenerCancelled):
         await other_key

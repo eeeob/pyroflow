@@ -8,7 +8,7 @@ from dataclasses import Field
 import pytest
 
 import pyroflow.models
-from pyroflow.models import ListenerKey, ListenerModel
+from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
 
 
 def test_listener_key_to_tuple() -> None:
@@ -133,10 +133,42 @@ async def test_listener_model_defaults() -> None:
     future = asyncio.get_running_loop().create_future()
     model = ListenerModel(ListenerKey(1), future)
     assert model.future is future
-    assert model.meta is None
+    assert model.context == ListenerContext()
     assert model.filters is None
     assert model.strict is False
 
 
+async def test_listener_model_gets_a_new_context_each() -> None:
+    loop = asyncio.get_running_loop()
+    first = ListenerModel(ListenerKey(1), loop.create_future())
+    second = ListenerModel(ListenerKey(1), loop.create_future())
+    assert first.context is not second.context
+
+
+# --- ListenerContext ----------------------------------------------------------------
+
+
+def test_listener_context_fields_default_to_none() -> None:
+    context = ListenerContext()
+    assert context.message_id is None
+    assert context.message is None
+    assert vars(context) == {}
+
+
+def test_listener_context_reads_added_values_like_its_fields() -> None:
+    context = ListenerContext(message_id=5, step=1)
+    context.note = "x"
+    assert (context.message_id, context.step, context.note) == (5, 1, "x")
+
+
+def test_listener_context_subclass_declares_fields_with_defaults() -> None:
+    class OrderContext(ListenerContext):
+        step: int = 0
+
+    assert OrderContext().step == 0
+    assert OrderContext(step=2).step == 2
+    assert OrderContext(step=2) == OrderContext(step=2)
+
+
 def test_models_all() -> None:
-    assert pyroflow.models.__all__ == ("ListenerKey", "ListenerModel")
+    assert pyroflow.models.__all__ == ("ListenerKey", "ListenerContext", "ListenerModel")

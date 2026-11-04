@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing_extensions import assert_type
 
+    from pyroflow.models import ListenerContext
     from pyroflow import (
         CallbackQuery,
         CallbackQueryListener,
@@ -21,7 +22,9 @@ if TYPE_CHECKING:
         generic: UpdateListener[Message],
     ) -> None:
         assert_type(await messages.listen(1), Message)
-        assert_type(await messages.listen(1, 2, 3, meta={"k": 1}, timeout=1.5), Message)
+        assert_type(
+            await messages.listen(1, 2, 3, context=ListenerContext(k=1), timeout=1.5), Message
+        )
         assert_type(await messages(1), Message)
         assert_type(await queries.listen(1), CallbackQuery)
         assert_type(await queries(1, message_id=3), CallbackQuery)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable, Hashable
+from collections.abc import Callable
 from typing import (
     TypeVar,
-    Any,
     TypeAlias,
     TYPE_CHECKING,
 )
@@ -37,15 +36,10 @@ ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
 """A message id, or a fast synchronous callable mapping the sent or edited message to one (or `None`)."""
 
 
-MetaT: TypeAlias = dict[Hashable, Any]
-"""Metadata attached to a listener; `ask` adds the message it sent and its id (`ASK_MESSAGE_META_KEY`, `ASK_MESSAGE_ID_META_KEY`)."""
-
-
 __all__ = (
     "UpdateType",
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",
     "ListenMessageIdT",
-    "MetaT",
 )

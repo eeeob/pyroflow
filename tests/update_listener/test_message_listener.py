@@ -68,7 +68,7 @@ def test_warn_single_update_filter_warns_of_a_wait_a_rejected_message_leaves_ope
                 "chat_id": 1,
                 "user_id": 2,
                 "message_id": message_id,
-                "meta": None,
+                "context": None,
                 "filters": filters_,
                 "strict": strict,
                 "timeout": None,

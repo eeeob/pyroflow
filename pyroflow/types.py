@@ -35,7 +35,8 @@ if TYPE_CHECKING:
     from pytrove.typings import Number
 
     from .client import Client
-    from .typings import UpdateType, ListenMessageIdT, MetaT
+    from .models import ListenerContext
+    from .typings import UpdateType, ListenMessageIdT
 
 
 @patch_cls
@@ -153,7 +154,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -174,7 +175,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -210,7 +211,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -246,7 +247,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -282,7 +283,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -320,8 +321,8 @@ class Message(PyroMessage):
             listen_message_id: Only accept updates for this message id, or a sync
                 callable that receives the sent/edited message and returns the id (or
                 `None` for no filter). It runs inline on the event loop, so keep it fast.
-            meta: Metadata attached to the created listener; see `Client.ask`.
-            pass_message: Also add the sent or edited message to `meta`; see
+            context: Values attached to the created listener; see `Client.ask`.
+            pass_message: Also set the sent or edited message on `context`; see
                 `Client.ask`.
             filters: A Pyrogram filter the awaited update must pass; see
                 `Client.ask`.
@@ -384,7 +385,7 @@ class Message(PyroMessage):
             reply_markup=reply_markup,
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
-            meta=meta,
+            context=context,
             pass_message=pass_message,
             filters=filters,
             strict=strict,
@@ -403,7 +404,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -421,7 +422,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -451,7 +452,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -481,7 +482,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -511,7 +512,7 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: MetaT | None = None,
+        context: ListenerContext | None = None,
         pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
@@ -540,7 +541,7 @@ class Message(PyroMessage):
             reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
-            meta: As in `ask`.
+            context: As in `ask`.
             pass_message: As in `ask`.
             filters: As in `ask`.
             strict: As in `ask`.
@@ -591,7 +592,7 @@ class Message(PyroMessage):
             reply_markup=reply_markup,
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
-            meta=meta,
+            context=context,
             pass_message=pass_message,
             filters=filters,
             strict=strict,
