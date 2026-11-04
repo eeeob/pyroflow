@@ -2,7 +2,7 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Any, cast, TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 
 from ..models import ListenerKey
 from ..types import Message
@@ -38,7 +38,7 @@ class MessageListener(UpdateListener[Message]):
 
     if not TYPE_CHECKING:
 
-        def __init__(self, *args: Any, **kw: Any) -> None:
+        def __init__(self, *args: object, **kw: object) -> None:
             """Initialize the listener, defaulting to the built-in key functions.
 
             Args:

@@ -4,7 +4,6 @@ from __future__ import annotations as _annotations
 
 import sys
 from enum import auto
-from typing import Any
 
 if sys.version_info >= (3, 11):
     from enum import StrEnum
@@ -15,7 +14,9 @@ else:
         """Backport of `enum.StrEnum` for Python 3.10: members are strings, `auto()` is the lowercase name."""
 
         @staticmethod
-        def _generate_next_value_(name: str, start: int, count: int, last_values: list[Any]) -> str:
+        def _generate_next_value_(
+            name: str, start: int, count: int, last_values: list[object]
+        ) -> str:
             """Return the lowercase member name as the value of an `auto()` member.
 
             Args:

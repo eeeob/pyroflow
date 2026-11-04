@@ -75,7 +75,7 @@ class Client(PyroClient):
 
     if not TYPE_CHECKING:  # for typehints
 
-        def __init__(self, *args: Any, **kw: Any) -> None:
+        def __init__(self, *args: object, **kw: object) -> None:
             """Run Pyrogram's own `__init__`, then start with no ask error handlers."""
             self.old__init__(*args, **kw)
             self.ask_error_handlers = {}
@@ -112,18 +112,18 @@ class Client(PyroClient):
 
     else:
 
-        def register_listener(self, *args: Any, **kw: Any) -> None:
+        def register_listener(self, *args: object, **kw: object) -> None:
             """Forward to `Dispatcher.register_listener`."""
             return self.dispatcher.register_listener(*args, **kw)
 
-        async def unregister_listener(self, *args: Any, **kw: Any) -> None:
+        async def unregister_listener(self, *args: object, **kw: object) -> None:
             """Forward to `Dispatcher.unregister_listener`."""
             return await self.dispatcher.unregister_listener(*args, **kw)
 
     def register_ask_error_handler(
         self,
         exc_types: type[Exception] | tuple[type[Exception], ...],
-        handler: MaybeCoroutineCallable[[Exception, Message], Any],
+        handler: MaybeCoroutineCallable[[Exception, Message], object],
         update_type: type[pyro_types.Update] = Message,
     ) -> None:
         """Add or replace the client-wide `ask` error handler for `exc_types`.

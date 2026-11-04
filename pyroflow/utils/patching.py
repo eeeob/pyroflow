@@ -42,14 +42,14 @@ def patch_cls(patch_class: _CT) -> _CT: ...
 def patch_cls(
     *,
     preserve_old: bool = True,
-    setter: Callable[[type, str, Any], None] = patch_setter,
+    setter: Callable[[type, str, object], None] = patch_setter,
     include_dunders: tuple[str, ...] = ("__init__",),
 ) -> Callable[[_CT], _CT]: ...
 def patch_cls(
     patch_class: _CT | None = None,
     *,
     preserve_old: bool = True,
-    setter: Callable[[type, str, Any], None] = patch_setter,
+    setter: Callable[[type, str, object], None] = patch_setter,
     include_dunders: tuple[str, ...] = ("__init__",),
 ) -> _CT | Callable[[_CT], _CT]:
     """Copy a class body onto its single base, as `pytrove.patch_cls` with `patch_setter` as the default setter.

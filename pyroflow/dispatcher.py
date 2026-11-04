@@ -42,7 +42,7 @@ class Dispatcher(PyroDispatcher):
     oldstop: Callable[..., Awaitable[None]]
     """Original Pyrogram `stop`, kept by `patch_cls`."""
 
-    def __init__(self, *args: Any, **kw: Any) -> None:
+    def __init__(self, *args: object, **kw: object) -> None:
         """Run the original initializer, then set up an empty listener registry.
 
         Args:
@@ -57,7 +57,7 @@ class Dispatcher(PyroDispatcher):
         self.is_started = False
         """Whether the dispatcher is running; registration is refused while it is."""
 
-    async def start(self, *args: Any, **kw: Any) -> None:
+    async def start(self, *args: object, **kw: object) -> None:
         """Start the dispatcher, then all registered listeners.
 
         Args:
@@ -75,7 +75,7 @@ class Dispatcher(PyroDispatcher):
 
         return r
 
-    async def stop(self, *args: Any, **kw: Any) -> None:
+    async def stop(self, *args: object, **kw: object) -> None:
         """Stop the listeners, then the original dispatcher.
 
         The listeners go first: their waiters fail, so a handler blocked in

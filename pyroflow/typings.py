@@ -35,7 +35,7 @@ BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 
 AskErrorHandlersT: TypeAlias = dict[
     type[Exception] | tuple[type[Exception], ...],
-    MaybeCoroutineCallable[[Exception, "Message"], Any],
+    MaybeCoroutineCallable[[Exception, "Message"], object],
 ]
 """Handlers called as `(exc, message)` when a mapped error occurs while `ask()` awaits."""
 

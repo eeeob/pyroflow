@@ -5,7 +5,7 @@ from __future__ import annotations as _annotations
 import asyncio
 import logging
 from abc import ABC
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import ClassVar, TYPE_CHECKING
 
 from pytrove import maybe_awaitable, is_exception
 
@@ -82,7 +82,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
         on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
         timeout: Number | None = None,
-        **kw: Any,
+        **kw: object,
     ) -> None:
         """Initialise the listener; see the class docstring for the parameters."""
         super().__init__(**kw)

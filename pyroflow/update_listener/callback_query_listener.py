@@ -2,7 +2,7 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from ..constants import ASK_MESSAGE_ID_META_KEY
 from ..models import ListenerKey
@@ -35,7 +35,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
 
     if not TYPE_CHECKING:
 
-        def __init__(self, *args: Any, **kw: Any) -> None:
+        def __init__(self, *args: object, **kw: object) -> None:
             """Initialize the listener, defaulting to the built-in key functions.
 
             Args:

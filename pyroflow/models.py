@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 from dataclasses import Field, dataclass, fields, is_dataclass
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import ClassVar, TYPE_CHECKING
 
 from pyrogram.filters import Filter
 from pytrove import classproperty
@@ -25,13 +25,13 @@ class ListenerKey:
         True
     """
 
-    FIELDS: ClassVar[tuple[Field[Any], ...]]
+    FIELDS: ClassVar[tuple[Field[object], ...]]
     """The dataclass fields, in declaration order."""
 
     if not TYPE_CHECKING:
 
         @classproperty(cached=True)
-        def FIELDS(cls) -> tuple[Field[Any], ...]:
+        def FIELDS(cls) -> tuple[Field[object], ...]:
             """Return the dataclass fields, in declaration order."""
             if not is_dataclass(cls):
                 return cls.__dict__["FIELDS"]

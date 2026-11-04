@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from abc import ABC
 from itertools import combinations
-from typing import Any, Generic, TypeVar, TYPE_CHECKING
+from typing import Generic, TypeVar, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
 from pytrove import maybe_awaitable
@@ -39,7 +39,7 @@ class UpdateBound(Generic[UpdateType]):
     __update_type__: type[UpdateType]
     """The Pyrogram update class this subclass is bound to."""
 
-    def __init_subclass__(cls, **kw: Any) -> None:
+    def __init_subclass__(cls, **kw: object) -> None:
         """Check that a concrete subclass declares a Pyrogram update type.
 
         Args:
@@ -63,7 +63,7 @@ class UpdateBound(Generic[UpdateType]):
             msg = f"{cls.__name__}.__update_type__ must be a subclass of {PyroUpdate.__name__}"
             raise TypeError(msg)
 
-    def __init__(self, **kw: Any) -> None:
+    def __init__(self, **kw: object) -> None:
         """Check the declared update type again, then pass `kw` on to the next base.
 
         Args:
