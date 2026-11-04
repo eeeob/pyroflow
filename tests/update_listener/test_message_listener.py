@@ -2,12 +2,15 @@
 
 from __future__ import annotations as _annotations
 
+import logging
 from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
 import pytest
+from pyrogram import filters
 
-from pyroflow import MessageListener
+from pyroflow import CallbackQueryListener, MessageListener
+from pyroflow.errors import ListenerTimeout
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_message
@@ -22,8 +25,6 @@ if TYPE_CHECKING:
 def test_init_defaults_to_builtin_key_functions() -> None:
     lis = MessageListener()
     assert lis.extract_key_func == lis._extract_key
-    assert lis.filters is None
-    assert lis.strict is False
 
 
 def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
@@ -33,6 +34,38 @@ def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
     lis = MessageListener(extract_key_func=extract_key, timeout=3)
     assert lis.extract_key_func is extract_key
     assert lis.timeout == 3
+
+
+# --- the single-update warning ----------------------------------------------------
+
+
+def test_message_id_names_one_update() -> None:
+    assert MessageListener._message_id_names_one_update is True
+
+
+@pytest.mark.parametrize(
+    ("listener_cls", "message_id", "strict", "warned"),
+    [
+        (MessageListener, 5, False, True),
+        (MessageListener, 5, True, False),
+        (MessageListener, None, False, False),
+        (CallbackQueryListener, 5, False, False),
+    ],
+)
+async def test_listen_warns_of_a_wait_a_rejected_message_leaves_open(
+    caplog: pytest.LogCaptureFixture,
+    listener_cls: type[MessageListener | CallbackQueryListener],
+    message_id: int | None,
+    strict: bool,
+    warned: bool,
+) -> None:
+    lis = listener_cls()
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(1, 2, message_id, filters=filters.text, strict=strict, timeout=0.001)
+
+    assert ("waits for a single update with a non-strict filter" in caplog.text) is warned
 
 
 # --- _is_listenable -------------------------------------------------------------

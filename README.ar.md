@@ -205,11 +205,16 @@ while True:
         await message.reply("That is not a number.")
 ```
 
-الفلتر على الـ listener نفسه (`MessageListener(filters=..., strict=...)`) ينطبق على كل انتظار:
+`strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه.
 
-- يُدمج مع فلتر الاستدعاء بـ `&`.
-- الاستدعاء الذي لا يمرر `strict` يأخذ قيمة الـ listener.
-- مثال: فلتر صارم على الـ listener مثل `~filters.command(...)`، مع `filters.text` في الاستدعاء. الصورة عندها تنهي السؤال أيضًا. مرّر `strict=False` لتخطيها، لكن الأمر عندها لا ينهي السؤال.
+للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`meta` وفلتره) قبل أن يرفع `listen` الخطأ:
+
+```python
+def report(exc, model):
+    log.info("Wait for %s ended: %r", model.key, exc)
+
+client.register_listener(MessageListener(on_error_func=report))
+```
 
 > ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.

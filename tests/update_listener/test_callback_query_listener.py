@@ -8,6 +8,7 @@ from typing import Any, TYPE_CHECKING
 import pytest
 
 from pyroflow import CallbackQueryListener, MessageListener
+from pyroflow.constants import ASK_MESSAGE_ID_META_KEY
 from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerKey
 from pyroflow.types import Message
@@ -29,7 +30,8 @@ class _FakeClient:
 async def _listen(
     lis: MessageListener, *key: int | None, prompt_id: int | None = None
 ) -> asyncio.Task:
-    task = asyncio.create_task(lis.listen(*key, prompt_id=prompt_id))
+    meta = None if prompt_id is None else {ASK_MESSAGE_ID_META_KEY: prompt_id}
+    task = asyncio.create_task(lis.listen(*key, meta=meta))
     for _ in range(10):
         if ListenerKey(*key) in lis.listeners:
             break
@@ -49,8 +51,7 @@ async def _stop(lis: UpdateListener[Any], *tasks: asyncio.Task) -> None:
 def test_init_defaults_to_builtin_key_functions() -> None:
     lis = CallbackQueryListener()
     assert lis.extract_key_func == lis._extract_key
-    assert lis.filters is None
-    assert lis.strict is False
+    assert lis.on_error_func is None
 
 
 def test_init_keeps_given_functions_and_forwards_kwargs() -> None:

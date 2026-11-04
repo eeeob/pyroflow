@@ -8,7 +8,7 @@ from dataclasses import Field
 import pytest
 
 import pyroflow.models
-from pyroflow.models import ListenerKey, ListenerModel, _get_plan
+from pyroflow.models import ListenerKey, ListenerModel
 
 
 def test_listener_key_to_tuple() -> None:
@@ -70,7 +70,7 @@ def test_listener_key_sub_keys_respects_min_dep() -> None:
 
 async def test_listener_model_resolve_and_done() -> None:
     fut = asyncio.get_running_loop().create_future()
-    model = ListenerModel(ListenerKey(1), None, fut)
+    model = ListenerModel(ListenerKey(1), fut)
     assert not model.done()
     model.resolve("update")
     assert model.done()
@@ -79,7 +79,7 @@ async def test_listener_model_resolve_and_done() -> None:
 
 async def test_listener_model_set_exc() -> None:
     fut = asyncio.get_running_loop().create_future()
-    model = ListenerModel(ListenerKey(1), None, fut)
+    model = ListenerModel(ListenerKey(1), fut)
     model.set_exc(ValueError("boom"))
     assert model.done()
     with pytest.raises(ValueError):
@@ -90,8 +90,7 @@ async def test_models_are_slotted() -> None:
     """dataclass(slots=True) is safe unconditionally on the 3.10+ floor:
     no __dict__, unknown attributes rejected."""
     key = ListenerKey(1, 2, 3)
-    # ListenerModel's default `future` field needs a running event loop.
-    model = ListenerModel(key)
+    model = ListenerModel(key, asyncio.get_running_loop().create_future())
 
     assert model.key == key
 
@@ -99,28 +98,6 @@ async def test_models_are_slotted() -> None:
     assert not hasattr(key, "__dict__")
     with pytest.raises(AttributeError):
         model.unknown_attr = 1
-
-
-def test_get_plan_orders_by_size_then_bit_position() -> None:
-    assert _get_plan(0b110) == (0b110, 0b010, 0b100, 0)
-    assert _get_plan(0b10) == (0b10, 0)
-    assert _get_plan(0b1011) == (
-        0b1011,
-        0b0011,
-        0b1001,
-        0b1010,
-        0b0001,
-        0b0010,
-        0b1000,
-        0,
-    )
-
-
-def test_listener_key_plans_caches_get_plan_per_mask() -> None:
-    list(ListenerKey(1, 2, 3).sub_keys())
-    assert 0b110 in ListenerKey.PLANS
-    assert ListenerKey.PLANS[0b110] == _get_plan(0b110)
-    assert ListenerKey.PLANS[0b110] is ListenerKey.PLANS[0b110]
 
 
 def test_listener_key_fields_are_the_dataclass_fields_in_order() -> None:
@@ -152,15 +129,13 @@ def test_listener_key_sub_keys_min_dep_bounds() -> None:
     assert list(key.sub_keys(min_dep=4)) == []
 
 
-async def test_listener_model_defaults_bind_to_the_running_loop() -> None:
-    model = ListenerModel(ListenerKey(1))
+async def test_listener_model_defaults() -> None:
+    future = asyncio.get_running_loop().create_future()
+    model = ListenerModel(ListenerKey(1), future)
+    assert model.future is future
     assert model.meta is None
-    assert model.prompt_id is None
     assert model.filters is None
     assert model.strict is False
-    assert isinstance(model.future, asyncio.Future)
-    assert model.future.get_loop() is asyncio.get_running_loop()
-    assert ListenerModel(ListenerKey(1)).future is not model.future
 
 
 def test_models_all() -> None:

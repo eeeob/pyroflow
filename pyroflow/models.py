@@ -3,46 +3,17 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import Field, dataclass, field, fields, is_dataclass
-from itertools import combinations
+from dataclasses import Field, dataclass, fields, is_dataclass
 from typing import Any, ClassVar, TYPE_CHECKING
 
 from pyrogram.filters import Filter
-from pytrove import KeyDefaultDict, classproperty
-from pytrove.typings import JsonValue as JsonValueT
+from pytrove import classproperty
+
+from .typings import MetaT
+from .utils import subsets_largest_first
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-
-# Defined before `ListenerKey`, whose class body passes it to `KeyDefaultDict`.
-def _get_plan(mask: int) -> tuple[int, ...]:
-    """Return every subset of the bits set in `mask`, largest subsets first.
-
-    Args:
-        mask: Bit mask of the optional key components present.
-
-    Returns:
-        The subsets as bit masks, ordered by size (descending), then by bit
-        position.
-
-    Example:
-        >>> _get_plan(0b110)
-        (6, 2, 4, 0)
-    """
-    optional = [i for i in range(mask.bit_length()) if mask >> i & 1]
-    plan = []
-
-    for size in range(len(optional), -1, -1):
-        for combo in combinations(optional, size):
-            keep = 0
-
-            for i in combo:
-                keep |= 1 << i
-
-            plan.append(keep)
-
-    return tuple(plan)
 
 
 @dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
@@ -54,8 +25,6 @@ class ListenerKey:
         True
     """
 
-    PLANS: ClassVar[KeyDefaultDict[int, tuple[int, ...]]] = KeyDefaultDict(_get_plan)
-    """Cache of `_get_plan` results, keyed by the mask of present optional components."""
     FIELDS: ClassVar[tuple[Field[Any], ...]]
     """The dataclass fields, in declaration order."""
 
@@ -121,36 +90,27 @@ class ListenerKey:
             (1, None, 3)
             (1, None, None)
         """
-        chat_id, *rest = self.to_tuple()
-
-        if chat_id is None:
+        if self.chat_id is None:
             msg = "ListenerKey.chat_id must not be None"
             raise AssertionError(msg)
 
-        mask = 0
+        present = [f.name for f in self.FIELDS[1:] if getattr(self, f.name) is not None]
 
-        for i, value in enumerate(rest, 1):
-            if value is not None:
-                mask |= 1 << i
-
-        for keep in ListenerKey.PLANS[mask]:
-            if keep.bit_count() + 1 < min_dep:
+        for kept in subsets_largest_first(present):
+            if len(kept) + 1 < min_dep:
                 return
 
-            yield ListenerKey(
-                chat_id, *(value if keep >> i & 1 else None for i, value in enumerate(rest, 1))
-            )
+            yield ListenerKey(self.chat_id, **{name: getattr(self, name) for name in kept})
 
 
 @dataclass(slots=True)
 class ListenerModel:
-    """A registered listener: its key, optional metadata, and the future its update resolves.
-
-    Create it inside a running event loop: the default `future` is bound to it.
+    """A registered listener: its key, the future its update resolves, metadata and filter.
 
     Example:
         >>> async def main():
-        ...     listener = ListenerModel(ListenerKey(1))
+        ...     future = asyncio.get_running_loop().create_future()
+        ...     listener = ListenerModel(ListenerKey(1), future)
         ...     listener.resolve("update")
         ...     return listener.done(), await listener.future
         >>> asyncio.run(main())
@@ -159,12 +119,10 @@ class ListenerModel:
 
     key: ListenerKey
     """The slot the listener is registered under."""
-    meta: JsonValueT | None = None
-    """Optional JSON-serializable metadata attached to the listener."""
-    future: asyncio.Future = field(default_factory=asyncio.Future)
+    future: asyncio.Future
     """Resolved with the matching update, or failed with an error."""
-    prompt_id: int | None = None
-    """The message `ask` sent or edited before waiting; a button pressed on it cancels the wait."""
+    meta: MetaT | None = None
+    """Optional metadata attached to the listener."""
     filters: Filter | None = None
     """Pyrogram filter an update must pass besides the key, or `None` for none."""
     strict: bool = False

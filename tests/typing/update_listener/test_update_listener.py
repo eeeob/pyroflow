@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         generic: UpdateListener[Message],
     ) -> None:
         assert_type(await messages.listen(1), Message)
-        assert_type(await messages.listen(1, 2, 3, {"k": 1}, timeout=1.5), Message)
+        assert_type(await messages.listen(1, 2, 3, meta={"k": 1}, timeout=1.5), Message)
         assert_type(await messages(1), Message)
         assert_type(await queries.listen(1), CallbackQuery)
         assert_type(await queries(1, message_id=3), CallbackQuery)
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     async def _check_listen_rejects(messages: MessageListener) -> None:
         await messages.listen("1")  # ty: ignore[invalid-argument-type]
-        await messages.listen(1, 2, 3, None, 5)  # ty: ignore[too-many-positional-arguments]
+        await messages.listen(1, 2, 3, {"k": 1})  # ty: ignore[too-many-positional-arguments]
 
     def _check_listener_bound() -> None:
         UpdateListener[int]  # ty: ignore[invalid-type-arguments]

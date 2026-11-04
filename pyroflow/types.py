@@ -32,10 +32,10 @@ if TYPE_CHECKING:
 
     from pyrogram.filters import Filter
     from pyrogram.types import InputRichMessage
-    from pytrove.typings import Number, JsonValue as JsonValueT
+    from pytrove.typings import Number
 
     from .client import Client
-    from .typings import UpdateType, AskErrorHandlersT, ListenMessageIdT
+    from .typings import UpdateType, AskErrorHandlersT, ListenMessageIdT, MetaT
 
 
 @patch_cls
@@ -153,9 +153,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -174,9 +174,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -210,9 +210,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -246,9 +246,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -282,9 +282,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[PyroUpdate] = PyroMessage,
         error_handlers: AskErrorHandlersT | None = None,
@@ -406,9 +406,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -424,9 +424,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -454,9 +454,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -484,9 +484,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -514,9 +514,9 @@ class Message(PyroMessage):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[PyroUpdate] = PyroMessage,
         error_handlers: AskErrorHandlersT | None = None,

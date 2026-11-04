@@ -1,9 +1,10 @@
-"""Internal helpers: the `UpdateBound` base, the update executor lookup and `ask` error dispatch."""
+"""Internal helpers: the `UpdateBound` base, the update executor lookup, `ask` error dispatch and subsets."""
 
 from __future__ import annotations as _annotations
 
 from abc import ABC
-from typing import Any, Generic, TYPE_CHECKING
+from itertools import combinations
+from typing import Any, Generic, TypeVar, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
 from pytrove import maybe_awaitable
@@ -11,6 +12,7 @@ from pytrove import maybe_awaitable
 from ..typings import UpdateType
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
     from concurrent.futures import ThreadPoolExecutor
 
     from ..types import Message
@@ -158,8 +160,33 @@ def get_update_executor(update: object) -> ThreadPoolExecutor | None:
     return getattr(getattr(update, "_client", None), "executor", None)
 
 
+_ItemT = TypeVar("_ItemT")
+"""The item type of the sequence `subsets_largest_first` takes apart."""
+
+
+def subsets_largest_first(items: Sequence[_ItemT]) -> Iterator[tuple[_ItemT, ...]]:
+    """Yield every subset of `items`, from all of them down to none.
+
+    Subsets of one size come in the order of `items`, and each keeps that
+    order, so the first item outranks the next among equal sizes.
+
+    Args:
+        items: The items to combine.
+
+    Returns:
+        An iterator over the subsets, each a tuple.
+
+    Example:
+        >>> list(subsets_largest_first(["user", "message"]))
+        [('user', 'message'), ('user',), ('message',), ()]
+    """
+    for size in range(len(items), -1, -1):
+        yield from combinations(items, size)
+
+
 __all__ = (
     "UpdateBound",
     "get_update_executor",
     "handle_ask_error",
+    "subsets_largest_first",
 )

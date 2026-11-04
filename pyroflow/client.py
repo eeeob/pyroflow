@@ -23,7 +23,7 @@ from pytrove import (
     yield_control,
 )
 
-from .constants import BOT_COMMANDS_ATTR
+from .constants import ASK_MESSAGE_ID_META_KEY, BOT_COMMANDS_ATTR
 from .utils import (
     patch_cls,
     split_bot_command_entry,
@@ -40,14 +40,19 @@ if TYPE_CHECKING:
     from pyrogram.types import BotCommand, BotCommandScope, InputRichMessage
     from pytrove.typings import (
         Number,
-        JsonValue as JsonValueT,
         MaybeCoroutineCallable,
         MaybeList,
         StrInt,
     )
 
     from .dispatcher import Dispatcher
-    from .typings import BotCommandGroupKeyT, AskErrorHandlersT, ListenMessageIdT, UpdateType
+    from .typings import (
+        BotCommandGroupKeyT,
+        AskErrorHandlersT,
+        ListenMessageIdT,
+        MetaT,
+        UpdateType,
+    )
     from .update_listener import UpdateListener
 
 
@@ -191,9 +196,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -229,9 +234,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
         error_handlers: AskErrorHandlersT | None = None,
@@ -254,9 +259,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -279,9 +284,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
         error_handlers: AskErrorHandlersT | None = None,
@@ -318,9 +323,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[pyro_types.Update] = Message,
         error_handlers: AskErrorHandlersT | None = None,
@@ -359,15 +364,15 @@ class Client(PyroClient):
                 a callable that receives the sent or edited message and returns
                 the id (or `None` for no filter). The callable runs synchronously
                 on the event loop, so it must not block.
-            meta: Metadata attached to the listener, passed through unchanged.
-                The sent or edited message is the listener's `prompt_id`.
+            meta: Metadata attached to the listener. It is copied, and the id
+                of the sent or edited message is added under
+                `ASK_MESSAGE_ID_META_KEY` unless `meta` already has that key;
+                a button pressed on that message cancels the wait.
             filters: A Pyrogram filter the awaited update must pass besides
-                `listen_user_id` and `listen_message_id`, joined with the
-                listener's own `filters` by `&`.
+                `listen_user_id` and `listen_message_id`.
             strict: What an update that matches the key but fails `filters`
                 does: `True` ends the wait with `ListenerRejected`, `False`
-                skips it and keeps waiting, `None` uses the listener's
-                `strict`. Without `strict`, a rejected update that cannot
+                skips it and keeps waiting. Without `strict`, a rejected update that cannot
                 come again leaves the wait open until `timeout`, or forever
                 without one; see the warning in `UpdateListener.listen`.
             timeout: Seconds to wait before raising `ListenerTimeout`.
@@ -474,9 +479,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -505,9 +510,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
         error_handlers: AskErrorHandlersT | None = None,
@@ -527,9 +532,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -549,9 +554,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[Message] = Message,
         error_handlers: AskErrorHandlersT | None = None,
@@ -584,9 +589,9 @@ class Client(PyroClient):
         # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
-        meta: JsonValueT | None = None,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         update_type: type[pyro_types.Update] = Message,
         error_handlers: AskErrorHandlersT | None = None,
@@ -727,9 +732,9 @@ class Client(PyroClient):
         *,
         listen_user_id: int | None,
         listen_message_id: ListenMessageIdT | None,
-        meta: JsonValueT | None,
+        meta: MetaT | None,
         filters: Filter | None,
-        strict: bool | None,
+        strict: bool,
         timeout: Number | None,
         update_type: type[pyro_types.Update],
         error_handlers: AskErrorHandlersT | None,
@@ -769,10 +774,9 @@ class Client(PyroClient):
                 chat_id=final_chat_id,
                 user_id=listen_user_id,
                 message_id=listen_message_id,
-                meta=meta,
+                meta={ASK_MESSAGE_ID_META_KEY: m.id, **(meta or {})},
                 filters=filters,
                 strict=strict,
-                prompt_id=m.id,
                 timeout=timeout,
             )
         except Exception as exc:

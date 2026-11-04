@@ -33,6 +33,8 @@ class MessageListener(UpdateListener[Message]):
 
     __update_type__ = Message
     """The Pyrogram update class this listener waits for."""
+    _message_id_names_one_update = True
+    """A key's `message_id` is the incoming message's own id, so it names a single update."""
 
     if not TYPE_CHECKING:
 

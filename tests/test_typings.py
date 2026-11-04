@@ -2,7 +2,7 @@
 
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from typing import get_args, get_origin
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
@@ -14,6 +14,7 @@ from pyroflow.typings import (
     BotCommandGroupKeyT,
     BotCommandPartsT,
     ListenMessageIdT,
+    MetaT,
     UpdateType,
 )
 
@@ -51,6 +52,11 @@ def test_listen_message_id_is_int_or_callable() -> None:
     assert ret == int | None
 
 
+def test_meta_is_a_dict_with_hashable_keys() -> None:
+    assert get_origin(MetaT) is dict
+    assert get_args(MetaT)[0] is Hashable
+
+
 def test_typings_all() -> None:
     assert set(pyroflow.typings.__all__) == {
         "UpdateType",
@@ -59,4 +65,5 @@ def test_typings_all() -> None:
         "BotCommandGroupKeyT",
         "AskErrorHandlersT",
         "ListenMessageIdT",
+        "MetaT",
     }

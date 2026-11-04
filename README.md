@@ -190,7 +190,16 @@ while True:
         await message.reply("That is not a number.")
 ```
 
-A filter on the listener itself (`MessageListener(filters=..., strict=...)`) applies to every wait: it is joined with the call's filter by `&`, and a call that passes no `strict` takes the listener's. A strict listener filter such as `~filters.command(...)`, joined with a call's `filters.text`, makes a photo end the question too; pass `strict=False` to skip it instead, and the command then no longer ends the question.
+`strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below.
+
+To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `meta`, filter) before `listen` raises:
+
+```python
+def report(exc, model):
+    log.info("Wait for %s ended: %r", model.key, exc)
+
+client.register_listener(MessageListener(on_error_func=report))
+```
 
 > ⚠️ **A wait that never ends.** Without `strict`, a wait stays open until `timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.

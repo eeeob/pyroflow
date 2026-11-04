@@ -312,10 +312,9 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
             "chat_id": 100,
             "user_id": None,
             "message_id": None,
-            "meta": None,
+            "meta": {"message_id": 5},
             "filters": None,
-            "strict": None,
-            "prompt_id": 5,
+            "strict": False,
             "timeout": 3,
         }
     ]
@@ -355,24 +354,14 @@ async def test_ask_send_mode_accepts_a_non_inline_reply_markup() -> None:
     assert send.calls[0]["reply_markup"] is markup
 
 
-async def test_ask_passes_meta_through_and_the_sent_message_as_prompt() -> None:
+async def test_ask_records_the_sent_message_in_a_copy_of_meta() -> None:
     c, listener, _, _ = _ask_client()
     meta = {"step": 1}
 
     await c.ask(100, "hi", meta=meta)
 
-    assert listener.calls[0]["meta"] is meta
-    assert listener.calls[0]["prompt_id"] == 5
+    assert listener.calls[0]["meta"] == {"message_id": 5, "step": 1}
     assert meta == {"step": 1}
-
-
-async def test_ask_passes_a_non_dict_meta_through_unchanged() -> None:
-    c, listener, _, _ = _ask_client()
-    meta = ["a", 1]
-
-    await c.ask(100, "hi", meta=meta)
-
-    assert listener.calls[0]["meta"] is meta
 
 
 async def test_ask_passes_an_int_listen_message_id_and_user_id_through() -> None:
@@ -518,10 +507,9 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
             "chat_id": 100,
             "user_id": None,
             "message_id": None,
-            "meta": None,
+            "meta": {"message_id": 5},
             "filters": None,
-            "strict": None,
-            "prompt_id": 5,
+            "strict": False,
             "timeout": 3,
         }
     ]
@@ -642,7 +630,7 @@ async def _await_reply(
         "listen_message_id": None,
         "meta": None,
         "filters": None,
-        "strict": None,
+        "strict": False,
         "timeout": None,
         "update_type": Message,
         "error_handlers": None,
@@ -664,22 +652,20 @@ async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() ->
             "chat_id": -1001,
             "user_id": 7,
             "message_id": None,
-            "meta": None,
+            "meta": {"message_id": 5},
             "filters": None,
-            "strict": None,
-            "prompt_id": 5,
+            "strict": False,
             "timeout": 3,
         }
     ]
 
 
-@pytest.mark.parametrize("meta", [{"step": 1}, ["a", 1]])
-async def test_await_reply_passes_meta_through_unchanged(meta: object) -> None:
+async def test_await_reply_keeps_a_message_id_meta_already_has() -> None:
     c, listener = make_client(), _RecordingListener()
 
-    await _await_reply(c, listener, make_message(), meta=meta)
+    await _await_reply(c, listener, make_message(), meta={"message_id": 9, "step": 1})
 
-    assert listener.calls[0]["meta"] is meta
+    assert listener.calls[0]["meta"] == {"message_id": 9, "step": 1}
 
 
 async def test_await_reply_passes_filters_and_strict_to_the_listener() -> None:

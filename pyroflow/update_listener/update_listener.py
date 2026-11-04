@@ -3,17 +3,18 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-import inspect
+import logging
 from abc import ABC
-from typing import Any, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 
-from pytrove import maybe_awaitable
+from pytrove import maybe_awaitable, is_exception
 
 from ..typings import UpdateType
 from ..utils import UpdateBound, get_update_executor
 from ..errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
+    ListenerError,
     ListenerRejected,
     ListenerTimeout,
 )
@@ -22,47 +23,12 @@ from ..models import ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
     from pyrogram.filters import Filter
-    from pyrogram.types import Update as PyroUpdate
-    from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
+    from pytrove.typings import MaybeCoroutineCallable, Number
+
+    from ..typings import MetaT
 
 
-def _combine(first: Filter | None, second: Filter | None) -> Filter | None:
-    """Join two optional filters with `&`; a missing one leaves the other as it is.
-
-    Example:
-        >>> from pyrogram import filters
-        >>> _combine(None, None) is None, _combine(filters.text, None) is filters.text
-        (True, True)
-    """
-    if first is None:
-        return second
-
-    if second is None:
-        return first
-
-    return first & second
-
-
-async def _passes(update_filter: Filter | None, update: PyroUpdate) -> bool:
-    """Return whether `update` passes `update_filter`; no filter passes every update.
-
-    The filter is called as `pyrogram.handlers.Handler.check` calls it: an
-    async `__call__` is awaited, a sync one runs on the update client's
-    executor.
-    """
-    if update_filter is None:
-        return True
-
-    client = update._client  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
-
-    if inspect.iscoroutinefunction(update_filter.__call__):
-        return bool(await update_filter(client, update))
-
-    return bool(
-        await asyncio.get_running_loop().run_in_executor(
-            get_update_executor(update), update_filter, client, update
-        )
-    )
+log = logging.getLogger(__name__)
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -76,7 +42,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     Every waiting listener lives in this process: an update is matched only
     against the listeners of the client that received it.
 
-    A listener can also carry a Pyrogram filter. An update whose key matches
+    A `listen` can also carry a Pyrogram filter. An update whose key matches
     but that fails the filter is skipped, and the listener keeps waiting; with
     `strict`, it ends the wait with `ListenerRejected` instead. See `listen`
     for the waits this can leave open.
@@ -86,9 +52,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             waiting listener; `DuplicatePolicy.REPLACE` if `None`.
         extract_key_func: `(update) -> ListenerKey | None`, sync or async,
             used by `extract_key`; `None` skips the update.
-        filters: A Pyrogram filter every `listen` adds to its own with `&`;
-            `None` adds none.
-        strict: The `strict` of a `listen` that does not pass one.
+        on_error_func: `(exc, listener_model) -> object`, sync or async, used
+            by `on_error` when a `ListenerError` ends a wait.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         **kw: Passed to the next class in the MRO.
 
@@ -108,12 +73,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         (True, 7)
     """
 
+    _message_id_names_one_update: ClassVar[bool] = False
+    """Whether a key's `message_id` names a single update, so a rejected one never comes again."""
+
     def __init__(
         self,
         duplicate_policy: DuplicatePolicy | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
-        filters: Filter | None = None,
-        strict: bool = False,
+        on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
         timeout: Number | None = None,
         **kw: Any,
     ) -> None:
@@ -128,10 +95,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.extract_key_func = extract_key_func
         """Optional key extractor behind `extract_key`."""
-        self.filters = filters
-        """Filter every `listen` adds to its own with `&`, or `None`."""
-        self.strict = strict
-        """The `strict` of a `listen` that does not pass one."""
+        self.on_error_func = on_error_func
+        """Optional callback behind `on_error`."""
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
@@ -186,16 +151,70 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return True
 
+    def reject(self, key: ListenerKey, update: UpdateType) -> bool:
+        """End the listener waiting on `key` because `update` failed its filter.
+
+        Its waiter gets `ListenerRejected`, which carries `update`.
+
+        Args:
+            key: The key identifying the listener.
+            update: The update the listener's filter rejected.
+
+        Returns:
+            Whether a listener was rejected.
+
+        Example:
+            >>> from pyrogram.types import Message
+            >>> from pyroflow.update_listener import MessageListener
+            >>> async def main():
+            ...     listener = MessageListener()
+            ...     waiter = asyncio.create_task(listener.listen(1))
+            ...     await asyncio.sleep(0)
+            ...     rejected = listener.reject(ListenerKey(1), Message(id=2))
+            ...     try:
+            ...         await waiter
+            ...     except ListenerRejected as e:
+            ...         return rejected, e.update.id
+            >>> asyncio.run(main())
+            (True, 2)
+        """
+        listener = self.listeners.pop(key, None)
+
+        if listener is None:
+            return False
+
+        if not listener.done():
+            listener.set_exc(ListenerRejected(key, update))
+
+        return True
+
+    async def on_error(self, exc: ListenerError, listener: ListenerModel) -> None:
+        """Report a `ListenerError` that ended the wait of `listener`.
+
+        Called by `listen` before it raises `exc`: on a timeout, a
+        cancellation (including `stop` and a replacing listener) and a strict
+        rejection. Errors raised before a wait starts, such as
+        `ListenerAlreadyExists`, are not reported. A failing `on_error_func`
+        is logged and never hides `exc`.
+
+        Args:
+            exc: The error the wait ended with.
+            listener: The model of the wait that ended.
+        """
+        if self.on_error_func is None:
+            return
+
+        await maybe_awaitable(self.on_error_func, exc, listener, return_exc=True, log_exc=True)
+
     async def listen(
         self,
         chat_id: int,
         user_id: int | None = None,
         message_id: int | None = None,
-        meta: JsonValueT | None = None,
         *,
+        meta: MetaT | None = None,
         filters: Filter | None = None,
-        strict: bool | None = None,
-        prompt_id: int | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
     ) -> UpdateType:
         """Wait for the next update matching the given key.
@@ -208,15 +227,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             chat_id: The chat to listen in.
             user_id: The user to wait for; `None` matches any user.
             message_id: The message to wait on; `None` matches any message.
-            meta: Arbitrary metadata attached to the listener model.
-            filters: A Pyrogram filter the update must pass besides its key,
-                joined with the listener's own `filters` by `&`.
+            meta: Metadata attached to the listener model.
+            filters: A Pyrogram filter the update must pass besides its key.
             strict: What an update whose key matches but that fails `filters`
                 does: `True` ends the wait with `ListenerRejected`, `False`
-                skips the update and keeps waiting. `None` uses the
-                listener's `strict`.
-            prompt_id: The message that asked for this update, stored as
-                `ListenerModel.prompt_id`; `ask` passes the message it sent.
+                skips the update and keeps waiting.
             timeout: Seconds to wait; `None` falls back to the listener's own
                 `timeout`, and waits indefinitely when that is `None` too.
 
@@ -239,7 +254,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             - The key names one update. A `MessageListener` key with a
               `message_id` names a single incoming message; if the filter
-              rejects it, no other update can match.
+              rejects it, no other update can match. `MessageListener` logs a
+              warning for such a wait.
             - The filter cannot pass this update type at all, such as a
               photo filter on a `CallbackQueryListener`.
             - The user keeps sending updates the filter rejects.
@@ -265,6 +281,18 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if self.is_closed:
             raise ListenerCancelled(key)
 
+        if (
+            self._message_id_names_one_update
+            and message_id is not None
+            and filters is not None
+            and not strict
+        ):
+            log.warning(
+                "Listener for %s waits for a single update with a non-strict filter; "
+                "if the filter rejects it, the wait stays open until its timeout",
+                key,
+            )
+
         current = self.listeners.get(key)
 
         # A finished listener whose `listen` has not returned yet is no longer waiting.
@@ -274,14 +302,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             self.cancel(key, is_duplicate=True)
 
-        listener = ListenerModel(
-            key,
-            meta,
-            prompt_id=prompt_id,
-            filters=_combine(self.filters, filters),
-            strict=self.strict if strict is None else strict,
+        future = asyncio.get_running_loop().create_future()
+        self.listeners[key] = listener = ListenerModel(
+            key, future, meta, filters=filters, strict=strict
         )
-        self.listeners[key] = listener
 
         if timeout is None:
             timeout = self.timeout
@@ -289,7 +313,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         try:
             return await asyncio.wait_for(listener.future, timeout)
         except asyncio.TimeoutError:
-            raise ListenerTimeout(key) from None
+            error = ListenerTimeout(key)
+            await self.on_error(error, listener)
+            raise error from None
+        except ListenerError as error:
+            await self.on_error(error, listener)
+            raise
         finally:
             # A newer listener may have replaced this one under `key`.
             if self.listeners.get(key) is listener:
@@ -304,8 +333,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Candidates are tried in the order of `ListenerKey.sub_keys`, from
         `(chat_id, user_id, message_id)` down to `(chat_id)`; the first
         waiting listener whose filter passes takes the update. A listener whose
-        filter fails is skipped and keeps waiting, or, when `strict`, fails
-        with `ListenerRejected`; either way the next candidate is tried.
+        filter fails, or raises (logged), is skipped and keeps waiting, or,
+        when `strict`, fails with `ListenerRejected`; either way the next
+        candidate is tried. A sync filter runs on the client's executor.
 
         Args:
             update: The incoming Pyrogram update.
@@ -327,18 +357,25 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if listener is None or listener.done():
                 continue
 
-            passed = await _passes(listener.filters, update)
+            if listener.filters is not None:
+                passed = await maybe_awaitable(
+                    listener.filters.__call__,
+                    update._client,  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
+                    update,
+                    executor=get_update_executor(update),
+                    return_exc=True,
+                    log_exc=True,
+                )
 
-            # The filter may yield; another update or a newer `listen` may have taken the slot.
-            if self.listeners.get(sub) is not listener or listener.done():
-                continue
+                # The filter may yield; another update or a newer `listen` may have taken the slot.
+                if self.listeners.get(sub) is not listener or listener.done():
+                    continue
 
-            if not passed:
-                if listener.strict:
-                    del self.listeners[sub]
-                    listener.set_exc(ListenerRejected(sub, update))
+                if is_exception(passed) or not passed:
+                    if listener.strict:
+                        self.reject(sub, update)
 
-                continue
+                    continue
 
             del self.listeners[sub]
             listener.resolve(update)

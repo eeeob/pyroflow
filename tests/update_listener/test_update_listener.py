@@ -7,6 +7,7 @@ then every UpdateListener element directly through a minimal local subclass.
 from __future__ import annotations as _annotations
 
 import asyncio
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -125,6 +126,10 @@ async def _drain(*tasks: asyncio.Future) -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def _model(key: ListenerKey) -> ListenerModel:
+    return ListenerModel(key, asyncio.get_running_loop().create_future())
+
+
 def _never(_: object, __: object, update: Message) -> bool:
     return False
 
@@ -133,23 +138,21 @@ async def _starts_with_a(_: object, __: object, update: Message) -> bool:
     return (update.text or "").startswith("a")
 
 
-async def _ends_with_b(_: object, __: object, update: Message) -> bool:
-    return (update.text or "").endswith("b")
-
-
-# Async, as Pyrogram's `&` runs sync filters through `client.loop` and these updates have no client.
 TEXT_A = filters.create(_starts_with_a)
 """Filter: text starting with `a`."""
-TEXT_B = filters.create(_ends_with_b)
-"""Filter: text ending with `b`."""
 
 
 async def _chat_key(update: Message) -> ListenerKey:
     return ListenerKey(update.chat.id)
 
 
-def test_module_exports() -> None:
+def test_module_exports_and_logger() -> None:
     assert update_listener_module.__all__ == ("UpdateListener",)
+    assert update_listener_module.log.name == "pyroflow.update_listener.update_listener"
+
+
+def test_message_id_names_one_update_is_off_by_default() -> None:
+    assert UpdateListener._message_id_names_one_update is False
 
 
 # --- __init__ -----------------------------------------------------------------
@@ -159,8 +162,7 @@ def test_init_defaults() -> None:
     lis = _Listener()
     assert lis.duplicate_policy is DuplicatePolicy.REPLACE
     assert lis.extract_key_func is None
-    assert lis.filters is None
-    assert lis.strict is False
+    assert lis.on_error_func is None
     assert lis.timeout is None
     assert lis.listeners == {}
     assert lis.is_closed is False
@@ -170,14 +172,12 @@ def test_init_stores_arguments() -> None:
     lis = _Listener(
         duplicate_policy=DuplicatePolicy.REJECT,
         extract_key_func=_key_of,
-        filters=TEXT_A,
-        strict=True,
+        on_error_func=print,
         timeout=3,
     )
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
     assert lis.extract_key_func is _key_of
-    assert lis.filters is TEXT_A
-    assert lis.strict is True
+    assert lis.on_error_func is print
     assert lis.timeout == 3
 
 
@@ -211,7 +211,7 @@ async def test_stop_cancels_every_listener_and_refuses_listen_until_start() -> N
         await lis.listen(1, timeout=0.01)
 
 
-# --- cancel -------------------------------------------------------------------
+# --- cancel / reject -----------------------------------------------------------
 
 
 async def test_cancel_fails_the_waiter_and_removes_it() -> None:
@@ -239,7 +239,7 @@ async def test_cancel_marks_duplicates() -> None:
 
 async def test_cancel_without_a_listener_is_false_and_leaves_a_finished_one_as_is() -> None:
     lis = _make()
-    lis.listeners[ListenerKey(2)] = done = ListenerModel(ListenerKey(2))
+    lis.listeners[ListenerKey(2)] = done = _model(ListenerKey(2))
     done.resolve("update")
 
     assert lis.cancel(ListenerKey(1)) is False
@@ -247,12 +247,67 @@ async def test_cancel_without_a_listener_is_false_and_leaves_a_finished_one_as_i
     assert await done.future == "update"
 
 
+async def test_reject_fails_the_waiter_with_the_update_and_removes_it() -> None:
+    lis = _make()
+    task = await _pending(lis, 1)
+    update = make_message(1)
+
+    assert lis.reject(ListenerKey(1), update) is True
+    assert ListenerKey(1) not in lis.listeners
+    with pytest.raises(ListenerRejected) as exc:
+        await task
+    assert exc.value.update is update
+
+
+async def test_reject_without_a_listener_is_false_and_leaves_a_finished_one_as_is() -> None:
+    lis = _make()
+    lis.listeners[ListenerKey(2)] = done = _model(ListenerKey(2))
+    done.resolve("update")
+
+    assert lis.reject(ListenerKey(1), make_message()) is False
+    assert lis.reject(ListenerKey(2), make_message()) is True
+    assert await done.future == "update"
+
+
+# --- on_error ---------------------------------------------------------------------
+
+
+async def test_on_error_without_func_does_nothing() -> None:
+    assert await _make().on_error(ListenerTimeout(1), _model(ListenerKey(1))) is None
+
+
+async def test_on_error_passes_the_error_and_the_model_to_sync_and_async_funcs() -> None:
+    seen: list[tuple[object, object]] = []
+
+    async def record(exc: object, model: object) -> None:
+        seen.append((exc, model))
+
+    error, model = ListenerTimeout(1), _model(ListenerKey(1))
+    await _make(on_error_func=record).on_error(error, model)
+    await _make(on_error_func=lambda e, m: seen.append((e, m))).on_error(error, model)
+
+    assert seen == [(error, model), (error, model)]
+
+
+async def test_on_error_logs_a_failing_func_and_returns(caplog: pytest.LogCaptureFixture) -> None:
+    def boom(exc: object, model: object) -> None:
+        msg = "boom"
+        raise RuntimeError(msg)
+
+    with caplog.at_level(logging.ERROR):
+        assert (
+            await _make(on_error_func=boom).on_error(ListenerTimeout(1), _model(ListenerKey(1)))
+            is None
+        )
+    assert "boom" in caplog.text
+
+
 # --- listen ---------------------------------------------------------------------
 
 
 async def test_listen_registers_the_listener_before_yielding() -> None:
     lis = _make()
-    coro = lis.listen(1, 2, 3, {"step": 1}, prompt_id=9)
+    coro = lis.listen(1, 2, 3, meta={"step": 1})
     task = asyncio.ensure_future(coro)
     # One loop turn starts the coroutine; it registers before it first waits.
     await asyncio.sleep(0)
@@ -261,7 +316,6 @@ async def test_listen_registers_the_listener_before_yielding() -> None:
         listener = lis.listeners[key]
         assert listener.key == key
         assert listener.meta == {"step": 1}
-        assert listener.prompt_id == 9
     finally:
         await _drain(task)
 
@@ -296,7 +350,7 @@ async def test_listen_reject_leaves_the_first_listener_running() -> None:
 
 async def test_listen_reject_ignores_a_finished_listener_still_returning() -> None:
     lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
-    lis.listeners[ListenerKey(1)] = finished = ListenerModel(ListenerKey(1))
+    lis.listeners[ListenerKey(1)] = finished = _model(ListenerKey(1))
     finished.resolve("update")
 
     task = await _pending(lis, 1)
@@ -345,29 +399,41 @@ async def test_listen_stores_the_filter_and_strict_on_the_model() -> None:
         await _drain(task)
 
 
-async def test_listen_joins_the_listener_filter_with_its_own() -> None:
-    lis = _make(filters=TEXT_A)
-    task = await _pending(lis, 100, 7, filters=TEXT_B)
-    try:
-        # passes `TEXT_A` only: the joined filter rejects it
-        assert await lis.resolve(make_message(100, 7, 5, text="a-")) is False
-        assert await lis.resolve(make_message(100, 7, 6, text="ab")) is True
-    finally:
-        await _drain(task)
-
-
 @pytest.mark.parametrize(
-    ("default", "given", "expected"), [(True, None, True), (True, False, False)]
+    ("end", "error"),
+    [
+        (lambda lis, key: None, ListenerTimeout),
+        (lambda lis, key: lis.cancel(key), ListenerCancelled),
+        (lambda lis, key: lis.reject(key, "update"), ListenerRejected),
+    ],
 )
-async def test_listen_strict_none_uses_the_listener_strict(
-    default: bool, given: bool | None, expected: bool
+async def test_listen_reports_the_error_that_ended_the_wait(
+    end: Any, error: type[Exception]
 ) -> None:
-    lis = _make(strict=default)
-    task = await _pending(lis, 1, strict=given)
+    seen: list[tuple[object, object]] = []
+    lis = _make(on_error_func=lambda exc, model: seen.append((exc, model)))
+    task = await _pending(lis, 1, timeout=0.05)
+    model = lis.listeners[ListenerKey(1)]
+
+    end(lis, ListenerKey(1))
+    with pytest.raises(error) as exc:
+        await task
+
+    assert seen == [(exc.value, model)]
+
+
+async def test_listen_does_not_report_an_error_raised_before_the_wait() -> None:
+    seen: list[object] = []
+    lis = _make(
+        duplicate_policy=DuplicatePolicy.REJECT, on_error_func=lambda exc, m: seen.append(exc)
+    )
+    first = await _pending(lis, 1)
     try:
-        assert lis.listeners[ListenerKey(1)].strict is expected
+        with pytest.raises(ListenerAlreadyExists):
+            await lis.listen(1)
+        assert seen == []
     finally:
-        await _drain(task)
+        await _drain(first)
 
 
 def test_call_is_listen() -> None:
@@ -409,7 +475,7 @@ async def test_resolve_hands_the_update_to_its_listener_and_removes_it() -> None
 
 async def test_resolve_skips_a_finished_listener() -> None:
     lis = _make()
-    lis.listeners[ListenerKey(100, 7, 5)] = finished = ListenerModel(ListenerKey(100, 7, 5))
+    lis.listeners[ListenerKey(100, 7, 5)] = finished = _model(ListenerKey(100, 7, 5))
     finished.resolve("earlier")
     chat_wide = await _pending(lis, 100)
     update = make_message(100, 7, 5)
@@ -481,31 +547,7 @@ async def test_resolve_skips_a_listener_taken_while_its_filter_ran() -> None:
     assert lis.listeners == {}
 
 
-# --- _combine / _passes -------------------------------------------------------
-
-
-async def test_combine_keeps_a_lone_filter_and_joins_two_with_and() -> None:
-    assert update_listener_module._combine(None, None) is None
-    assert update_listener_module._combine(TEXT_A, None) is TEXT_A
-    assert update_listener_module._combine(None, TEXT_B) is TEXT_B
-
-    both = update_listener_module._combine(TEXT_A, TEXT_B)
-    assert await update_listener_module._passes(both, make_message(text="ab")) is True
-    assert await update_listener_module._passes(both, make_message(text="a-")) is False
-
-
-async def test_passes_without_a_filter_is_true() -> None:
-    assert await update_listener_module._passes(None, make_message()) is True
-
-
-async def test_passes_awaits_an_async_filter() -> None:
-    async def is_text(_: object, __: object, update: Message) -> bool:
-        return update.text == "hi"
-
-    assert await update_listener_module._passes(filters.create(is_text), make_message(text="hi"))
-
-
-async def test_passes_runs_a_sync_filter_on_the_client_executor() -> None:
+async def test_resolve_runs_a_sync_filter_on_the_client_executor() -> None:
     seen: list[str] = []
 
     def record(_: object, __: object, update: Message) -> bool:
@@ -513,12 +555,34 @@ async def test_passes_runs_a_sync_filter_on_the_client_executor() -> None:
         return True
 
     executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-filter")
+    lis = _make()
     try:
-        update = make_message(_client=SimpleNamespace(executor=executor))
-        assert await update_listener_module._passes(filters.create(record), update) is True
+        task = await _pending(lis, 100, 7, filters=filters.create(record))
+        update = make_message(100, 7, 5, _client=SimpleNamespace(executor=executor))
+
+        assert await lis.resolve(update) is True
+        assert await task is update
         assert seen[0].startswith("pyroflow-filter")
     finally:
         executor.shutdown()
+
+
+async def test_resolve_treats_a_failing_filter_as_a_rejection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def boom(_: object, __: object, update: Message) -> bool:
+        msg = "filter broke"
+        raise RuntimeError(msg)
+
+    lis = _make()
+    task = await _pending(lis, 100, 7, filters=filters.create(boom))
+    try:
+        with caplog.at_level(logging.ERROR):
+            assert await lis.resolve(make_message(100, 7, 5)) is False
+        assert "filter broke" in caplog.text
+        assert not task.done()
+    finally:
+        await _drain(task)
 
 
 # --- extract_key ----------------------------------------------------------------

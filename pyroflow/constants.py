@@ -8,4 +8,8 @@ BOT_COMMANDS_ATTR: Final[str] = "_pyroflow_bot_commands"
 """Namespaced `Handler` attribute where `mark_bot_commands` stores its declarations."""
 
 
-__all__ = ("BOT_COMMANDS_ATTR",)
+ASK_MESSAGE_ID_META_KEY: Final[str] = "message_id"
+"""`meta` key under which `ask` records the id of the message it sent or edited."""
+
+
+__all__ = ("ASK_MESSAGE_ID_META_KEY", "BOT_COMMANDS_ATTR")

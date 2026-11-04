@@ -20,6 +20,7 @@ from pyroflow.utils import (
     get_update_executor,
     handle_ask_error,
     helpers,
+    subsets_largest_first,
 )
 from pyrogram.types import Message
 
@@ -267,9 +268,27 @@ def test_get_update_executor_client_without_executor() -> None:
     assert get_update_executor(SimpleNamespace(_client=SimpleNamespace())) is None
 
 
+def test_subsets_largest_first_goes_from_all_items_to_none_in_item_order() -> None:
+    assert list(subsets_largest_first("abc")) == [
+        ("a", "b", "c"),
+        ("a", "b"),
+        ("a", "c"),
+        ("b", "c"),
+        ("a",),
+        ("b",),
+        ("c",),
+        (),
+    ]
+
+
+def test_subsets_largest_first_of_nothing_is_the_empty_subset() -> None:
+    assert list(subsets_largest_first([])) == [()]
+
+
 def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == (
         "UpdateBound",
         "get_update_executor",
         "handle_ask_error",
+        "subsets_largest_first",
     )

@@ -4,6 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
+from ..constants import ASK_MESSAGE_ID_META_KEY
 from ..models import ListenerKey
 from ..types import CallbackQuery, Message
 from .update_listener import UpdateListener
@@ -97,11 +98,13 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         return resolved
 
     def _cancel_prompted_ask(self, update: CallbackQuery) -> None:
-        """Cancel the message listener whose `prompt_id` is the pressed message.
+        """Cancel the message listener whose `ask` sent or edited the pressed message.
 
-        The candidates are the sub-keys of `(chat, presser, pressed message)`,
-        so a press only ends an ask aimed at the presser or at anyone in the
-        chat; the first whose `prompt_id` matches is cancelled. Nothing is
+        `ask` records that message's id in the listener's `meta` under
+        `ASK_MESSAGE_ID_META_KEY`. The candidates are the sub-keys of
+        `(chat, presser, pressed message)`, so a press only ends an ask aimed
+        at the presser or at anyone in the chat; the first whose recorded id
+        matches is cancelled. Nothing is
         cancelled when the callback carries no message, chat or message id, or
         the client has no message listener.
 
@@ -121,7 +124,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             listener = m_listen.listeners.get(sub)
 
-            if listener is not None and listener.prompt_id == m.id:
+            if listener is not None and (listener.meta or {}).get(ASK_MESSAGE_ID_META_KEY) == m.id:
                 m_listen.cancel(sub)
                 return
 
