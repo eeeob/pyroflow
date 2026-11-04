@@ -163,7 +163,7 @@ class Dispatcher(PyroDispatcher):
         packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
         parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None],
-    ) -> tuple[int, int]:
+    ) -> None:
         """Run the update through its listener, then the first matching handler of each group.
 
         A handler error is passed to `handle_update_handler_exception` and does
@@ -174,15 +174,10 @@ class Dispatcher(PyroDispatcher):
             parsed_update: The parsed Pyrogram update, or `None`.
             handler_type: The handler class expected to handle this update.
 
-        Returns:
-            `(handled_count, exc_count)`: the handlers that succeeded and the
-            handlers that raised.
-
         Raises:
             StopPropagation: If the listener took the update or a handler
                 stopped propagation.
         """
-        handled_count = exc_count = 0
         update, users, chats = packet
 
         if parsed_update is not None:
@@ -227,15 +222,9 @@ class Dispatcher(PyroDispatcher):
                 except ContinuePropagation:
                     continue
                 except Exception as exc:
-                    exc_count += 1
-
                     await self.handle_update_handler_exception(exc, handler, update, users, chats)
-                else:
-                    handled_count += 1
 
                 break
-
-        return handled_count, exc_count
 
     async def handler_worker(self, lock: asyncio.Lock) -> None:
         """Parse and dispatch updates from the queue until a `None` sentinel arrives.

@@ -361,7 +361,7 @@ async def test_runs_the_first_matching_handler_of_each_group() -> None:
 
     result = await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
 
-    assert result == (2, 0)
+    assert result is None
     assert calls == [("a", msg), ("c", msg)]
 
 
@@ -375,7 +375,7 @@ async def test_skips_error_handlers_and_handlers_of_another_type() -> None:
         MessageHandler(recording(calls, "message")),
     ]
 
-    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) == (1, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) is None
     assert calls == [("message", msg)]
 
 
@@ -390,7 +390,7 @@ async def test_handler_whose_filter_rejects_is_skipped() -> None:
     rejecting.check = reject
     dispatcher.groups[0] = [rejecting]
 
-    assert await dispatcher.handle_update(RAW_PACKET, make_message(), MessageHandler) == (0, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, make_message(), MessageHandler) is None
     assert calls == []
 
 
@@ -399,7 +399,7 @@ async def test_raw_handler_receives_the_raw_packet() -> None:
     calls: list[tuple[object, ...]] = []
     dispatcher.groups[0] = [RawUpdateHandler(recording(calls, "raw"))]
 
-    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) == (1, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) is None
     assert calls == [("raw", *RAW_PACKET)]
 
 
@@ -408,7 +408,7 @@ async def test_no_parsed_update_skips_the_listener() -> None:
     listener = FakeListener()
     dispatcher.listeners[type(None)] = listener  # ty: ignore[invalid-assignment]
 
-    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) == (0, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) is None
     assert listener.resolved == []
 
 
@@ -446,12 +446,12 @@ async def test_failing_check_is_logged_and_the_next_handler_runs(
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
         result = await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
 
-    assert result == (1, 0)
+    assert result is None
     assert calls == [("next", msg)]
     assert message in caplog.text
 
 
-async def test_continue_propagation_tries_the_next_handler_uncounted() -> None:
+async def test_continue_propagation_tries_the_next_handler() -> None:
     dispatcher = make_real_dispatcher()
     calls: list[tuple[object, ...]] = []
     msg = make_message()
@@ -460,7 +460,7 @@ async def test_continue_propagation_tries_the_next_handler_uncounted() -> None:
         MessageHandler(recording(calls, "b")),
     ]
 
-    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) == (1, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) is None
     assert calls == [("a", msg), ("b", msg)]
 
 
@@ -478,7 +478,7 @@ async def test_stop_propagation_propagates_out() -> None:
     assert calls == [("a", msg)]
 
 
-async def test_handler_error_is_counted_and_reported_then_the_group_ends() -> None:
+async def test_handler_error_is_reported_then_the_group_ends() -> None:
     dispatcher = make_real_dispatcher()
     seen = capture_handler_exceptions(dispatcher)
     calls: list[tuple[object, ...]] = []
@@ -488,7 +488,7 @@ async def test_handler_error_is_counted_and_reported_then_the_group_ends() -> No
     dispatcher.groups[0] = [broken, MessageHandler(recording(calls, "same-group"))]
     dispatcher.groups[1] = [MessageHandler(recording(calls, "other-group"))]
 
-    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) == (1, 1)
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) is None
     assert calls == [("broken", msg), ("other-group", msg)]
     assert seen == [(error, broken, *RAW_PACKET)]
 
