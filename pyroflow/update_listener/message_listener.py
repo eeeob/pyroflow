@@ -93,7 +93,7 @@ class MessageListener(UpdateListener[Message]):
         ):
             return None
 
-        # `from_user` قد يكون `None` (مشرف مجهول، منشور قناة)
+        # `from_user` can be `None` (an anonymous admin, a channel post).
         return ListenerKey(
             update.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             getattr(update.from_user, "id", None),

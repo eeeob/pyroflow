@@ -88,8 +88,8 @@ async def test_split_text_multiple_rules_with_separator() -> None:
 
 
 async def test_split_text_fails_when_part_count_mismatches() -> None:
-    # maxsplit يمنع أجزاءً أكثر من القواعد، فالاختلاف الممكن هو أجزاء أقل فقط.
-    # القاعدتان تقبلان أي جزء، فلا يرفض النص إلا فحص عدد الأجزاء
+    # `maxsplit` prevents more parts than rules, so the only possible mismatch is fewer parts.
+    # Both rules accept any part, so only the part count check can reject the text.
     flt = filters.split_text(lambda p: True, lambda p: True, separator=" ")
     assert await matches(flt, make_message(text="/ban")) is False
 
@@ -207,7 +207,7 @@ async def test_str_pattern_matches_non_utf8_bytes_data() -> None:
 
 @pytest.mark.parametrize("factory", [filters.endswith, filters.startswith, filters.equal])
 async def test_non_utf8_bytes_pattern_never_matches_str_text(factory: Any) -> None:
-    # `b"\xff"` لا يُفك بـ UTF-8، فلا يدخل في أنماط `str`
+    # `b"\xff"` does not decode as UTF-8, so it never joins the `str` patterns.
     assert await matches(factory(b"\xff"), make_message(text="\xff")) is False
 
 
@@ -323,7 +323,7 @@ async def test_split_text_without_separator_keeps_the_whole_text() -> None:
 
 
 async def test_split_text_single_rule_with_separator_does_not_split() -> None:
-    # maxsplit=0 لقاعدة واحدة، فيبقى النص جزءًا واحدًا رغم وجود الفاصل
+    # A single rule means `maxsplit=0`, so the text stays one part despite the separator.
     flt = filters.split_text("a b c", separator=" ")
     assert await matches(flt, make_message(text="a b c")) is True
 

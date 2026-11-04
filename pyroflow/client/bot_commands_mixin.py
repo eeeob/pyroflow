@@ -82,7 +82,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
                     group.extend(to_list(commands))
 
-        # `BotCommand` يعرّف `__eq__` بلا `__hash__`
+        # `BotCommand` defines `__eq__` without `__hash__`.
         return [
             (key, unique)
             for key, commands in declared
@@ -102,9 +102,10 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         from inside a handler) may not be counted yet; push again once it is.
         """
         async with self.bot_command_groups_lock:
-            # تسجيل Pyrogram يتم في task؛ دورة واحدة تكفي لينهي كل تسجيل لا ينتظر handler جارياً.
-            # لا ننتظر أقفال الـ workers: هي ممسوكة طوال كل handler (ومنه `ask`)، فانتظارها
-            # قد يطول بلا حد، ويتوقف للأبد إن جاء من داخل handler.
+            # Pyrogram registers in a task; one loop turn lets every registration not
+            # blocked by a running handler land. The worker locks are not awaited: they
+            # are held for a whole handler (including an `ask`), so waiting on them could
+            # take forever, and would never end when called from inside a handler.
             await yield_control()
             groups = self._declared_bot_command_groups()
             keys = [key for key, _ in groups]

@@ -46,7 +46,7 @@ class Client(PyroClient):
     from outside an event loop.
     """
 
-    # `patch_cls` يجعل `Dispatcher` الخاص بـ `pyroflow` هو نفسه الخاص بـ `pyrogram` وقت التشغيل
+    # `patch_cls` makes pyroflow's `Dispatcher` the same class as pyrogram's at runtime.
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
     """The dispatcher that routes updates to listeners and handlers."""
 
@@ -325,7 +325,7 @@ class Client(PyroClient):
                 msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
                 raise ValueError(msg)
 
-            # `patch_cls` يجعل `Message` الخاصة بـ `pyrogram` هي نفسها الخاصة بـ `pyroflow` وقت التشغيل
+            # `patch_cls` makes pyrogram's `Message` the same class as pyroflow's at runtime.
             m = cast(
                 "Message",
                 await self.edit_message_text(
@@ -342,7 +342,7 @@ class Client(PyroClient):
                 ),
             )
         else:
-            # `send_message` قد تُرجع `None` نظرياً، والسلوك (`AttributeError` عند `m.chat`) لم يتغيّر
+            # `send_message` may return `None` in theory; the behavior (`AttributeError` on `m.chat`) is unchanged.
             m = cast(
                 "Message",
                 await self.send_message(
