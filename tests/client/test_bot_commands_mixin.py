@@ -37,17 +37,11 @@ class _MixinBase:
     """A minimal stand-in for `Client` under `BotCommandsMixin`, recording every call."""
 
     def __init__(self) -> None:
+        self.dispatcher = SimpleNamespace(groups={}, locks_list=[])
         self.calls: list[tuple[object, ...]] = []
         self.set_error: Exception | None = None
         self.delete_error: Exception | None = None
         self.stop_error: Exception | None = None
-
-    def add_handler(self, handler: object, group: int = 0) -> tuple[object, int]:
-        self.calls.append(("add", handler, group))
-        return handler, group
-
-    def remove_handler(self, handler: object, group: int = 0) -> None:
-        self.calls.append(("remove", handler, group))
 
     async def set_bot_commands(self, commands: list[BotCommand], **kw: object) -> bool:
         self.calls.append(("set", commands, kw))
@@ -82,11 +76,11 @@ class _MixedClient(BotCommandsMixin, pyroflow.Client):
         return True
 
 
-def _declare(client: BotCommandsMixin, *entries: object, group: int = 0) -> SimpleNamespace:
-    """Record a fake handler on `client` that declares `entries`."""
+def _declare(client: _MixedFake, *entries: object, group: int = 0) -> SimpleNamespace:
+    """Register a fake handler in `client.dispatcher.groups` that declares `entries`."""
     handler = SimpleNamespace()
     setattr(handler, BOT_COMMANDS_ATTR, entries)
-    client._registered_handlers.append((handler, group))
+    client.dispatcher.groups.setdefault(group, []).append(handler)
     return handler
 
 
@@ -147,72 +141,13 @@ def test_bot_command_groups_lock_is_a_cached_per_instance_lock() -> None:
     assert a.bot_command_groups_lock is not b.bot_command_groups_lock
 
 
-def test_registered_handlers_starts_empty_and_is_cached_per_instance() -> None:
-    a, b = _MixedFake(), _MixedFake()
-    assert a._registered_handlers == []
-    assert a._registered_handlers is a._registered_handlers
-    assert a._registered_handlers is not b._registered_handlers
-
-
-async def test_add_handler_registers_with_pyrogram_and_records_the_handler() -> None:
-    c = _MixedClient("probe", api_id=1, api_hash="x", in_memory=True)
-    handler = _handler([_cmd("a")])
-
-    assert c.add_handler(handler, 2) == (handler, 2)
-    await _drain()
-
-    assert c.dispatcher.groups[2] == [handler]
-    assert c._registered_handlers == [(handler, 2)]
-
-
-async def test_add_handler_records_before_pyrogram_places_the_handler() -> None:
-    c, worker_lock = _client_with_a_busy_worker()
-    handler = _handler([_cmd("a")])
-
-    async with worker_lock:  # A worker is running a handler, so Pyrogram's task waits.
-        c.add_handler(handler)
-        await _drain()
-
-        assert c.dispatcher.groups == {}
-        assert c._registered_handlers == [(handler, 0)]
-
-    await _drain()
-    assert c.dispatcher.groups[0] == [handler]
-
-
-async def test_remove_handler_unregisters_and_drops_one_record() -> None:
-    c = _MixedClient("probe", api_id=1, api_hash="x", in_memory=True)
-    handler = _handler([_cmd("a")])
-    c.add_handler(handler)
-    c.add_handler(handler)
-
-    assert c.remove_handler(handler) is None
-    await _drain()
-
-    assert c.dispatcher.groups[0] == [handler]
-    assert c._registered_handlers == [(handler, 0)]
-
-
-async def test_remove_handler_from_another_group_keeps_the_record() -> None:
-    c = _MixedClient("probe", api_id=1, api_hash="x", in_memory=True)
-    handler = _handler([_cmd("a")])
-    c.add_handler(handler)
-    c.add_handler(_handler(), 1)
-
-    c.remove_handler(handler, 1)  # Pyrogram's own task raises ValueError: not in group 1
-    await _drain()
-
-    assert c.dispatcher.groups[0] == [handler]
-    assert (handler, 0) in c._registered_handlers
-
-
 def test_declared_bot_command_groups_groups_dedupes_and_drops_empty_groups() -> None:
     c = _MixedFake()
     a, b, d = _cmd("a"), _cmd("b"), _cmd("d")
     groups_scope = BotCommandScopeAllGroupChats()
-    _declare(c, [b, a, b], (groups_scope, [d]), group=5)
+    _declare(c, [b, a, b], (groups_scope, [d]))
     _declare(c, a, ("en", BotCommandScopeDefault(), []), group=1)
-    _declare(c)  # declares no commands
+    c.dispatcher.groups[2] = [SimpleNamespace()]  # declares no commands
 
     assert c._declared_bot_command_groups() == [
         ((None, None), [b, a]),
@@ -273,13 +208,24 @@ async def test_push_bot_commands_waits_for_the_groups_lock() -> None:
     assert c.calls == [("set", [a], {})]
 
 
+async def test_push_bot_commands_counts_a_registration_queued_just_before() -> None:
+    c = _MixedClient("probe", api_id=1, api_hash="x", in_memory=True)
+    a = _cmd("a")
+
+    c.add_handler(_handler([a]))  # Pyrogram places it in a task, not yet run.
+    await c.push_bot_commands()
+
+    assert c.sent == [[a]]
+
+
 async def test_push_bot_commands_from_a_handler_never_waits_on_the_dispatcher() -> None:
     c, worker_lock = _client_with_a_busy_worker()
     a = _cmd("a")
+    c.add_handler(_handler([a]))
+    await _drain()
 
     # `handler_worker` holds its lock around the handler, as it does in an `ask`.
     async with worker_lock:
-        c.add_handler(_handler([a]))
         await asyncio.wait_for(c.push_bot_commands(), 1)
 
     assert c.sent == [[a]]
@@ -341,28 +287,17 @@ async def test_start_starts_then_publishes_the_commands() -> None:
     assert c.calls == [("start", (1,), {"flag": True}), ("set", [a], {})]
 
 
-async def test_stop_deletes_the_sent_commands_stops_and_drops_the_records() -> None:
+async def test_stop_deletes_the_sent_commands_then_stops() -> None:
     c = _MixedFake()
-    handler = _declare(c, [_cmd("a")])
+    _declare(c, [_cmd("a")])
     await c.push_bot_commands()
-    c.remove_handler(handler)  # Removed after publishing: its group must still be deleted.
+    c.dispatcher.groups.clear()  # Removed after publishing: its group must still be deleted.
     c.calls.clear()
 
-    result = await c.stop(False)
+    result = await c.stop(1, flag=True)
 
     assert result == "stopped"
-    assert c.calls == [("delete", {}), ("stop", (False, True), {})]
-    assert c._registered_handlers == []
-
-
-async def test_stop_without_clear_handlers_keeps_the_records() -> None:
-    c = _MixedFake()
-    handler = _declare(c, [_cmd("a")])
-
-    await c.stop(clear_handlers=False, remove_commands=False)
-
-    assert c.calls == [("stop", (True, False), {})]
-    assert c._registered_handlers == [(handler, 0)]
+    assert c.calls == [("delete", {}), ("stop", (1,), {"flag": True})]
 
 
 async def test_stop_with_remove_commands_false_keeps_them_on_telegram() -> None:
@@ -372,16 +307,5 @@ async def test_stop_with_remove_commands_false_keeps_them_on_telegram() -> None:
 
     await c.stop(remove_commands=False)
 
-    assert c.calls == [("stop", (True, True), {})]
+    assert c.calls == [("stop", (), {})]
     assert c.bot_command_groups == [((None, None), [a])]
-
-
-async def test_stop_keeps_the_records_when_stopping_fails() -> None:
-    c = _MixedFake()
-    handler = _declare(c, [_cmd("a")])
-    c.stop_error = ExcA("boom")
-
-    with pytest.raises(ExcA):
-        await c.stop(remove_commands=False)
-
-    assert c._registered_handlers == [(handler, 0)]

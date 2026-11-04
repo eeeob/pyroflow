@@ -12,7 +12,7 @@ from pytrove import (
     dedupe,
     gather_abort,
     clean_none_kw,
-    safe_call,
+    yield_control,
 )
 
 from ..constants import BOT_COMMANDS_ATTR
@@ -20,7 +20,6 @@ from ..utils import split_bot_command_entry, mark_bot_commands
 
 if TYPE_CHECKING:
     from pyrogram import Client as PyroClient
-    from pyrogram.handlers.handler import Handler
     from pyrogram.types import BotCommand
 
     from ..typings import BotCommandGroupKeyT
@@ -43,9 +42,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     the commands of every registered handler after connecting (so `plugins`
     handlers are included), and `stop` deletes them before disconnecting. Each
     `(language_code, scope)` group is one Telegram call, so different scopes
-    never overwrite each other. Only handlers added through `add_handler`
-    count, as `plugins` handlers are; one placed on `dispatcher` directly is
-    not seen.
+    never overwrite each other.
 
     Warning:
         Telegram keeps one command list per bot, scope and language, with no
@@ -64,45 +61,26 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         """Lock held while the commands are published or deleted."""
         return asyncio.Lock()
 
-    @cached_property
-    def _registered_handlers(self) -> list[tuple[Handler, int]]:
-        """Every `(handler, group)` passed to `add_handler` and not yet removed, in call order."""
-        return []
-
-    def add_handler(self, handler: Handler, group: int = 0) -> tuple[Handler, int]:
-        """Register `handler` as usual, and record it for `push_bot_commands`."""
-        result = super().add_handler(handler, group)
-        # Pyrogram يسجّل في task تنتظر أقفال الـ workers، وهي ممسوكة طوال تنفيذ كل handler
-        # (ومنه انتظار `ask`)؛ فانتظار التسجيل قد يطول بلا حد، أو يتوقف للأبد إن جاء
-        # من داخل handler. لذا نسجّل هنا فوراً، بالترتيب نفسه الذي ستنفّذ به tasks Pyrogram.
-        self._registered_handlers.append((handler, group))
-        return result
-
-    def remove_handler(self, handler: Handler, group: int = 0) -> None:
-        """Remove `handler` as usual, and drop its record, if it was added to `group`."""
-        super().remove_handler(handler, group)
-        # Pyrogram يتجاهل (`ValueError` داخل task) handler ليس في `group`، فنتجاهله مثله.
-        safe_call(self._registered_handlers.remove, (handler, group), include_exc=ValueError)
-
     def _declared_bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
-        """Group the commands every recorded handler declares.
+        """Group the commands every handler in `dispatcher.groups` declares.
 
         Returns:
             `((language_code, scope), commands)` pairs, each group deduplicated
-            and non-empty, in registration order.
+            and non-empty, in dispatcher order.
         """
         declared: list[tuple[BotCommandGroupKeyT, list[BotCommand]]] = []
 
-        for handler, _ in self._registered_handlers:
-            for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
-                language_code, scope, commands = split_bot_command_entry(entry)
-                key = (language_code, scope)
-                group = next((_commands for _key, _commands in declared if _key == key), None)
+        for handlers in self.dispatcher.groups.values():
+            for handler in handlers:
+                for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
+                    language_code, scope, commands = split_bot_command_entry(entry)
+                    key = (language_code, scope)
+                    group = next((_commands for _key, _commands in declared if _key == key), None)
 
-                if group is None:
-                    declared.append((key, group := []))
+                    if group is None:
+                        declared.append((key, group := []))
 
-                group.extend(to_list(commands))
+                    group.extend(to_list(commands))
 
         # `BotCommand` يعرّف `__eq__` بلا `__hash__`
         return [
@@ -112,16 +90,22 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         ]
 
     async def push_bot_commands(self) -> None:
-        """Send the commands of every handler registered so far to Telegram.
+        """Send the commands of every handler in `dispatcher.groups` to Telegram.
 
         Each group is sent with `set_bot_commands`, and a group sent before
         that no handler declares any more is deleted with
-        `delete_bot_commands`. A handler counts as soon as `add_handler`
-        returns, even if Pyrogram has not placed it yet, so this never waits
-        on the dispatcher and is safe to call from a handler. Called by
-        `start`.
+        `delete_bot_commands`. Called by `start`.
+
+        It never waits on the dispatcher's locks, so it is safe to call from a
+        handler. Pyrogram places a handler in a task that waits for every
+        running handler to finish, so one added while handlers run (such as
+        from inside a handler) may not be counted yet; push again once it is.
         """
         async with self.bot_command_groups_lock:
+            # تسجيل Pyrogram يتم في task؛ دورة واحدة تكفي لينهي كل تسجيل لا ينتظر handler جارياً.
+            # لا ننتظر أقفال الـ workers: هي ممسوكة طوال كل handler (ومنه `ask`)، فانتظارها
+            # قد يطول بلا حد، ويتوقف للأبد إن جاء من داخل handler.
+            await yield_control()
             groups = self._declared_bot_command_groups()
             keys = [key for key, _ in groups]
             stale = [key for key, _ in self.bot_command_groups if key not in keys]
@@ -168,26 +152,18 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         await self.push_bot_commands()
         return result
 
-    async def stop(
-        self, block: bool = True, clear_handlers: bool = True, *, remove_commands: bool = True
-    ) -> PyroClient:
+    async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
         """Delete the published commands, then stop the client as usual.
 
         Args:
-            block: Passed to `pyrogram.Client.stop`.
-            clear_handlers: Passed to `pyrogram.Client.stop`; when `True`, the
-                handler records are dropped too, as Pyrogram drops the handlers.
+            *args: Passed to `pyrogram.Client.stop`.
             remove_commands: `False` keeps the commands on Telegram after stopping.
+            **kw: Passed to `pyrogram.Client.stop`.
         """
         if remove_commands:
             await self.remove_bot_commands()
 
-        result = await super().stop(block, clear_handlers)
-
-        if clear_handlers:
-            self._registered_handlers.clear()
-
-        return result
+        return await super().stop(*args, **kw)
 
 
 async_to_sync(BotCommandsMixin)
