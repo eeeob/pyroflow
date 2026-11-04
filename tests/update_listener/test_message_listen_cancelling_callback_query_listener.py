@@ -14,6 +14,7 @@ from pyroflow import (
     MessageListener,
 )
 from pyroflow.constants import ASK_MESSAGE_ID_META_KEY
+from pyroflow.enums import MessageListenCancelPolicy
 from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerKey
 from pyroflow.types import Message
@@ -56,11 +57,24 @@ def test_module_exports() -> None:
     assert module.__all__ == ("MessageListenCancellingCallbackQueryListener",)
 
 
-def test_is_a_callback_query_listener_keyed_by_ask_message_id() -> None:
+def test_is_a_callback_query_listener() -> None:
     assert issubclass(MessageListenCancellingCallbackQueryListener, CallbackQueryListener)
-    assert (
-        MessageListenCancellingCallbackQueryListener.message_id_meta_key == ASK_MESSAGE_ID_META_KEY
+
+
+def test_init_defaults() -> None:
+    lis = MessageListenCancellingCallbackQueryListener()
+    assert lis.message_id_meta_key == ASK_MESSAGE_ID_META_KEY
+    assert lis.cancel_policy is MessageListenCancelPolicy.UNRESOLVED
+    assert lis.extract_key_func == lis._extract_key
+
+
+def test_init_stores_its_arguments_and_forwards_the_rest() -> None:
+    lis = MessageListenCancellingCallbackQueryListener(
+        message_id_meta_key="prompt", cancel_policy=MessageListenCancelPolicy.ALWAYS, timeout=3
     )
+    assert lis.message_id_meta_key == "prompt"
+    assert lis.cancel_policy is MessageListenCancelPolicy.ALWAYS
+    assert lis.timeout == 3
 
 
 async def test_cancel_message_listen_reads_the_id_under_message_id_meta_key() -> None:
@@ -68,13 +82,13 @@ async def test_cancel_message_listen_reads_the_id_under_message_id_meta_key() ->
     other_key = asyncio.create_task(mlis.listen(100, 7, meta={"prompt": 5}))
     await asyncio.sleep(0)
     cbq = make_callback_query(_client=_FakeClient(mlis))
-    lis = MessageListenCancellingCallbackQueryListener()
 
-    lis._cancel_message_listen(cbq)
+    MessageListenCancellingCallbackQueryListener()._cancel_message_listen(cbq)
     assert not other_key.done()
 
-    lis.message_id_meta_key = "prompt"
-    lis._cancel_message_listen(cbq)
+    MessageListenCancellingCallbackQueryListener(
+        message_id_meta_key="prompt"
+    )._cancel_message_listen(cbq)
     with pytest.raises(ListenerCancelled):
         await other_key
 
@@ -180,33 +194,33 @@ async def test_cancel_message_listen_leaves_an_ask_aimed_at_another_user() -> No
     await _stop(mlis, task)
 
 
-async def test_resolve_unmatched_callback_cancels_message_listener() -> None:
+@pytest.mark.parametrize(
+    ("policy", "taken", "cancelled"),
+    [
+        (MessageListenCancelPolicy.UNRESOLVED, False, True),
+        (MessageListenCancelPolicy.UNRESOLVED, True, False),
+        (MessageListenCancelPolicy.RESOLVED, False, False),
+        (MessageListenCancelPolicy.RESOLVED, True, True),
+        (MessageListenCancelPolicy.ALWAYS, False, True),
+        (MessageListenCancelPolicy.ALWAYS, True, True),
+    ],
+)
+async def test_resolve_cancels_the_message_listen_as_cancel_policy_says(
+    policy: MessageListenCancelPolicy, taken: bool, cancelled: bool
+) -> None:
     mlis = MessageListener()
     message_waiter = await _listen(mlis, 100, 7, prompt_id=5)
-    clis = MessageListenCancellingCallbackQueryListener()
-    # Another user's callback listener keeps `resolve` from short-circuiting.
-    callback_waiter = asyncio.create_task(clis.listen(100, 8))
+    clis = MessageListenCancellingCallbackQueryListener(cancel_policy=policy)
+    # Waiting for the presser takes the press; waiting for another user leaves it untaken.
+    callback_waiter = asyncio.create_task(clis.listen(100, 7 if taken else 8))
     await asyncio.sleep(0)
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
-    assert await clis.resolve(cbq) is False
+    assert await clis.resolve(cbq) is taken
 
-    with pytest.raises(ListenerCancelled):
-        await message_waiter
-    assert not callback_waiter.done()
+    assert (ListenerKey(100, 7) not in mlis.listeners) is cancelled
+    if cancelled:
+        with pytest.raises(ListenerCancelled):
+            await message_waiter
     await _stop(clis, callback_waiter)
-
-
-async def test_resolve_resolved_callback_leaves_the_message_listener() -> None:
-    mlis = MessageListener()
-    message_waiter = await _listen(mlis, 100, 7, prompt_id=5)
-    clis = MessageListenCancellingCallbackQueryListener()
-    callback_waiter = asyncio.create_task(clis.listen(100, 7))
-    await asyncio.sleep(0)
-    cbq = make_callback_query(_client=_FakeClient(mlis))
-
-    assert await clis.resolve(cbq) is True
-
-    assert await callback_waiter is cbq
-    assert not message_waiter.done()
     await _stop(mlis, message_waiter)

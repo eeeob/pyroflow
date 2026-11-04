@@ -238,6 +238,14 @@ from pyroflow import MessageListenCancellingCallbackQueryListener
 client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
+`cancel_policy` يحدد أي ضغطة تلغي:
+
+- `MessageListenCancelPolicy.UNRESOLVED` (الافتراضي): الضغطة التي لم يأخذها انتظار callback فقط.
+- `RESOLVED`: الضغطة التي أخذها انتظار callback فقط.
+- `ALWAYS`: كل ضغطة.
+
+و`message_id_meta_key` يغيّر مفتاح `meta` الذي يحمل رقم الرسالة (الافتراضي `"message_id"`).
+
 > ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.
 > - الفلتر لا يمكن أن يقبل هذا النوع أصلًا، مثل `filters.photo` أثناء انتظار `CallbackQuery`.

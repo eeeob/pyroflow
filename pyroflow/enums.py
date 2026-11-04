@@ -52,4 +52,20 @@ class DuplicatePolicy(StrEnum):
     """Cancel the existing listener, then register the new one."""
 
 
-__all__ = ("DuplicatePolicy",)
+class MessageListenCancelPolicy(StrEnum):
+    """When a press on a message cancels the message listen tied to it.
+
+    Example:
+        >>> MessageListenCancelPolicy.UNRESOLVED == "unresolved"
+        True
+    """
+
+    ALWAYS = auto()
+    """On every press, whether or not a callback wait took it."""
+    UNRESOLVED = auto()
+    """Only on a press that no callback wait took."""
+    RESOLVED = auto()
+    """Only on a press that a callback wait took."""
+
+
+__all__ = ("DuplicatePolicy", "MessageListenCancelPolicy")

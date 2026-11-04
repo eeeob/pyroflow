@@ -2,9 +2,10 @@
 
 from __future__ import annotations as _annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..constants import ASK_MESSAGE_ID_META_KEY
+from ..enums import MessageListenCancelPolicy
 from ..models import ListenerKey
 from ..types import Message
 from .callback_query_listener import CallbackQueryListener
@@ -16,14 +17,14 @@ if TYPE_CHECKING:
 
 
 class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
-    """`CallbackQueryListener` whose untaken presses cancel the message listen tied to the pressed message.
+    """`CallbackQueryListener` whose presses cancel the message listen tied to the pressed message.
 
-    When no callback wait takes a press, the client's message listener
-    (`Client.message_listen`) is searched for a wait tied to the pressed
-    message: its `meta[message_id_meta_key]` is that message's id, as `ask`
-    records it. That wait ends with `ListenerCancelled`. Only message waits
-    are cancelled, and only those aimed at the presser or at anyone in the
-    chat. A press that a callback wait takes cancels nothing.
+    After a press is resolved, and when `cancel_policy` allows it, the
+    client's message listener (`Client.message_listen`) is searched for a
+    wait tied to the pressed message: its `meta[message_id_meta_key]` is that
+    message's id, as `ask` records it. That wait ends with
+    `ListenerCancelled`. Only message waits are cancelled, and only those
+    aimed at the presser or at anyone in the chat.
 
     For example, a question sent with `ask` can carry a "back" button: a
     press on it ends the wait for the text answer.
@@ -54,15 +55,34 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         'cancelled'
     """
 
-    message_id_meta_key: Hashable = ASK_MESSAGE_ID_META_KEY
-    """`meta` key holding the id of the message a message wait is tied to; set it on a subclass or an instance.
+    def __init__(
+        self,
+        *args: Any,
+        message_id_meta_key: Hashable = ASK_MESSAGE_ID_META_KEY,
+        cancel_policy: MessageListenCancelPolicy = MessageListenCancelPolicy.UNRESOLVED,
+        **kw: Any,
+    ) -> None:
+        """Initialize the listener.
 
-    `ask` writes the id under `ASK_MESSAGE_ID_META_KEY`, so change this only for
-    waits whose `meta` carries the id under another key.
-    """
+        Args:
+            *args: Passed to `CallbackQueryListener`.
+            message_id_meta_key: The `meta` key holding the id of the message a
+                message wait is tied to. `ask` writes it under
+                `ASK_MESSAGE_ID_META_KEY`, so change it only for waits whose
+                `meta` carries the id under another key.
+            cancel_policy: Which presses cancel: every press, only those no
+                callback wait took (the default), or only those one took.
+            **kw: Passed to `CallbackQueryListener`.
+        """
+        super().__init__(*args, **kw)
+
+        self.message_id_meta_key = message_id_meta_key
+        """`meta` key holding the id of the message a message wait is tied to."""
+        self.cancel_policy = cancel_policy
+        """Which presses cancel the message listen tied to the pressed message."""
 
     async def resolve(self, update: CallbackQuery) -> bool:
-        """Resolve the callback; when no callback listener takes it, cancel the message listen on its message.
+        """Resolve the callback, then cancel the message listen on its message if `cancel_policy` allows.
 
         Args:
             update: The incoming callback query.
@@ -71,8 +91,13 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
             Whether a callback listener took the update.
         """
         resolved = await super().resolve(update)
+        policy = self.cancel_policy
 
-        if not resolved:
+        if (
+            policy is MessageListenCancelPolicy.ALWAYS
+            or (policy is MessageListenCancelPolicy.RESOLVED and resolved)
+            or (policy is MessageListenCancelPolicy.UNRESOLVED and not resolved)
+        ):
             self._cancel_message_listen(update)
 
         return resolved

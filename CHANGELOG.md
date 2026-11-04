@@ -52,8 +52,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `on_error_func` can edit or delete the question.
 - `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
   whose presses that no callback wait takes cancel the message listen tied
-  to the pressed message (see the Changed entry below). The `meta` key it
-  reads is its `message_id_meta_key` attribute.
+  to the pressed message (see the Changed entry below). Its
+  `message_id_meta_key=` sets the `meta` key holding that message's id, and
+  `cancel_policy=` (the new `pyroflow.enums.MessageListenCancelPolicy`)
+  which presses cancel: `ALWAYS`, `UNRESOLVED` (the default) or `RESOLVED`.
 - `pyroflow.utils.subsets_largest_first(items)`: every subset of `items`,
   from all of them down to none.
 
