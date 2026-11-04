@@ -7,6 +7,7 @@ from dataclasses import Field, dataclass, field, fields, is_dataclass
 from itertools import combinations
 from typing import Any, ClassVar, TYPE_CHECKING
 
+from pyrogram.filters import Filter
 from pytrove import KeyDefaultDict, classproperty
 from pytrove.typings import JsonValue as JsonValueT
 
@@ -164,6 +165,10 @@ class ListenerModel:
     """Resolved with the matching update, or failed with an error."""
     prompt_id: int | None = None
     """The message `ask` sent or edited before waiting; a button pressed on it cancels the wait."""
+    filters: Filter | None = None
+    """Pyrogram filter an update must pass besides the key, or `None` for none."""
+    strict: bool = False
+    """Whether an update that matches the key but fails `filters` ends the wait."""
 
     def resolve(self, update: object) -> None:
         """Complete the listener's future with `update`."""

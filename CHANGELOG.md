@@ -32,13 +32,19 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 - `UpdateListener.is_closed`: whether `stop` ran since the last `start`;
   `listen` raises `ListenerCancelled` while it is.
+- `filters=` and `strict=` on `listen`, `ask` and `ask_rich` (and as
+  defaults on `UpdateListener`): a Pyrogram filter the awaited update must
+  pass besides its key. An update whose key matches but that fails the
+  filter is skipped and the listener keeps waiting, or, with `strict=True`,
+  the wait ends with the new `ListenerRejected` (a `ListenerCancelled` that
+  carries the rejected update). The listener's filter and the call's are
+  joined with `&`; a `strict` of `None` uses the listener's.
 
 ### Changed
 
 - **BREAKING:** `UpdateListener.resolve` returns whether a listener took the
-  update, instead of returning `None` or raising `UnresolvedUpdate`. When
-  `is_bypass` is true for a matched update, the listener is cancelled and
-  `resolve` returns `False`. Affects code calling or overriding `resolve`.
+  update, instead of returning `None` or raising `UnresolvedUpdate`.
+  Affects code calling or overriding `resolve`.
   Migration: check the returned `bool`; an `on_unresolved` override becomes a
   `resolve` override that acts when the result is `False`.
 - **BREAKING:** `UpdateListener.cancel(key, *, is_duplicate=False)` is a plain
@@ -47,10 +53,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
   Migration: call `listener.cancel(key)` without `await`.
 - **BREAKING:** `UpdateListener.is_listenable` and `is_listenable_func` are
   gone: `extract_key` (and `extract_key_func`) returns `None` for an update
-  that should not be listened to. `bypass_func` is renamed `is_bypass_func`.
-  Affects custom listeners and code passing these arguments.
+  that should not be listened to. Affects custom listeners and code passing
+  these arguments.
   Migration: return `None` from `extract_key_func` where `is_listenable_func`
-  returned `False`; pass `is_bypass_func=` instead of `bypass_func=`.
+  returned `False`.
 - **BREAKING:** `ask` no longer copies `meta` or adds the sent message id
   under `meta["message_id"]`; it passes `meta` through unchanged and records
   the sent or edited message as the listener's new `prompt_id`

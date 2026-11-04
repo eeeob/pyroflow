@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Iterable
     from datetime import datetime
 
+    from pyrogram.filters import Filter
     from pyrogram.types import InputRichMessage
     from pytrove.typings import Number, JsonValue as JsonValueT
 
@@ -153,6 +154,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -172,6 +175,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -206,6 +211,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -240,6 +247,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -274,6 +283,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[PyroUpdate] = PyroMessage,
         error_handlers: AskErrorHandlersT | None = None,
@@ -310,6 +321,10 @@ class Message(PyroMessage):
                 callable that receives the sent/edited message and returns the id (or
                 `None` for no filter). It runs inline on the event loop, so keep it fast.
             meta: Metadata attached to the created listener.
+            filters: A Pyrogram filter the awaited update must pass; see
+                `Client.ask`.
+            strict: Whether an update that fails `filters` ends the wait with
+                `ListenerRejected` instead of being skipped; see `Client.ask`.
             timeout: Seconds to wait before raising `ListenerTimeout`.
             update_type: Class of the update to wait for.
             error_handlers: `{exc_type_or_tuple: handler}` mapping. If listening
@@ -373,6 +388,8 @@ class Message(PyroMessage):
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
             meta=meta,
+            filters=filters,
+            strict=strict,
             timeout=timeout,
             update_type=update_type,
             error_handlers=error_handlers,
@@ -390,6 +407,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -406,6 +425,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -434,6 +455,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[Message] = ...,
         error_handlers: AskErrorHandlersT | None = None,
@@ -462,6 +485,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[UpdateType],
         error_handlers: AskErrorHandlersT | None = None,
@@ -490,6 +515,8 @@ class Message(PyroMessage):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: JsonValueT | None = None,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         timeout: Number | None = None,
         update_type: type[PyroUpdate] = PyroMessage,
         error_handlers: AskErrorHandlersT | None = None,
@@ -517,6 +544,8 @@ class Message(PyroMessage):
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
             meta: As in `ask`.
+            filters: As in `ask`.
+            strict: As in `ask`.
             timeout: As in `ask`.
             update_type: As in `ask`.
             error_handlers: As in `ask`.
@@ -566,6 +595,8 @@ class Message(PyroMessage):
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
             meta=meta,
+            filters=filters,
+            strict=strict,
             timeout=timeout,
             update_type=update_type,
             error_handlers=error_handlers,

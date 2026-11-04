@@ -172,10 +172,52 @@ callback = await client.ask(
 | `timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
 | `meta` | metadata اختيارية تُرفق بالـ listener |
+| `filters` | filter من Pyrogram يجب أن يجتازه الـ update المنتظَر أيضًا |
+| `strict` | `True`: الـ update الذي يرفضه `filters` ينهي الانتظار؛ `False`: يُتخطى ويستمر الانتظار |
 
 **الاستثناءات:**
 - `ListenerTimeout`: لم يصل رد خلال `timeout` ثانية.
 - `ListenerCancelled`: أُلغي الـ listener أثناء الانتظار.
+- `ListenerRejected`: مع `strict=True`، رفض `filters` update (وهو `ListenerCancelled` يحمل الـ update).
+
+**الفلاتر.** `filters` يضيف filter من Pyrogram يجب أن يجتازه الـ update المنتظَر، إضافة إلى `listen_user_id` و`listen_message_id`.
+
+- الـ update الذي يطابق المفتاح ويرفضه الفلتر يذهب إلى الـ handlers، ويستمر الانتظار.
+- مع `strict=True` ينهي ذلك الـ update الانتظار بـ `ListenerRejected`، ويحمل الـ update المرفوض.
+
+```python
+from pyrogram import filters
+from pyroflow.errors import ListenerRejected
+
+# Wait for text; a /cancel command ends the question.
+answer = await message.ask(
+    "What is your name?",
+    filters=filters.text & ~filters.command("cancel"),
+    strict=True,
+)
+
+# Ask again until the answer passes the filter.
+while True:
+    try:
+        answer = await message.ask("Send a number:", filters=filters.regex(r"^\d+$"), strict=True)
+        break
+    except ListenerRejected:
+        await message.reply("That is not a number.")
+```
+
+الفلتر على الـ listener نفسه (`MessageListener(filters=..., strict=...)`) ينطبق على كل انتظار:
+
+- يُدمج مع فلتر الاستدعاء بـ `&`.
+- الاستدعاء الذي لا يمرر `strict` يأخذ قيمة الـ listener.
+- مثال: فلتر صارم على الـ listener مثل `~filters.command(...)`، مع `filters.text` في الاستدعاء. الصورة عندها تنهي السؤال أيضًا. مرّر `strict=False` لتخطيها، لكن الأمر عندها لا ينهي السؤال.
+
+> ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
+> - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.
+> - الفلتر لا يمكن أن يقبل هذا النوع أصلًا، مثل `filters.photo` أثناء انتظار `CallbackQuery`.
+> - المستخدم يرسل باستمرار ما يرفضه الفلتر.
+>
+> أعطِ هذا الانتظار `timeout` (في الاستدعاء أو على الـ listener)، أو استعمل `strict=True` إن كان أول update مرفوض يجب أن ينهي الانتظار، أو أنهِه بنفسك بـ `listener.cancel(key)`. وانتبه: `strict=True` ينهي الانتظار عند **أي** update مرفوض من نفس المفتاح، مثل صورة أثناء انتظار نص.
+
 
 `ask_rich()` تفعل الشيء نفسه مع rich message:
 

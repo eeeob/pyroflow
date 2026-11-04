@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import asyncio
+import inspect
 from abc import ABC
 from typing import Any, TYPE_CHECKING
 
@@ -10,12 +11,58 @@ from pytrove import maybe_awaitable
 
 from ..typings import UpdateType
 from ..utils import UpdateBound, get_update_executor
-from ..errors import ListenerAlreadyExists, ListenerCancelled, ListenerTimeout
+from ..errors import (
+    ListenerAlreadyExists,
+    ListenerCancelled,
+    ListenerRejected,
+    ListenerTimeout,
+)
 from ..enums import DuplicatePolicy
 from ..models import ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
+    from pyrogram.filters import Filter
+    from pyrogram.types import Update as PyroUpdate
     from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
+
+
+def _combine(first: Filter | None, second: Filter | None) -> Filter | None:
+    """Join two optional filters with `&`; a missing one leaves the other as it is.
+
+    Example:
+        >>> from pyrogram import filters
+        >>> _combine(None, None) is None, _combine(filters.text, None) is filters.text
+        (True, True)
+    """
+    if first is None:
+        return second
+
+    if second is None:
+        return first
+
+    return first & second
+
+
+async def _passes(update_filter: Filter | None, update: PyroUpdate) -> bool:
+    """Return whether `update` passes `update_filter`; no filter passes every update.
+
+    The filter is called as `pyrogram.handlers.Handler.check` calls it: an
+    async `__call__` is awaited, a sync one runs on the update client's
+    executor.
+    """
+    if update_filter is None:
+        return True
+
+    client = update._client  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
+
+    if inspect.iscoroutinefunction(update_filter.__call__):
+        return bool(await update_filter(client, update))
+
+    return bool(
+        await asyncio.get_running_loop().run_in_executor(
+            get_update_executor(update), update_filter, client, update
+        )
+    )
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -29,13 +76,19 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     Every waiting listener lives in this process: an update is matched only
     against the listeners of the client that received it.
 
+    A listener can also carry a Pyrogram filter. An update whose key matches
+    but that fails the filter is skipped, and the listener keeps waiting; with
+    `strict`, it ends the wait with `ListenerRejected` instead. See `listen`
+    for the waits this can leave open.
+
     Args:
         duplicate_policy: What `listen` does when the key already has a
             waiting listener; `DuplicatePolicy.REPLACE` if `None`.
         extract_key_func: `(update) -> ListenerKey | None`, sync or async,
             used by `extract_key`; `None` skips the update.
-        is_bypass_func: `(update) -> bool`, sync or async, used by `is_bypass`;
-            if `None`, matched listeners are always resolved.
+        filters: A Pyrogram filter every `listen` adds to its own with `&`;
+            `None` adds none.
+        strict: The `strict` of a `listen` that does not pass one.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         **kw: Passed to the next class in the MRO.
 
@@ -59,7 +112,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self,
         duplicate_policy: DuplicatePolicy | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
-        is_bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
+        filters: Filter | None = None,
+        strict: bool = False,
         timeout: Number | None = None,
         **kw: Any,
     ) -> None:
@@ -74,8 +128,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.extract_key_func = extract_key_func
         """Optional key extractor behind `extract_key`."""
-        self.is_bypass_func = is_bypass_func
-        """Optional predicate behind `is_bypass`."""
+        self.filters = filters
+        """Filter every `listen` adds to its own with `&`, or `None`."""
+        self.strict = strict
+        """The `strict` of a `listen` that does not pass one."""
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
@@ -137,6 +193,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         message_id: int | None = None,
         meta: JsonValueT | None = None,
         *,
+        filters: Filter | None = None,
+        strict: bool | None = None,
         prompt_id: int | None = None,
         timeout: Number | None = None,
     ) -> UpdateType:
@@ -151,6 +209,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             user_id: The user to wait for; `None` matches any user.
             message_id: The message to wait on; `None` matches any message.
             meta: Arbitrary metadata attached to the listener model.
+            filters: A Pyrogram filter the update must pass besides its key,
+                joined with the listener's own `filters` by `&`.
+            strict: What an update whose key matches but that fails `filters`
+                does: `True` ends the wait with `ListenerRejected`, `False`
+                skips the update and keeps waiting. `None` uses the
+                listener's `strict`.
             prompt_id: The message that asked for this update, stored as
                 `ListenerModel.prompt_id`; `ask` passes the message it sent.
             timeout: Seconds to wait; `None` falls back to the listener's own
@@ -165,6 +229,26 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
                 waiting, including when a newer listener replaces it.
+            ListenerRejected: If `strict` is true and an update whose key
+                matches fails `filters`; it carries that update.
+
+        Warning:
+            A wait that is not `strict` can stay open for good, until
+            `timeout` or forever without one, when every update its key can
+            still match fails `filters`:
+
+            - The key names one update. A `MessageListener` key with a
+              `message_id` names a single incoming message; if the filter
+              rejects it, no other update can match.
+            - The filter cannot pass this update type at all, such as a
+              photo filter on a `CallbackQueryListener`.
+            - The user keeps sending updates the filter rejects.
+
+            Bound such waits with `timeout` (here or on the listener), pass
+            `strict=True` when the first rejected update should end the wait,
+            or end it with `cancel`. `strict=True` ends the wait on any
+            rejected update of the key, such as a photo while text is
+            awaited; catch `ListenerRejected` to ask again.
 
         Example:
             >>> from pyroflow.update_listener import MessageListener
@@ -190,7 +274,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             self.cancel(key, is_duplicate=True)
 
-        listener = ListenerModel(key, meta, prompt_id=prompt_id)
+        listener = ListenerModel(
+            key,
+            meta,
+            prompt_id=prompt_id,
+            filters=_combine(self.filters, filters),
+            strict=self.strict if strict is None else strict,
+        )
         self.listeners[key] = listener
 
         if timeout is None:
@@ -212,10 +302,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """Give the update to the most specific listener waiting for it.
 
         Candidates are tried in the order of `ListenerKey.sub_keys`, from
-        `(chat_id, user_id, message_id)` down to `(chat_id)`; the first one
-        with a waiting listener takes the update. When `is_bypass` is true for
-        the update, that listener is cancelled instead and the update goes on
-        to the handlers.
+        `(chat_id, user_id, message_id)` down to `(chat_id)`; the first
+        waiting listener whose filter passes takes the update. A listener whose
+        filter fails is skipped and keeps waiting, or, when `strict`, fails
+        with `ListenerRejected`; either way the next candidate is tried.
 
         Args:
             update: The incoming Pyrogram update.
@@ -237,15 +327,18 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if listener is None or listener.done():
                 continue
 
-            bypass = await self.is_bypass(update)
+            passed = await _passes(listener.filters, update)
 
-            # `is_bypass` may yield; another update or a newer `listen` may have taken the slot.
+            # The filter may yield; another update or a newer `listen` may have taken the slot.
             if self.listeners.get(sub) is not listener or listener.done():
                 continue
 
-            if bypass:
-                self.cancel(sub)
-                return False
+            if not passed:
+                if listener.strict:
+                    del self.listeners[sub]
+                    listener.set_exc(ListenerRejected(sub, update))
+
+                continue
 
             del self.listeners[sub]
             listener.resolve(update)
@@ -286,38 +379,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
             self.extract_key_func,
-            update,
-            executor=get_update_executor(update),
-            log_exc=False,
-        )
-
-    async def is_bypass(self, update: UpdateType) -> bool:
-        """Return whether a matched listener should be cancelled instead of resolved.
-
-        Only called from `resolve`, after a waiting listener matched the
-        update's key. On `True` that listener is cancelled and the update goes
-        on to the normal handlers.
-
-        Args:
-            update: The incoming update object, already matched to a
-                listener.
-
-        Returns:
-            `True` to cancel the matched listener, `False` to resolve it.
-            Always `False` if neither this method is overridden nor
-            `is_bypass_func` was provided.
-
-        Raises:
-            TypeError: If `is_bypass_func` is set and `update` is not an instance
-                of `__update_type__`.
-        """
-        if self.is_bypass_func is None:
-            return False
-
-        self.validate_update(update)
-
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.is_bypass_func,
             update,
             executor=get_update_executor(update),
             log_exc=False,

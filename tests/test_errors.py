@@ -9,6 +9,7 @@ from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
     ListenerError,
+    ListenerRejected,
     ListenerTimeout,
     PyroflowError,
 )
@@ -54,6 +55,21 @@ def test_listener_cancelled_is_duplicate() -> None:
     assert str(err) == "Listener for k was cancelled"
 
 
+def test_listener_rejected_keeps_the_update_and_is_a_cancellation() -> None:
+    err = ListenerRejected("k", "update")
+    assert str(err) == "Listener for k was rejected by its filters"
+    assert err.value == "k"
+    assert err.update == "update"
+    assert err.is_duplicate is False
+    assert isinstance(err, ListenerCancelled)
+
+
+def test_listener_rejected_defaults() -> None:
+    err = ListenerRejected()
+    assert err.value is None
+    assert err.update is None
+
+
 def test_listener_cancelled_defaults() -> None:
     err = ListenerCancelled()
     assert err.value is None
@@ -81,6 +97,7 @@ def test_errors_all() -> None:
         "PyroflowError",
         "ListenerError",
         "ListenerCancelled",
+        "ListenerRejected",
         "ListenerTimeout",
         "ListenerAlreadyExists",
     )

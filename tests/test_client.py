@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pyroflow
 import pytest
 
+from pyrogram import filters as pyro_filters
 from pyrogram.handlers import MessageHandler
 from pyrogram.raw.types import PeerUser
 from pyrogram.types import (
@@ -312,6 +313,8 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
             "user_id": None,
             "message_id": None,
             "meta": None,
+            "filters": None,
+            "strict": None,
             "prompt_id": 5,
             "timeout": 3,
         }
@@ -516,6 +519,8 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
             "user_id": None,
             "message_id": None,
             "meta": None,
+            "filters": None,
+            "strict": None,
             "prompt_id": 5,
             "timeout": 3,
         }
@@ -636,6 +641,8 @@ async def _await_reply(
         "listen_user_id": None,
         "listen_message_id": None,
         "meta": None,
+        "filters": None,
+        "strict": None,
         "timeout": None,
         "update_type": Message,
         "error_handlers": None,
@@ -658,6 +665,8 @@ async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() ->
             "user_id": 7,
             "message_id": None,
             "meta": None,
+            "filters": None,
+            "strict": None,
             "prompt_id": 5,
             "timeout": 3,
         }
@@ -671,6 +680,16 @@ async def test_await_reply_passes_meta_through_unchanged(meta: object) -> None:
     await _await_reply(c, listener, make_message(), meta=meta)
 
     assert listener.calls[0]["meta"] is meta
+
+
+async def test_await_reply_passes_filters_and_strict_to_the_listener() -> None:
+    c, listener = make_client(), _RecordingListener()
+    text_only = pyro_filters.text
+
+    await _await_reply(c, listener, make_message(), filters=text_only, strict=True)
+
+    assert listener.calls[0]["filters"] is text_only
+    assert listener.calls[0]["strict"] is True
 
 
 async def test_await_reply_resolves_a_callable_listen_message_id() -> None:

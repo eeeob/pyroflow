@@ -13,11 +13,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
 from pyroflow.enums import DuplicatePolicy
-from pyroflow.errors import ListenerAlreadyExists, ListenerCancelled, ListenerTimeout
+from pyroflow.errors import (
+    ListenerAlreadyExists,
+    ListenerCancelled,
+    ListenerRejected,
+    ListenerTimeout,
+)
 from pyroflow.models import ListenerKey, ListenerModel
 from pyroflow.update_listener import update_listener as update_listener_module
 from pyroflow.update_listener.update_listener import UpdateListener
@@ -119,8 +125,23 @@ async def _drain(*tasks: asyncio.Future) -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def _is_true(update: Message) -> bool:
-    return True
+def _never(_: object, __: object, update: Message) -> bool:
+    return False
+
+
+async def _starts_with_a(_: object, __: object, update: Message) -> bool:
+    return (update.text or "").startswith("a")
+
+
+async def _ends_with_b(_: object, __: object, update: Message) -> bool:
+    return (update.text or "").endswith("b")
+
+
+# Async, as Pyrogram's `&` runs sync filters through `client.loop` and these updates have no client.
+TEXT_A = filters.create(_starts_with_a)
+"""Filter: text starting with `a`."""
+TEXT_B = filters.create(_ends_with_b)
+"""Filter: text ending with `b`."""
 
 
 async def _chat_key(update: Message) -> ListenerKey:
@@ -138,25 +159,25 @@ def test_init_defaults() -> None:
     lis = _Listener()
     assert lis.duplicate_policy is DuplicatePolicy.REPLACE
     assert lis.extract_key_func is None
-    assert lis.is_bypass_func is None
+    assert lis.filters is None
+    assert lis.strict is False
     assert lis.timeout is None
     assert lis.listeners == {}
     assert lis.is_closed is False
 
 
 def test_init_stores_arguments() -> None:
-    def bypass(update: Message) -> bool:
-        return False
-
     lis = _Listener(
         duplicate_policy=DuplicatePolicy.REJECT,
         extract_key_func=_key_of,
-        is_bypass_func=bypass,
+        filters=TEXT_A,
+        strict=True,
         timeout=3,
     )
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
     assert lis.extract_key_func is _key_of
-    assert lis.is_bypass_func is bypass
+    assert lis.filters is TEXT_A
+    assert lis.strict is True
     assert lis.timeout == 3
 
 
@@ -313,6 +334,42 @@ async def test_listen_external_cancellation_propagates_and_cleans_up() -> None:
     assert lis.listeners == {}
 
 
+async def test_listen_stores_the_filter_and_strict_on_the_model() -> None:
+    lis = _make()
+    task = await _pending(lis, 1, filters=TEXT_A, strict=True)
+    try:
+        listener = lis.listeners[ListenerKey(1)]
+        assert listener.filters is TEXT_A
+        assert listener.strict is True
+    finally:
+        await _drain(task)
+
+
+async def test_listen_joins_the_listener_filter_with_its_own() -> None:
+    lis = _make(filters=TEXT_A)
+    task = await _pending(lis, 100, 7, filters=TEXT_B)
+    try:
+        # passes `TEXT_A` only: the joined filter rejects it
+        assert await lis.resolve(make_message(100, 7, 5, text="a-")) is False
+        assert await lis.resolve(make_message(100, 7, 6, text="ab")) is True
+    finally:
+        await _drain(task)
+
+
+@pytest.mark.parametrize(
+    ("default", "given", "expected"), [(True, None, True), (True, False, False)]
+)
+async def test_listen_strict_none_uses_the_listener_strict(
+    default: bool, given: bool | None, expected: bool
+) -> None:
+    lis = _make(strict=default)
+    task = await _pending(lis, 1, strict=given)
+    try:
+        assert lis.listeners[ListenerKey(1)].strict is expected
+    finally:
+        await _drain(task)
+
+
 def test_call_is_listen() -> None:
     assert UpdateListener.__call__ is UpdateListener.listen
 
@@ -361,23 +418,60 @@ async def test_resolve_skips_a_finished_listener() -> None:
     assert await chat_wide is update
 
 
-async def test_resolve_bypass_cancels_the_listener_and_is_false() -> None:
-    lis = _make(is_bypass_func=lambda update: True)
-    task = await _pending(lis, 100, 7)
+async def test_resolve_gives_the_update_to_a_listener_its_filter_passes() -> None:
+    lis = _make()
+    task = await _pending(lis, 100, 7, filters=TEXT_A)
+    update = make_message(100, 7, 5, text="abc")
 
-    assert await lis.resolve(make_message(100, 7, 5)) is False
-    with pytest.raises(ListenerCancelled):
+    assert await lis.resolve(update) is True
+    assert await task is update
+
+
+async def test_resolve_skips_a_lenient_rejection_and_keeps_the_listener_waiting() -> None:
+    lis = _make()
+    task = await _pending(lis, 100, 7, filters=TEXT_A)
+    try:
+        assert await lis.resolve(make_message(100, 7, 5, text="zzz")) is False
+        assert not task.done()
+        assert ListenerKey(100, 7) in lis.listeners
+    finally:
+        await _drain(task)
+
+
+async def test_resolve_strict_rejection_fails_the_listener_with_the_update() -> None:
+    lis = _make()
+    task = await _pending(lis, 100, 7, filters=TEXT_A, strict=True)
+    update = make_message(100, 7, 5, text="zzz")
+
+    assert await lis.resolve(update) is False
+    with pytest.raises(ListenerRejected) as exc:
         await task
+    assert exc.value.value == ListenerKey(100, 7)
+    assert exc.value.update is update
     assert lis.listeners == {}
 
 
-async def test_resolve_skips_a_listener_taken_while_is_bypass_ran() -> None:
-    async def slow_no_bypass(update: Message) -> bool:
-        await asyncio.sleep(0.01)
-        return False
+@pytest.mark.parametrize("strict", [False, True])
+async def test_resolve_tries_the_next_candidate_after_a_rejection(strict: bool) -> None:
+    lis = _make()
+    specific = await _pending(lis, 100, 7, filters=filters.create(_never), strict=strict)
+    chat_wide = await _pending(lis, 100)
+    update = make_message(100, 7, 5)
+    try:
+        assert await lis.resolve(update) is True
+        assert await chat_wide is update
+        assert specific.done() is strict
+    finally:
+        await _drain(specific)
 
-    lis = _make(is_bypass_func=slow_no_bypass)
-    task = await _pending(lis, 100, 7)
+
+async def test_resolve_skips_a_listener_taken_while_its_filter_ran() -> None:
+    async def slow_pass(_: object, __: object, update: Message) -> bool:
+        await asyncio.sleep(0.01)
+        return True
+
+    lis = _make()
+    task = await _pending(lis, 100, 7, filters=filters.create(slow_pass))
     first, second = make_message(100, 7, 5), make_message(100, 7, 6)
 
     results = await asyncio.gather(lis.resolve(first), lis.resolve(second))
@@ -387,7 +481,47 @@ async def test_resolve_skips_a_listener_taken_while_is_bypass_ran() -> None:
     assert lis.listeners == {}
 
 
-# --- extract_key / is_bypass ----------------------------------------------------
+# --- _combine / _passes -------------------------------------------------------
+
+
+async def test_combine_keeps_a_lone_filter_and_joins_two_with_and() -> None:
+    assert update_listener_module._combine(None, None) is None
+    assert update_listener_module._combine(TEXT_A, None) is TEXT_A
+    assert update_listener_module._combine(None, TEXT_B) is TEXT_B
+
+    both = update_listener_module._combine(TEXT_A, TEXT_B)
+    assert await update_listener_module._passes(both, make_message(text="ab")) is True
+    assert await update_listener_module._passes(both, make_message(text="a-")) is False
+
+
+async def test_passes_without_a_filter_is_true() -> None:
+    assert await update_listener_module._passes(None, make_message()) is True
+
+
+async def test_passes_awaits_an_async_filter() -> None:
+    async def is_text(_: object, __: object, update: Message) -> bool:
+        return update.text == "hi"
+
+    assert await update_listener_module._passes(filters.create(is_text), make_message(text="hi"))
+
+
+async def test_passes_runs_a_sync_filter_on_the_client_executor() -> None:
+    seen: list[str] = []
+
+    def record(_: object, __: object, update: Message) -> bool:
+        seen.append(threading.current_thread().name)
+        return True
+
+    executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-filter")
+    try:
+        update = make_message(_client=SimpleNamespace(executor=executor))
+        assert await update_listener_module._passes(filters.create(record), update) is True
+        assert seen[0].startswith("pyroflow-filter")
+    finally:
+        executor.shutdown()
+
+
+# --- extract_key ----------------------------------------------------------------
 
 
 async def test_extract_key_requires_func_or_override() -> None:
@@ -413,31 +547,5 @@ async def test_extract_key_runs_a_sync_func_on_the_client_executor() -> None:
         lis = _make(extract_key_func=lambda u: threading.current_thread().name)
         update = make_message(_client=SimpleNamespace(executor=executor))
         assert (await lis.extract_key(update)).startswith("pyroflow-extract")
-    finally:
-        executor.shutdown()
-
-
-async def test_is_bypass_without_func_is_false_without_validation() -> None:
-    assert await _make().is_bypass("not a message") is False  # type: ignore[arg-type]
-
-
-async def test_is_bypass_rejects_the_wrong_update_type_with_func() -> None:
-    with pytest.raises(TypeError):
-        await _make(is_bypass_func=lambda u: True).is_bypass("not a message")  # type: ignore[arg-type]
-
-
-async def test_is_bypass_with_sync_and_async_funcs() -> None:
-    update = make_message()
-    assert await _make(is_bypass_func=lambda u: True).is_bypass(update) is True
-    assert await _make(is_bypass_func=lambda u: False).is_bypass(update) is False
-    assert await _make(is_bypass_func=_is_true).is_bypass(update) is True
-
-
-async def test_is_bypass_runs_a_sync_func_on_the_client_executor() -> None:
-    executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-bypass")
-    try:
-        lis = _make(is_bypass_func=lambda u: threading.current_thread().name)
-        update = make_message(_client=SimpleNamespace(executor=executor))
-        assert (await lis.is_bypass(update)).startswith("pyroflow-bypass")
     finally:
         executor.shutdown()

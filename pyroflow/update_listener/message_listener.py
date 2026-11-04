@@ -1,12 +1,8 @@
-"""Listener for message updates, with optional bot-command bypass."""
+"""Listener for message updates."""
 
 from __future__ import annotations as _annotations
 
-import re
-import weakref
-from typing import Any, Final, cast, TYPE_CHECKING
-
-from pytrove import safe_await
+from typing import Any, cast, TYPE_CHECKING
 
 from ..models import ListenerKey
 from ..types import Message
@@ -14,14 +10,6 @@ from .update_listener import UpdateListener
 
 if TYPE_CHECKING:
     from pyrogram.types import Chat
-
-    from ..client import Client
-
-
-_COMMAND_RE: Final[re.Pattern[str]] = re.compile(
-    r"^/([a-zA-Z][a-zA-Z0-9_]{0,31})(?:@(\w+))?(?:\s|$)"
-)
-"""Telegram command syntax: `/name` with an optional `@username`, capturing both."""
 
 
 class MessageListener(UpdateListener[Message]):
@@ -45,8 +33,6 @@ class MessageListener(UpdateListener[Message]):
 
     __update_type__ = Message
     """The Pyrogram update class this listener waits for."""
-    _bot_commands_cache: dict[int, frozenset[str]]
-    """Lowercased bot command names per client, keyed by `id(client)`."""
 
     if not TYPE_CHECKING:
 
@@ -61,15 +47,6 @@ class MessageListener(UpdateListener[Message]):
 
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
-
-            self._bot_commands_cache = {}
-
-    async def stop(self) -> None:
-        """Stop the listener and clear the cached bot commands."""
-        try:
-            return await super().stop()
-        finally:
-            self._bot_commands_cache.clear()
 
     async def _is_listenable(self, update: Message) -> bool:
         """Return whether `_extract_key` keys the message: incoming, from other users.
@@ -110,81 +87,6 @@ class MessageListener(UpdateListener[Message]):
             getattr(update.from_user, "id", None),
             update.id,
         )
-
-    async def _is_bypass(self, update: Message) -> bool:
-        """Ready-made `is_bypass_func` that bypasses registered bot commands.
-
-        The text or caption must follow Telegram's command syntax: `/name`
-        (1-32 letters, digits or underscores, starting with a letter),
-        optionally followed by `@username`, then whitespace or the end of the
-        text. A command aimed at another username, or not among the bot's
-        registered commands (see `_get_bot_commands`), does not bypass, so
-        nothing bypasses on a user account or when the fetch failed.
-
-        Not wired in by default: assign it to `is_bypass_func` on the
-        constructed listener to opt in.
-
-        Args:
-            update: The incoming message, already matched to a listener.
-
-        Returns:
-            `True` if the text or caption is a registered command of this
-            bot, `False` otherwise.
-
-        Example:
-            >>> import asyncio
-            >>> from pyrogram.types import Chat
-            >>> listener = MessageListener()
-            >>> listener.is_bypass_func = listener._is_bypass
-            >>> update = Message(id=1, chat=Chat(id=1), text="/usr/bin")
-            >>> asyncio.run(listener.is_bypass(update))
-            False
-        """
-        match = _COMMAND_RE.match(update.text or update.caption or "")
-
-        if not match:
-            return False
-
-        name, target = match.group(1).lower(), match.group(2)
-        client = update._client
-
-        if target is not None:
-            me_usernames = frozenset(
-                [(getattr(client.me, "username", None) or "").lower()]
-                + [u.username.lower() for u in (getattr(client.me, "usernames", None) or [])]
-            )
-
-            if target.lower() not in me_usernames:
-                return False
-
-        return name in await self._get_bot_commands(client)
-
-    async def _get_bot_commands(self, client: Client) -> frozenset[str]:
-        """Return the bot's officially registered command names, lowercased.
-
-        Fetched with `client.get_bot_commands()` at most once per client; the
-        cache is cleared in `stop` and dropped when the client is
-        garbage-collected. A failed fetch (such as on a user account) is
-        cached as an empty set, so it is not retried.
-
-        Args:
-            client: The client whose bot commands are wanted.
-
-        Returns:
-            The lowercased command names, empty if the fetch failed.
-        """
-        commands = self._bot_commands_cache.get(id(client))
-
-        if commands is None:
-            result = await safe_await(client.get_bot_commands())
-            cmds = () if isinstance(result, BaseException) else result
-
-            self._bot_commands_cache[id(client)] = commands = frozenset(
-                c.command.lower() for c in cmds
-            )
-            weakref.finalize(client, self._bot_commands_cache.pop, id(client), None)
-
-        return commands
 
 
 __all__ = ("MessageListener",)

@@ -156,6 +156,8 @@ async def test_listener_model_defaults_bind_to_the_running_loop() -> None:
     model = ListenerModel(ListenerKey(1))
     assert model.meta is None
     assert model.prompt_id is None
+    assert model.filters is None
+    assert model.strict is False
     assert isinstance(model.future, asyncio.Future)
     assert model.future.get_loop() is asyncio.get_running_loop()
     assert ListenerModel(ListenerKey(1)).future is not model.future

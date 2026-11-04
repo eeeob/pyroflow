@@ -160,10 +160,45 @@ callback = await client.ask(
 | `timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `update_type` | Update type to wait for — determines the return type (default: `Message`) |
 | `meta` | Arbitrary metadata attached to the listener |
+| `filters` | A Pyrogram filter the awaited update must also pass |
+| `strict` | `True`: an update that fails `filters` ends the wait; `False`: it is skipped and the wait goes on |
 
 **Raises:**
 - `ListenerTimeout` — no reply arrived within `timeout` seconds
 - `ListenerCancelled` — the listener was cancelled while waiting
+- `ListenerRejected` — with `strict=True`, an update failed `filters` (a `ListenerCancelled` carrying the update)
+
+**Filters.** `filters` adds a Pyrogram filter the awaited update must pass besides `listen_user_id` and `listen_message_id`. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `strict=True` that update ends the wait with `ListenerRejected` instead, which carries the rejected update:
+
+```python
+from pyrogram import filters
+from pyroflow.errors import ListenerRejected
+
+# Wait for text; a /cancel command ends the question.
+answer = await message.ask(
+    "What is your name?",
+    filters=filters.text & ~filters.command("cancel"),
+    strict=True,
+)
+
+# Ask again until the answer passes the filter.
+while True:
+    try:
+        answer = await message.ask("Send a number:", filters=filters.regex(r"^\d+$"), strict=True)
+        break
+    except ListenerRejected:
+        await message.reply("That is not a number.")
+```
+
+A filter on the listener itself (`MessageListener(filters=..., strict=...)`) applies to every wait: it is joined with the call's filter by `&`, and a call that passes no `strict` takes the listener's. A strict listener filter such as `~filters.command(...)`, joined with a call's `filters.text`, makes a photo end the question too; pass `strict=False` to skip it instead, and the command then no longer ends the question.
+
+> ⚠️ **A wait that never ends.** Without `strict`, a wait stays open until `timeout`, or forever without one, when every update its key can still match fails the filter:
+> - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.
+> - The filter can never pass that update type, such as `filters.photo` while waiting for a `CallbackQuery`.
+> - The user keeps sending updates the filter rejects.
+>
+> Give such waits a `timeout` (on the call or on the listener), use `strict=True` when the first rejected update should end the wait, or end the wait yourself with `listener.cancel(key)`. Note that `strict=True` ends the wait on **any** rejected update of the key, such as a photo while text is awaited.
+
 
 `ask_rich()` does the same with a rich message: it sends with `send_rich_message`, or edits with `edit_message_text(rich_message=...)` when `message_id` is given. `Message.ask_rich()` mirrors `Message.ask()`.
 
