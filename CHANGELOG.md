@@ -140,6 +140,18 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - Contributors: development runs through `uv` and the `Makefile`, with `ruff`
   and `ty` enforced; see `CONTRIBUTING.md`.
 
+- **BREAKING:** `UpdateListener.is_listenable` and `is_listenable_func` are
+  gone: `extract_key` (and `extract_key_func`) returns `None` for an update
+  that should not be listened to. `bypass_func` is renamed `is_bypass_func`.
+  `on_unresolved(update)` drops its `key` argument and also runs when
+  `extract_key` returns `None` or `is_bypass` cancels the matched listener,
+  instead of `resolve` raising `UnresolvedUpdate` directly. Affects custom
+  listeners and code passing these arguments.
+  Migration: return `None` from `extract_key_func` where `is_listenable_func`
+  returned `False`; pass `is_bypass_func=` instead of `bypass_func=`; drop
+  `key` from `on_unresolved` overrides and call `await self.extract_key(update)`
+  if it is still needed.
+
 ### Removed
 
 - **BREAKING:** handler histories are gone: `UpdateHistory`, `MessageHistory`,

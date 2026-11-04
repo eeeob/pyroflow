@@ -59,9 +59,6 @@ class MessageListener(UpdateListener[Message]):
             """
             super().__init__(*args, **kw)
 
-            if self.is_listenable_func is None:
-                self.is_listenable_func = self._is_listenable
-
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
@@ -75,7 +72,7 @@ class MessageListener(UpdateListener[Message]):
             self._bot_commands_cache.clear()
 
     async def _is_listenable(self, update: Message) -> bool:
-        """Default `is_listenable_func`: accept incoming messages from other users.
+        """Return whether `_extract_key` keys the message: incoming, from other users.
 
         Args:
             update: The incoming message.
@@ -94,15 +91,19 @@ class MessageListener(UpdateListener[Message]):
             or update.chat is None
         )
 
-    async def _extract_key(self, update: Message) -> ListenerKey:
+    async def _extract_key(self, update: Message) -> ListenerKey | None:
         """Default `extract_key_func`: key the message by chat, sender and id.
 
         Args:
             update: The incoming message.
 
         Returns:
-            The key `(chat id, sender id or None, message id)`.
+            The key `(chat id, sender id or None, message id)`, or `None` if
+            `_is_listenable` rejects the message.
         """
+        if not await self._is_listenable(update):
+            return None
+
         # `_is_listenable` يضمن أن `chat` ليس `None`؛ `from_user` قد يكون `None` (مشرف مجهول، منشور قناة)
         return ListenerKey(
             cast("Chat", update.chat).id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
@@ -111,7 +112,7 @@ class MessageListener(UpdateListener[Message]):
         )
 
     async def _is_bypass(self, update: Message) -> bool:
-        """Ready-made `bypass_func` that bypasses registered bot commands.
+        """Ready-made `is_bypass_func` that bypasses registered bot commands.
 
         The text or caption must follow Telegram's command syntax: `/name`
         (1-32 letters, digits or underscores, starting with a letter),
@@ -120,7 +121,7 @@ class MessageListener(UpdateListener[Message]):
         registered commands (see `_get_bot_commands`), does not bypass, so
         nothing bypasses on a user account or when the fetch failed.
 
-        Not wired in by default: assign it to `bypass_func` on the
+        Not wired in by default: assign it to `is_bypass_func` on the
         constructed listener to opt in.
 
         Args:
@@ -134,7 +135,7 @@ class MessageListener(UpdateListener[Message]):
             >>> import asyncio
             >>> from pyrogram.types import Chat
             >>> listener = MessageListener()
-            >>> listener.bypass_func = listener._is_bypass
+            >>> listener.is_bypass_func = listener._is_bypass
             >>> update = Message(id=1, chat=Chat(id=1), text="/usr/bin")
             >>> asyncio.run(listener.is_bypass(update))
             False

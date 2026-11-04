@@ -43,14 +43,11 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             """
             super().__init__(*args, **kw)
 
-            if self.is_listenable_func is None:
-                self.is_listenable_func = self._is_listenable
-
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
     async def _is_listenable(self, update: CallbackQuery) -> bool:
-        """Default `is_listenable_func`: accept callbacks attached to a message in a chat.
+        """Return whether `_extract_key` keys the callback: attached to a message in a chat.
 
         Args:
             update: The incoming callback query.
@@ -62,30 +59,34 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
 
         return m is not None and m.chat is not None
 
-    async def _extract_key(self, update: CallbackQuery) -> ListenerKey:
+    async def _extract_key(self, update: CallbackQuery) -> ListenerKey | None:
         """Default `extract_key_func`: key the callback by chat, user and message.
 
         Args:
             update: The incoming callback query.
 
         Returns:
-            The key `(message chat id, sender id, message id)`.
+            The key `(message chat id, sender id, message id)`, or `None` if
+            `_is_listenable` rejects the callback.
         """
+        if not await self._is_listenable(update):
+            return None
+
         m = update.message
 
         # `_is_listenable` يضمن أن `message` و `chat` ليسا `None` قبل استخراج المفتاح
         return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `_is_listenable` guarantees `message` and `chat` are set
 
-    async def on_unresolved(self, key: ListenerKey, update: CallbackQuery) -> None:
+    async def on_unresolved(self, update: CallbackQuery) -> None:
         """Cancel the message listener waiting on this callback's message, then raise.
 
-        Only the first message listener matching one of `key`'s sub-keys is
-        considered, and it is cancelled only if its `meta["message_id"]` equals
-        the callback's message id. Nothing is cancelled when the callback
-        carries no message id or the client has no message listener.
+        Only the first message listener matching one of the sub-keys of the
+        callback's `extract_key` is considered, and it is cancelled only if its
+        `meta["message_id"]` equals the callback's message id. Nothing is
+        cancelled when the callback carries no message id, `extract_key`
+        returns `None`, or the client has no message listener.
 
         Args:
-            key: The extracted key that had no matching callback listener.
             update: The incoming callback query.
 
         Raises:
@@ -95,7 +96,12 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         m = update.message
 
         if not m or not getattr(m, "id", None):
-            return await super().on_unresolved(key, update)
+            return await super().on_unresolved(update)
+
+        key = await self.extract_key(update)
+
+        if key is None:
+            return await super().on_unresolved(update)
 
         try:
             m_listen = client.message_listen
@@ -110,7 +116,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
                         await m_listen.cancel(sub)
                     break
 
-        return await super().on_unresolved(key, update)
+        return await super().on_unresolved(update)
 
 
 __all__ = ("CallbackQueryListener",)

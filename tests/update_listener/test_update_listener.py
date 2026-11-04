@@ -114,7 +114,6 @@ def _key_of(update: Message) -> ListenerKey:
 
 
 def _make(**kw: Any) -> _Listener:
-    kw.setdefault("is_listenable_func", lambda update: True)
     kw.setdefault("extract_key_func", _key_of)
     return _Listener(**kw)
 
@@ -149,9 +148,8 @@ def test_init_defaults() -> None:
     assert isinstance(lis.coordinator, MemoryListenerCoordinator)
     assert lis.coordinator.listener is lis
     assert lis.duplicate_policy is DuplicatePolicy.REPLACE
-    assert lis.is_listenable_func is None
     assert lis.extract_key_func is None
-    assert lis.bypass_func is None
+    assert lis.is_bypass_func is None
     assert lis.timeout is None
     assert lis.listeners == {}
 
@@ -163,26 +161,21 @@ def test_init_stores_arguments_and_calls_factory_with_self() -> None:
         seen.append(listener)
         return MemoryListenerCoordinator(listener)
 
-    def listenable(update: Message) -> bool:
-        return True
-
     def bypass(update: Message) -> bool:
         return False
 
     lis = _Listener(
         coordinator_factory=factory,
         duplicate_policy=DuplicatePolicy.REJECT,
-        is_listenable_func=listenable,
         extract_key_func=_key_of,
-        bypass_func=bypass,
+        is_bypass_func=bypass,
         timeout=3,
     )
     assert seen == [lis]
     assert lis.coordinator.listener is lis
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
-    assert lis.is_listenable_func is listenable
     assert lis.extract_key_func is _key_of
-    assert lis.bypass_func is bypass
+    assert lis.is_bypass_func is bypass
     assert lis.timeout == 3
 
 
@@ -464,28 +457,39 @@ def test_call_is_listen() -> None:
     assert UpdateListener.__call__ is UpdateListener.listen
 
 
-async def test_resolve_raises_for_unlistenable_update() -> None:
-    lis = _make(is_listenable_func=lambda update: False)
-    update = make_message()
-    with pytest.raises(UnresolvedUpdate) as exc:
-        await lis.resolve(update)
-    assert exc.value.value is update
+async def test_resolve_without_key_calls_on_unresolved_and_skips_listeners() -> None:
+    calls: list[Message] = []
+
+    class Recording(_Listener):
+        async def on_unresolved(self, update: Message) -> None:
+            calls.append(update)
+
+    lis = Recording(extract_key_func=lambda update: None)
+    task = await _pending(lis, 100)
+    update = make_message(100, 7, 5)
+    try:
+        assert await lis.resolve(update) is None
+        assert calls == [update]
+        assert not task.done()
+    finally:
+        await _drain(task)
 
 
 async def test_resolve_without_listeners_calls_on_unresolved() -> None:
-    calls: list[ListenerKey] = []
+    calls: list[Message] = []
 
     class Recording(_Listener):
-        async def on_unresolved(self, key: ListenerKey, update: Message) -> None:
-            calls.append(key)
+        async def on_unresolved(self, update: Message) -> None:
+            calls.append(update)
 
-    lis = Recording(is_listenable_func=lambda update: True, extract_key_func=_key_of)
-    assert await lis.resolve(make_message(100, 7, 5)) is None
-    assert calls == [ListenerKey(100, 7, 5)]
+    lis = Recording(extract_key_func=_key_of)
+    update = make_message(100, 7, 5)
+    assert await lis.resolve(update) is None
+    assert calls == [update]
 
 
 async def test_resolve_without_listeners_raises_by_default() -> None:
-    lis = _make(is_listenable_func=lambda update: True, extract_key_func=_key_of)
+    lis = _make(extract_key_func=_key_of)
     update = make_message()
 
     with pytest.raises(UnresolvedUpdate) as exc:
@@ -494,18 +498,18 @@ async def test_resolve_without_listeners_raises_by_default() -> None:
 
 
 async def test_resolve_without_match_calls_on_unresolved() -> None:
-    calls: list[tuple[ListenerKey, Message]] = []
+    calls: list[Message] = []
 
     class Recording(_Listener):
-        async def on_unresolved(self, key: ListenerKey, update: Message) -> None:
-            calls.append((key, update))
+        async def on_unresolved(self, update: Message) -> None:
+            calls.append(update)
 
-    lis = Recording(is_listenable_func=lambda update: True, extract_key_func=_key_of)
+    lis = Recording(extract_key_func=_key_of)
     other = await _pending(lis, 999)
     update = make_message(100, 7, 5)
     try:
         await lis.resolve(update)
-        assert calls == [(ListenerKey(100, 7, 5), update)]
+        assert calls == [update]
         assert not other.done()
     finally:
         await _drain(other)
@@ -556,8 +560,8 @@ async def test_resolve_with_only_a_superseded_listener_is_unresolved() -> None:
     assert await lis.coordinator.registered(key, foreign)
 
 
-async def test_resolve_bypass_cancels_the_listener_and_stays_unresolved() -> None:
-    lis = _make(bypass_func=lambda update: True)
+async def test_resolve_bypass_cancels_the_listener_and_calls_on_unresolved() -> None:
+    lis = _make(is_bypass_func=lambda update: True)
     task = await _pending(lis, 100, 7)
     update = make_message(100, 7, 5)
 
@@ -573,39 +577,12 @@ async def test_resolve_bypass_cancels_the_listener_and_stays_unresolved() -> Non
 async def test_on_unresolved_raises_unresolved_update() -> None:
     update = make_message()
     with pytest.raises(UnresolvedUpdate) as exc:
-        await _make().on_unresolved(ListenerKey(100), update)
+        await _make().on_unresolved(update)
     assert exc.value.value is update
 
 
-async def test_is_listenable_requires_func_or_override() -> None:
-    with pytest.raises(NotImplementedError, match="_Listener must either pass is_listenable_func"):
-        await _Listener().is_listenable(make_message())
-
-
-async def test_is_listenable_rejects_the_wrong_update_type() -> None:
-    with pytest.raises(TypeError):
-        await _make().is_listenable("not a message")  # type: ignore[arg-type]
-
-
-async def test_is_listenable_with_sync_and_async_funcs() -> None:
-    update = make_message()
-    assert await _make(is_listenable_func=lambda u: u is update).is_listenable(update) is True
-    assert await _make(is_listenable_func=lambda u: False).is_listenable(update) is False
-    assert await _make(is_listenable_func=_is_true).is_listenable(update) is True
-
-
-async def test_is_listenable_runs_a_sync_func_on_the_client_executor() -> None:
-    executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-listenable")
-    try:
-        lis = _make(is_listenable_func=lambda u: threading.current_thread().name)
-        update = make_message(_client=SimpleNamespace(executor=executor))
-        assert (await lis.is_listenable(update)).startswith("pyroflow-listenable")
-    finally:
-        executor.shutdown()
-
-
 async def test_extract_key_requires_func_or_override() -> None:
-    lis = _Listener(is_listenable_func=lambda u: True)
+    lis = _Listener()
     with pytest.raises(NotImplementedError, match="_Listener must either pass extract_key_func"):
         await lis.extract_key(make_message())
 
@@ -637,20 +614,20 @@ async def test_is_bypass_without_func_is_false_without_validation() -> None:
 
 async def test_is_bypass_rejects_the_wrong_update_type_with_func() -> None:
     with pytest.raises(TypeError):
-        await _make(bypass_func=lambda u: True).is_bypass("not a message")  # type: ignore[arg-type]
+        await _make(is_bypass_func=lambda u: True).is_bypass("not a message")  # type: ignore[arg-type]
 
 
 async def test_is_bypass_with_sync_and_async_funcs() -> None:
     update = make_message()
-    assert await _make(bypass_func=lambda u: True).is_bypass(update) is True
-    assert await _make(bypass_func=lambda u: False).is_bypass(update) is False
-    assert await _make(bypass_func=_is_true).is_bypass(update) is True
+    assert await _make(is_bypass_func=lambda u: True).is_bypass(update) is True
+    assert await _make(is_bypass_func=lambda u: False).is_bypass(update) is False
+    assert await _make(is_bypass_func=_is_true).is_bypass(update) is True
 
 
 async def test_is_bypass_runs_a_sync_func_on_the_client_executor() -> None:
     executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-bypass")
     try:
-        lis = _make(bypass_func=lambda u: threading.current_thread().name)
+        lis = _make(is_bypass_func=lambda u: threading.current_thread().name)
         update = make_message(_client=SimpleNamespace(executor=executor))
         assert (await lis.is_bypass(update)).startswith("pyroflow-bypass")
     finally:

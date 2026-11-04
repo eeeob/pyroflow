@@ -52,22 +52,15 @@ async def _stop(lis: UpdateListener[Any], *tasks: asyncio.Task) -> None:
 
 def test_init_defaults_to_builtin_key_functions() -> None:
     lis = CallbackQueryListener()
-    assert lis.is_listenable_func == lis._is_listenable
     assert lis.extract_key_func == lis._extract_key
-    assert lis.bypass_func is None
+    assert lis.is_bypass_func is None
 
 
 def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
-    def is_listenable(update: CallbackQuery) -> bool:
-        return False
-
     def extract_key(update: CallbackQuery) -> ListenerKey:
         return ListenerKey(1)
 
-    lis = CallbackQueryListener(
-        is_listenable_func=is_listenable, extract_key_func=extract_key, timeout=3
-    )
-    assert lis.is_listenable_func is is_listenable
+    lis = CallbackQueryListener(extract_key_func=extract_key, timeout=3)
     assert lis.extract_key_func is extract_key
     assert lis.timeout == 3
 
@@ -95,6 +88,23 @@ async def test_extract_key_uses_message_chat_sender_and_message_id() -> None:
     assert await CallbackQueryListener()._extract_key(cbq) == ListenerKey(-100, 9, 42)
 
 
+async def test_extract_key_is_none_for_an_unlistenable_callback() -> None:
+    assert await CallbackQueryListener()._extract_key(make_callback_query(message=None)) is None
+
+
+async def test_on_unresolved_without_key_cancels_nothing() -> None:
+    mlis = MessageListener()
+    task = await _listen(mlis, 100, 7, meta={"message_id": 5})
+    cbq = make_callback_query(_client=_FakeClient(mlis))
+    lis = CallbackQueryListener(extract_key_func=lambda update: None)
+
+    with pytest.raises(UnresolvedUpdate):
+        await lis.on_unresolved(cbq)
+
+    assert ListenerKey(100, 7) in mlis.listeners
+    await _stop(mlis, task)
+
+
 # --- on_unresolved ---------------------------------------------------------------
 
 
@@ -102,7 +112,7 @@ async def test_on_unresolved_without_message_raises_without_touching_client() ->
     # `_client=None` proves the early return never reaches `message_listen`.
     cbq = make_callback_query(message=None, _client=None)
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
 
 async def test_on_unresolved_without_message_id_cancels_nothing() -> None:
@@ -112,7 +122,7 @@ async def test_on_unresolved_without_message_id_cancels_nothing() -> None:
     cbq.message.id = None
 
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
     assert ListenerKey(100, 7, 5) in mlis.listeners
     await _stop(mlis, task)
@@ -121,7 +131,7 @@ async def test_on_unresolved_without_message_id_cancels_nothing() -> None:
 async def test_on_unresolved_without_message_listener_raises() -> None:
     cbq = make_callback_query(_client=_FakeClient(None))
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
 
 async def test_on_unresolved_cancels_message_listener_waiting_on_this_message() -> None:
@@ -130,7 +140,7 @@ async def test_on_unresolved_cancels_message_listener_waiting_on_this_message() 
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
     assert ListenerKey(100, 7) not in mlis.listeners
     with pytest.raises(ListenerCancelled):
@@ -143,7 +153,7 @@ async def test_on_unresolved_reaches_chat_only_message_listener() -> None:
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
     with pytest.raises(ListenerCancelled):
         await task
@@ -156,7 +166,7 @@ async def test_on_unresolved_keeps_listener_for_other_message(meta: Any) -> None
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
     assert ListenerKey(100, 7) in mlis.listeners
     assert not task.done()
@@ -170,7 +180,7 @@ async def test_on_unresolved_only_checks_first_matching_message_listener() -> No
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
     with pytest.raises(UnresolvedUpdate):
-        await CallbackQueryListener().on_unresolved(ListenerKey(100, 7, 5), cbq)
+        await CallbackQueryListener().on_unresolved(cbq)
 
     assert ListenerKey(100, 7) in mlis.listeners
     assert ListenerKey(100) in mlis.listeners

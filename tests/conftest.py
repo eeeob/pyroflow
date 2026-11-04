@@ -20,7 +20,7 @@ def make_message(
     """Build a minimal, listenable :class:`Message` instance.
 
     Defaults produce a private, incoming, non-service message that
-    ``MessageListener._is_listenable`` accepts. Any field can be
+    ``MessageListener._extract_key`` keys. Any field can be
     overridden via keyword to exercise edge cases.
     """
     msg = Message(

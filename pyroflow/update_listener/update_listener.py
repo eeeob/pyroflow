@@ -31,10 +31,10 @@ log = logging.getLogger(__name__)
 class UpdateListener(ABC, UpdateBound[UpdateType]):
     """Abstract base that waits for updates of one Pyrogram type, keyed by `ListenerKey`.
 
-    A subclass binds the update type with `__update_type__`. It decides which
-    updates are listenable and how to key them, either by overriding
-    `is_listenable` and `extract_key` or through `is_listenable_func` and
-    `extract_key_func`. Listeners live in this process; ownership across
+    A subclass binds the update type with `__update_type__`. It decides how to
+    key updates, and which ones to skip by returning `None`, either by
+    overriding `extract_key` or through `extract_key_func`. Listeners live in
+    this process; ownership across
     sessions is delegated to the `ListenerCoordinator`. A sync `*_func` runs in
     a thread, on the client's executor when it has one.
 
@@ -43,11 +43,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             `MemoryListenerCoordinator` if `None`.
         duplicate_policy: What `listen` does when the key is already
             registered; `DuplicatePolicy.REPLACE` if `None`.
-        is_listenable_func: `(update) -> bool`, sync or async, used by
-            `is_listenable`.
-        extract_key_func: `(update) -> ListenerKey`, sync or async, used by
-            `extract_key`.
-        bypass_func: `(update) -> bool`, sync or async, used by `is_bypass`;
+        extract_key_func: `(update) -> ListenerKey | None`, sync or async,
+            used by `extract_key`; `None` skips the update.
+        is_bypass_func: `(update) -> bool`, sync or async, used by `is_bypass`;
             if `None`, matched listeners are always resolved.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         **kw: Passed to the next class in the MRO.
@@ -58,7 +56,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         ...     __update_type__ = Message
         >>> async def main():
         ...     listener = ChatListener(
-        ...         is_listenable_func=lambda update: True,
         ...         extract_key_func=lambda update: ListenerKey(update.chat.id),
         ...     )
         ...     waiter = asyncio.create_task(listener.listen(1))
@@ -73,9 +70,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self,
         coordinator_factory: Callable[[UpdateListener], ListenerCoordinator] | None = None,
         duplicate_policy: DuplicatePolicy | None = None,
-        is_listenable_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
-        extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey] | None = None,
-        bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
+        extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
+        is_bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
         timeout: Number | None = None,
         **kw: Any,
     ) -> None:
@@ -93,11 +89,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self.duplicate_policy = duplicate_policy
         """What `listen` does when the key is already registered."""
 
-        self.is_listenable_func = is_listenable_func
-        """Optional predicate behind `is_listenable`."""
         self.extract_key_func = extract_key_func
         """Optional key extractor behind `extract_key`."""
-        self.bypass_func = bypass_func
+        self.is_bypass_func = is_bypass_func
         """Optional predicate behind `is_bypass`."""
 
         self.timeout = timeout
@@ -331,22 +325,24 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Candidates are tried in the order of `ListenerKey.sub_keys`, from
         `(chat_id, user_id, message_id)` down to `(chat_id)`. A listener whose
         registration another session has taken over is cancelled and the next
-        candidate is tried. When none matches, including when this process
-        holds no listeners, `on_unresolved` decides.
+        candidate is tried. When nothing resolves the update, because
+        `extract_key` returns `None`, `is_bypass` cancels the matched listener,
+        or no listener matches, `on_unresolved` decides.
 
         Args:
             update: The incoming Pyrogram update.
 
         Raises:
-            UnresolvedUpdate: If the update is not listenable, if `is_bypass`
-                cancels the matched listener, or if no listener matches and
-                `on_unresolved` raises it.
+            UnresolvedUpdate: If nothing resolves the update and
+                `on_unresolved` raises it, as the default does.
             TypeError: If `update` is not an instance of `__update_type__`.
         """
-        if not await self.is_listenable(update):
-            raise UnresolvedUpdate(update)
-
         key = await self.extract_key(update)
+
+        if key is None:
+            await self.on_unresolved(update)
+            return
+
         listeners = self.listeners
 
         if listeners:
@@ -373,21 +369,21 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                             # Unresolved, so `handle_listen` skips `stop_propagation`
                             # and the update reaches the normal handlers.
                             await self._cancel(sub, coordinator_id=listener.coordinator_id)
-                            raise UnresolvedUpdate(update)
+                            break
 
                         listener.resolve(update)
                         return
 
-        await self.on_unresolved(key, update)
+        await self.on_unresolved(update)
 
-    async def on_unresolved(self, key: ListenerKey, update: UpdateType) -> None:
-        """Handle an update that matched no listener; override to queue or log it.
+    async def on_unresolved(self, update: UpdateType) -> None:
+        """Handle an update that resolved no listener; override to queue or log it.
 
-        Runs after the lock for `key.chat_id` is released, so `cancel` is safe
-        to call here; the lock-free `_cancel` is not.
+        Called when `extract_key` returns `None`, when `is_bypass` cancels the
+        matched listener, or when no listener matches. Runs outside the chat
+        lock, so `cancel` is safe to call here; the lock-free `_cancel` is not.
 
         Args:
-            key: The extracted key that had no matching listener.
             update: The incoming update that could not be resolved.
 
         Raises:
@@ -395,55 +391,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """
         raise UnresolvedUpdate(update)
 
-    async def is_listenable(self, update: UpdateType) -> bool:
-        """Return whether this update should be listened to.
-
-        Called before key extraction and before the chat lock is taken.
-
-        Args:
-            update: The incoming update object.
-
-        Returns:
-            `True` if the update should be listened to, `False` otherwise.
-
-        Raises:
-            NotImplementedError: If neither this method is overridden nor
-                `is_listenable_func` was provided.
-            TypeError: If `update` is not an instance of `__update_type__`.
-
-        Example:
-            >>> from pyrogram.types import Chat, Message
-            >>> from pyroflow.update_listener import MessageListener
-            >>> update = Message(id=1, chat=Chat(id=1), outgoing=True)
-            >>> asyncio.run(MessageListener().is_listenable(update))
-            False
-        """
-        if self.is_listenable_func is None:
-            msg = (
-                f"{self.__class__.__name__} must either pass is_listenable_func "
-                f"or override is_listenable()"
-            )
-            raise NotImplementedError(msg)
-
-        self.validate_update(update)
-
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.is_listenable_func,
-            update,
-            executor=get_update_executor(update),
-            log_exc=False,
-        )
-
-    async def extract_key(self, update: UpdateType) -> ListenerKey:
+    async def extract_key(self, update: UpdateType) -> ListenerKey | None:
         """Extract the listener key of the update.
 
-        Only called when `is_listenable` returns `True`.
-
         Args:
             update: The incoming update object.
 
         Returns:
-            The most specific key of the update.
+            The most specific key of the update, or `None` if it should not be
+            listened to.
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
@@ -477,9 +433,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """Return whether a matched listener should be cancelled instead of resolved.
 
         Only called from `resolve`, after a listener matched the update's key.
-        On `True` the waiter gets `ListenerCancelled` and `resolve` raises
-        `UnresolvedUpdate`, so `Dispatcher.handle_listen` lets the update reach
-        the normal handlers.
+        On `True` the waiter gets `ListenerCancelled` and `resolve` hands the
+        update to `on_unresolved`, whose default `UnresolvedUpdate` lets
+        `Dispatcher.handle_listen` pass it to the normal handlers.
 
         Args:
             update: The incoming update object, already matched to a
@@ -488,19 +444,19 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Returns:
             `True` to cancel the matched listener, `False` to resolve it.
             Always `False` if neither this method is overridden nor
-            `bypass_func` was provided.
+            `is_bypass_func` was provided.
 
         Raises:
-            TypeError: If `bypass_func` is set and `update` is not an instance
+            TypeError: If `is_bypass_func` is set and `update` is not an instance
                 of `__update_type__`.
         """
-        if self.bypass_func is None:
+        if self.is_bypass_func is None:
             return False
 
         self.validate_update(update)
 
         return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.bypass_func,
+            self.is_bypass_func,
             update,
             executor=get_update_executor(update),
             log_exc=False,
