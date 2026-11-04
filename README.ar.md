@@ -129,6 +129,8 @@ client.callback_listen   # UpdateListener[CallbackQuery]
 
 الـ listener يأخذ أول update مطابق يستقبله الـ client بعد استدعاء `listen`.
 
+إن طابق update واحد عدة انتظارات، مثل انتظار للمستخدم وآخر للمحادثة كلها، يأخذه الأكثر تحديدًا فقط. مرّر `resolve_scope=ListenerScope.ALL` (من `pyroflow.enums`) إلى الـ listener ليأخذه كل انتظار مطابق.
+
 الـ listeners تعيش داخل عملية الـ client نفسه، ولا تنسّق pyroflow بين الـ sessions. لذلك البوت الذي يعمل في عدة عمليات يعالج كل update مرة في كل عملية تستقبله.
 
 ---
@@ -261,7 +263,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 
 و`cancel_scope` يحدد كم انتظار رسائل مرتبط بالرسالة المضغوطة (`context.message_id` فيه) تلغيه الضغطة:
 
-- `MessageListenCancelScope.ALL` (الافتراضي): كل انتظار مرتبط.
+- `ListenerScope.ALL` (الافتراضي): كل انتظار مرتبط.
 - `FIRST`: الأكثر تحديدًا فقط، أي الأول بترتيب `sub_keys`.
 
 > ⚠️ **انتظار لا ينتهي.** بلا `listen_strict`، يبقى الانتظار مفتوحًا حتى `listen_timeout`، أو إلى الأبد بلا `listen_timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:

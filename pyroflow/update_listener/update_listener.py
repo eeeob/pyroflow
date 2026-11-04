@@ -17,7 +17,7 @@ from ..errors import (
     ListenerRejected,
     ListenerTimeout,
 )
-from ..enums import DuplicatePolicy
+from ..enums import DuplicatePolicy, ListenerScope
 from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
@@ -61,6 +61,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             fast, as it runs inline on the event loop; an error it raises
             propagates from `listen` and no wait starts.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
+        resolve_scope: Which matching waits `resolve` gives an update to:
+            `ListenerScope.FIRST` the most specific one, `ListenerScope.ALL`
+            every one.
         **kw: Passed to the next class in the MRO.
 
     Example:
@@ -86,6 +89,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
         on_listen_func: Callable[[dict[str, object]], object] | None = None,
         timeout: Number | None = None,
+        resolve_scope: ListenerScope = ListenerScope.FIRST,
         **kw: object,
     ) -> None:
         """Initialise the listener; see the class docstring for the parameters."""
@@ -106,6 +110,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
+        self.resolve_scope = resolve_scope
+        """Which matching waits `resolve` gives an update to."""
 
         self.listeners: dict[ListenerKey, ListenerModel] = {}
         """Waiting listeners, by key."""
@@ -327,20 +333,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
 
     async def resolve(self, update: UpdateType) -> bool:
-        """Give the update to the most specific listener waiting for it.
+        """Give the update to the waiting listeners it matches, as `resolve_scope` says.
 
         Candidates are tried in the order of `ListenerKey.sub_keys`, from
-        `(chat_id, user_id, message_id)` down to `(chat_id)`; the first
-        waiting listener whose filter passes takes the update. A listener whose
-        filter fails, or raises (logged), is skipped and keeps waiting, or,
-        when `strict`, fails with `ListenerRejected`; either way the next
-        candidate is tried. A sync filter runs on the client's executor.
+        `(chat_id, user_id, message_id)` down to `(chat_id)`. A waiting
+        listener whose filter passes takes the update: with
+        `ListenerScope.FIRST` only the first one does, with `ListenerScope.ALL`
+        every one does. A listener whose filter fails, or raises (logged), is
+        skipped and keeps waiting, or, when `strict`, fails with
+        `ListenerRejected`; either way the next candidate is tried. A sync
+        filter runs on the client's executor.
 
         Args:
             update: The incoming Pyrogram update.
 
         Returns:
-            Whether a listener took the update.
+            Whether at least one listener took the update.
 
         Raises:
             TypeError: If `update` is not an instance of `__update_type__`.
@@ -349,6 +357,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         if key is None:
             return False
+
+        took = False
 
         for sub in key.sub_keys():
             listener = self.listeners.get(sub)
@@ -378,9 +388,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             del self.listeners[sub]
             listener.resolve(update)
-            return True
+            took = True
 
-        return False
+            if self.resolve_scope is ListenerScope.FIRST:
+                break
+
+        return took
 
     async def extract_key(self, update: UpdateType) -> ListenerKey | None:
         """Extract the listener key of the update.

@@ -18,7 +18,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
-from pyroflow.enums import DuplicatePolicy
+from pyroflow.enums import DuplicatePolicy, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -160,6 +160,7 @@ def test_init_defaults() -> None:
     assert lis.on_error_func is None
     assert lis.on_listen_func is None
     assert lis.timeout is None
+    assert lis.resolve_scope is ListenerScope.FIRST
     assert lis.listeners == {}
     assert lis.is_closed is False
 
@@ -171,12 +172,14 @@ def test_init_stores_arguments() -> None:
         on_error_func=print,
         on_listen_func=dict,
         timeout=3,
+        resolve_scope=ListenerScope.ALL,
     )
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
     assert lis.extract_key_func is _key_of
     assert lis.on_error_func is print
     assert lis.on_listen_func is dict
     assert lis.timeout == 3
+    assert lis.resolve_scope is ListenerScope.ALL
 
 
 def test_init_passes_unknown_kwargs_up_the_mro() -> None:
@@ -500,6 +503,42 @@ async def test_resolve_hands_the_update_to_its_listener_and_removes_it() -> None
     assert await lis.resolve(update) is True
     assert lis.listeners == {}
     assert await task is update
+
+
+async def test_resolve_with_scope_all_hands_the_update_to_every_matching_listener() -> None:
+    lis = _make(resolve_scope=ListenerScope.ALL)
+    specific = await _pending(lis, 100, 7)
+    chat_wide = await _pending(lis, 100)
+    update = make_message(100, 7, 5)
+
+    assert await lis.resolve(update) is True
+    assert lis.listeners == {}
+    assert await specific is update
+    assert await chat_wide is update
+
+
+async def test_resolve_with_scope_all_leaves_a_rejecting_listener_waiting() -> None:
+    lis = _make(resolve_scope=ListenerScope.ALL)
+    specific = await _pending(lis, 100, 7, filters=TEXT_A)
+    chat_wide = await _pending(lis, 100)
+    update = make_message(100, 7, 5, text="zzz")
+    try:
+        assert await lis.resolve(update) is True
+        assert await chat_wide is update
+        assert not specific.done()
+        assert list(lis.listeners) == [ListenerKey(100, 7)]
+    finally:
+        await _drain(specific)
+
+
+async def test_resolve_with_scope_all_and_no_match_is_false() -> None:
+    lis = _make(resolve_scope=ListenerScope.ALL)
+    other = await _pending(lis, 999)
+    try:
+        assert await lis.resolve(make_message(100, 7, 5)) is False
+        assert not other.done()
+    finally:
+        await _drain(other)
 
 
 async def test_resolve_skips_a_finished_listener() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
-from ..enums import MessageListenCancelPolicy, MessageListenCancelScope
+from ..enums import MessageListenCancelPolicy, ListenerScope
 from ..models import ListenerKey
 from ..types import Message
 from .callback_query_listener import CallbackQueryListener
@@ -59,7 +59,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         self,
         *args: Any,
         cancel_policy: MessageListenCancelPolicy = MessageListenCancelPolicy.UNRESOLVED,
-        cancel_scope: MessageListenCancelScope = MessageListenCancelScope.ALL,
+        cancel_scope: ListenerScope = ListenerScope.ALL,
         **kw: Any,
     ) -> None:
         """Initialize the listener.
@@ -107,7 +107,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         most specific first, so a press only ends waits aimed at the presser
         or at anyone in the chat. Those whose `context.message_id` is the
         pressed message's id are cancelled: every one, or with
-        `MessageListenCancelScope.FIRST` only the first. Nothing is cancelled when the callback carries no message,
+        `ListenerScope.FIRST` only the first. Nothing is cancelled when the callback carries no message,
         chat or message id, or the client has no message listener.
 
         Args:
@@ -129,7 +129,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
             if listener is not None and listener.context.message_id == m.id:
                 m_listen.cancel(sub)
 
-                if self.cancel_scope is MessageListenCancelScope.FIRST:
+                if self.cancel_scope is ListenerScope.FIRST:
                     return
 
 

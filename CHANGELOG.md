@@ -59,8 +59,11 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `context.message_id` is that message's id. Its `cancel_policy=` (the new
   `pyroflow.enums.MessageListenCancelPolicy`) sets which presses cancel:
   `ALWAYS`, `UNRESOLVED` (the default) or `RESOLVED`; its `cancel_scope=`
-  (the new `pyroflow.enums.MessageListenCancelScope`) how many tied waits:
+  (the new `pyroflow.enums.ListenerScope`) how many tied waits:
   `ALL` (the default) or `FIRST`, the most specific.
+- `resolve_scope=` on every `UpdateListener`: `ListenerScope.FIRST` (the
+  default) gives an update to the most specific matching wait only, as
+  before; `ListenerScope.ALL` gives it to every matching wait.
 - `pyroflow.utils.subsets_largest_first(items)`: every subset of `items`,
   from all of them down to none.
 

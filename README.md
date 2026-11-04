@@ -119,7 +119,7 @@ client.message_listen    # UpdateListener[Message]
 client.callback_listen   # UpdateListener[CallbackQuery]
 ```
 
-A listener takes the next matching update its client receives after `listen` is called. Listeners live in the client's own process: pyroflow does not coordinate between sessions, so a bot running in several processes handles each update once in every process that receives it.
+A listener takes the next matching update its client receives after `listen` is called. When several waits match one update, such as one for the user and one for the whole chat, only the most specific gets it; pass `resolve_scope=ListenerScope.ALL` (from `pyroflow.enums`) to the listener to give it to every one. Listeners live in the client's own process: pyroflow does not coordinate between sessions, so a bot running in several processes handles each update once in every process that receives it.
 
 ---
 
@@ -228,7 +228,7 @@ from pyroflow import MessageListenCancellingCallbackQueryListener
 client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
-`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message_id`) one press cancels: `MessageListenCancelScope.ALL` (the default) every one, `FIRST` only the most specific.
+`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message_id`) one press cancels: `ListenerScope.ALL` (the default) every one, `FIRST` only the most specific.
 
 > ⚠️ **A wait that never ends.** Without `listen_strict`, a wait stays open until `listen_timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.

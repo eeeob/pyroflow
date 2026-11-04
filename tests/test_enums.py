@@ -12,7 +12,7 @@ from pyroflow.enums import (
     DuplicatePolicy,
     ListenMessageId,
     MessageListenCancelPolicy,
-    MessageListenCancelScope,
+    ListenerScope,
 )
 
 
@@ -39,8 +39,8 @@ def test_message_listen_cancel_policy_values() -> None:
     ]
 
 
-def test_message_listen_cancel_scope_values() -> None:
-    assert [str(scope) for scope in MessageListenCancelScope] == ["all", "first"]
+def test_listener_scope_values() -> None:
+    assert [str(scope) for scope in ListenerScope] == ["all", "first"]
 
 
 def test_listen_message_id_values() -> None:
@@ -51,7 +51,7 @@ def test_enums_all() -> None:
     assert pyroflow.enums.__all__ == (
         "DuplicatePolicy",
         "MessageListenCancelPolicy",
-        "MessageListenCancelScope",
+        "ListenerScope",
         "ListenMessageId",
     )
 
