@@ -13,7 +13,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `pyroflow.constants`, the home of public constants (`BOT_COMMANDS_ATTR`).
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
-  publishes the bot commands declared on registered handlers.
+  publishes the bot commands declared on registered handlers. It assumes one
+  session per bot: when two overlap, such as during a rolling deploy, the one
+  that stops deletes the commands the other still uses, unless it stops with
+  `remove_commands=False`.
 - `Update.context`: a per-update dict for arbitrary data.
 - `ListenMessageId.SENT` as `listen_message_id` on `ask` and `ask_rich`:
   wait for an update on the message `ask` sent or edited, such as a press on
