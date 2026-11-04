@@ -6,7 +6,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/pyroflow)](https://pypi.org/project/pyroflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**امتداد لـ Pyrogram قائم على المحادثة، مع listeners لكل update وتنسيق بين عدة sessions.**
+**امتداد لـ Pyrogram قائم على المحادثة، مع listeners لكل update و`ask`.**
 
 تبني pyroflow فوق [Pyrogram](https://github.com/pyrogram/pyrogram) / [Kurigram](https://github.com/KurimuzonAkuma/pyrogram).
 
@@ -18,12 +18,6 @@
 pip install pyroflow
 ```
 
-للتنسيق المعتمد على Redis:
-
-```
-pip install pyroflow[redis]
-```
-
 ---
 
 ## لماذا pyroflow؟
@@ -32,12 +26,12 @@ pip install pyroflow[redis]
 
 بمجرد أن تحتاج محادثة ذهابًا وإيابًا، تجد نفسك تكتب state machines، وتخزّن `user_id → step` في dict، وتأمل ألا تتسابق updateان على الحالة نفسها.
 
-تحل pyroflow المشكلات الثلاث:
+تستبدل pyroflow ذلك كله بـ `await` واحد:
 
 | المشكلة | حل pyroflow |
 |---|---|
 | انتظار رد محدد | `UpdateListener`: انتظر بـ `await` الـ update التالية من مستخدم |
-| معالجة مكررة عبر عدة sessions للبوت | `UpdateCoordinated`: قفل موزّع (distributed lock) لكل مفتاح (المحادثة افتراضيًا) |
+| طرح سؤال وانتظار جوابه | `ask()`: أرسل رسالة أو عدّلها، ثم انتظر الرد بـ `await` |
 
 ---
 
@@ -46,8 +40,7 @@ pip install pyroflow[redis]
 **الحد الأدنى من المتطلبات:** Python 3.10+
 
 ```
-pip install pyroflow          # core
-pip install pyroflow[redis]   # + Redis coordinator support
+pip install pyroflow
 ```
 
 لتثبيت أحدث التغييرات غير المنشورة مباشرة من GitHub بدل آخر إصدار على PyPI:
@@ -134,7 +127,9 @@ client.message_listen    # UpdateListener[Message]
 client.callback_listen   # UpdateListener[CallbackQuery]
 ```
 
-الـ listener يأخذ أول update مطابق يُحسم بعد تسجيله. الـ update الذي يحسمه الـ dispatcher لحظة التسجيل يذهب إلى الـ handlers، وينتظر الـ listener الذي بعده.
+الـ listener يأخذ أول update مطابق يستقبله الـ client بعد استدعاء `listen`.
+
+الـ listeners تعيش داخل عملية الـ client نفسه، ولا تنسّق pyroflow بين الـ sessions. لذلك البوت الذي يعمل في عدة عمليات يعالج كل update مرة في كل عملية تستقبله.
 
 ---
 
@@ -202,83 +197,10 @@ answer = await client.ask_rich(
 
 ---
 
-### Coordinators
-
-ينسّق `UpdateCoordinated` نوع update واحدًا بين الـ sessions، مثلًا حين يعمل البوت على عدة خوادم ولكل session فيها handlers خاصة بها.
-
-يستخرج من كل update مفتاحين:
-
-- **`extract_key`**: هو **القفل** الذي ينسّق الـ updates. الـ updates التي تشترك في المفتاح ينتظر بعضها بعضًا.
-  - الافتراضي هو المحادثة.
-  - مرّر `extract_key_func` للتنسيق على مستوى المحادثة والمستخدم، أو الرسالة، أو الـ update، أو أي مستوى تريده.
-  - إرجاع `None` يجعل هذا الـ update غير قابل للتنسيق.
-- **`extract_update_id`**: هوية فريدة للـ update، تُستخدم لتعليمه كمعالج.
-  - يجب أن تُستخرج من نفس الـ update دائمًا بنفس القيمة، وألا تكون `None` أبدًا.
-  - لا تُستخرج إلا بعد معرفة المفتاح.
-
-```python
-from pyrogram.types import Message
-from redis.asyncio import Redis
-from pyroflow import Client, MessageCoordinated, MessageListener, RedisUpdateCoordinator
-
-
-client = Client("my_session")
-redis = Redis()
-coordinator = RedisUpdateCoordinator(redis, Message)
-client.register_coordinated(MessageCoordinated(coordinator=coordinator))
-client.register_listener(MessageListener(coordinator=coordinator))
-
-client.run()
-```
-
-الـ `UpdateCoordinator` يحمل كل ما تتشاركه الـ sessions لنوع update واحد: الأقفال، وعلامات المعالجة، وسجل الـ listeners.
-- مرّر نفس المنسق إلى الـ listener والـ coordinated لهذا النوع. تسجيلهما بمنسقين مختلفين يرفع `ValueError`.
-- الـ listener يُسجَّل تحت القفل الذي يأخذه الـ update (المحادثة افتراضيًا)، فيُحسم الـ update إما قبل تسجيل الـ listener أو بعده.
-- إن طابق update listener سجّلته session أخرى، تتركه هذه الـ session بلا تعليم ولا handlers، وتأخذه الـ session التي تنتظره.
-- كل تسجيل lease مدته `listener_ttl` ثانية (60 افتراضيًا)، يتجدد ما دامت الـ session تعمل. الـ session التي تموت تتحرر listeners خاصتها خلال `listener_ttl` واحد.
-
-مرّر client لـ Redis يصل إلى الخادم. المنسق لا يفتحه ولا يغلقه، فأغلقه بنفسك بعد إيقاف الـ client.
-
-كل الـ sessions تستخدم نفس مفاتيح Redis، وبهذا يتم التنسيق بينها. ويكتب كل منسق `fingerprint` خاصاً به في قيمة كل قفل وكل تسجيل listener يكتبه:
-- عند الإيقاف يحذف ما زال يحمله منها، ولا يلمس ما يخص الـ sessions الأخرى.
-- علامات المعالجة تبقى حتى ينتهي `handled_ttl`، لأن الـ sessions الأخرى تعتمد عليها.
-
-**الـ backends المدعومة:**
-
-| Backend | Extra |
-|---|---|
-| Redis | `pip install pyroflow[redis]` |
-
-**كيف يُعالَج الـ update:**
-
-1. يُستخرج المفتاح. إن كان `None` يُعالَج الـ update بلا تنسيق.
-2. يُؤخذ قفل المفتاح. إن كانت session أخرى قد عالجت الـ update يُتجاهل.
-3. يُعالَج. يُعتبر الـ update **معالجًا** لحظة أن يحلّه مستمع أو يمرّ filter أحد الـ handlers:
-   - يُعلَّم كمعالج ويُحرَّر القفل فورًا.
-   - يكمل الـ handler عمله بلا قفل.
-4. إن لم يأخذه مستمع ولا filter، يُحرَّر القفل بلا تعليم، فتأخذه session أخرى بـ handlers أخرى.
-
-التعليم لا ينجح إلا إذا لم تعلّم session أخرى الـ update قبله. إن سبقته واحدة، مثلًا بعد انتهاء مدة القفل، يُسجَّل ذلك في الـ log ويُتجاهل الـ update قبل تشغيل الـ handler.
-
-الـ session التي لا تستطيع معالجة update تعبّر عن ذلك في filter الـ handler: الـ filter الذي يرفض الـ update يتركه لـ session أخرى.
-
-```python
-# التنسيق على مستوى الرسالة بدل المحادثة.
-coordinated = MessageCoordinated(
-    coordinator=coordinator,
-    extract_key_func=lambda m: (m.chat.id, m.id),
-)
-```
-
-الـ listener الذي يشارك هذا المنسق يجب أن يُسجَّل تحت نفس القفل، فأعطه `extract_lock_key_func` مطابقًا.
-
----
-
-ويمكن أيضًا إزالتها أثناء التشغيل:
+ويمكن أيضًا إزالة الـ listeners أثناء التشغيل:
 
 ```python
 await client.unregister_listener(Message)
-await client.unregister_coordinated(Message)
 ```
 
 ---
@@ -299,7 +221,6 @@ except ListenerCancelled:
 كل الأخطاء ترث `PyroflowError`:
 
 - `ListenerError`: أخطاء الانتظار و`ask` (`ListenerTimeout`، `ListenerCancelled`، `ListenerAlreadyExists`).
-- `CoordinationError`: عائلة أخطاء التنسيق.
 
 ---
 
@@ -308,7 +229,7 @@ except ListenerCancelled:
 المتطلب الوحيد هو [uv](https://docs.astral.sh/uv/).
 
 ```bash
-make sync        # install the locked environment with every extra
+make sync        # install the locked environment
 make test        # run the test suite
 make lint        # ruff check + ruff format --check
 make typecheck   # ty

@@ -4,7 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/pyroflow)](https://pypi.org/project/pyroflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Conversation-oriented Pyrogram extension with per-update listeners and multi-session coordination.**
+**Conversation-oriented Pyrogram extension with per-update listeners and `ask`.**
 
 pyroflow builds on top of [Pyrogram](https://github.com/pyrogram/pyrogram) / [Kurigram](https://github.com/KurimuzonAkuma/pyrogram) to replace the handler-based model with a conversation-first API — `await` a specific reply from a specific user instead of wiring up global handlers and managing state machines by hand.
 
@@ -16,24 +16,18 @@ pyroflow builds on top of [Pyrogram](https://github.com/pyrogram/pyrogram) / [Ku
 pip install pyroflow
 ```
 
-For Redis-backed coordination:
-
-```
-pip install pyroflow[redis]
-```
-
 ---
 
 ## Why pyroflow?
 
 Pyrogram fires your handler for **every** incoming update of a given type. The moment you need a back-and-forth conversation you end up writing state machines, storing `user_id → step` in a dict, and hoping two updates don't race each other.
 
-pyroflow solves all three problems:
+pyroflow replaces that with a single `await`:
 
 | Problem | pyroflow solution |
 |---|---|
 | Waiting for a specific reply | `UpdateListener` — `await` the next update from a user |
-| Duplicate processing across multiple bot sessions | `UpdateCoordinated` — distributed lock per key (the chat by default) |
+| Asking a question and waiting for its answer | `ask()` — send or edit a message, then `await` the reply |
 
 ---
 
@@ -42,8 +36,7 @@ pyroflow solves all three problems:
 **Minimum requirements:** Python 3.10+
 
 ```
-pip install pyroflow          # core
-pip install pyroflow[redis]   # + Redis coordinator support
+pip install pyroflow
 ```
 
 To get the latest, unreleased changes straight from GitHub instead of the last PyPI release:
@@ -126,7 +119,7 @@ client.message_listen    # UpdateListener[Message]
 client.callback_listen   # UpdateListener[CallbackQuery]
 ```
 
-A listener takes the next matching update that is settled after it registers. An update the dispatcher is already deciding on goes to the handlers, and the listener waits for the one after it.
+A listener takes the next matching update its client receives after `listen` is called. Listeners live in the client's own process: pyroflow does not coordinate between sessions, so a bot running in several processes handles each update once in every process that receives it.
 
 ---
 
@@ -187,70 +180,10 @@ answer = await client.ask_rich(
 
 ---
 
-### Coordinators
-
-A `UpdateCoordinated` coordinates one update type across sessions, for example when the bot runs on multiple servers, each session with its own handlers. It extracts two keys from each update:
-
-- **`extract_key`** — the **lock** that coordinates updates. Updates sharing a key wait for each other. The default is the chat; pass `extract_key_func` to coordinate per chat and user, per message, per update, or any level you need. Returning `None` leaves that update uncoordinated.
-- **`extract_update_id`** — the update's unique identity, used to mark it as handled. It must be extractable from the update every time, with the same value, and never `None`. It is only extracted once the key is known.
-
-```python
-from pyrogram.types import Message
-from redis.asyncio import Redis
-from pyroflow import Client, MessageCoordinated, MessageListener, RedisUpdateCoordinator
-
-
-client = Client("my_session")
-redis = Redis()
-coordinator = RedisUpdateCoordinator(redis, Message)
-client.register_coordinated(MessageCoordinated(coordinator=coordinator))
-client.register_listener(MessageListener(coordinator=coordinator))
-
-client.run()
-```
-
-The `UpdateCoordinator` holds everything the sessions share for one update type: the locks, the handled marks and the listener registry. Pass the same coordinator to the listener and the coordinated of that type; registering them with different coordinators raises `ValueError`. A listener registers under the lock its update takes (the chat, by default), so an update is decided either before a listener registers or after it.
-
-When an update matches a listener registered by another session, this session leaves the update unmarked and runs no handler, and the session that waits for it takes it. Each registration is a lease of `listener_ttl` seconds (60 by default), renewed while its session runs, so a session that dies frees its listeners within one `listener_ttl`.
-
-Pass a Redis client that can reach the server. The coordinator never opens or closes it, so close it yourself once the client stops.
-
-Every session shares the same Redis keys, which is what coordinates them. Each coordinator also writes its own `fingerprint` into the value of every lock and listener registration it writes. On stop it deletes the ones it still holds, and leaves other sessions' alone. The handled marks stay until `handled_ttl` expires, since the other sessions still rely on them.
-
-**Supported backends:**
-
-| Backend | Extra |
-|---|---|
-| Redis | `pip install pyroflow[redis]` |
-
-**How an update is processed:**
-
-1. Extract the key; `None` processes the update uncoordinated.
-2. Take the key's lock, then drop the update if a session already handled it.
-3. Process it. The update counts as **handled** as soon as a listener resolves it or one handler's filter passes it: it is marked as handled and the lock is released right away, while the handler keeps running.
-4. If no listener and no filter took it, the lock is released unmarked, so another session with other handlers may take it.
-
-Marking only succeeds if no session marked the update before. If one did, for example after the lock expired, the update is logged and dropped before its handler runs.
-
-A session that cannot handle an update should say so in its handler's filter: a rejecting filter leaves the update to another session.
-
-```python
-# Coordinate per message instead of per chat.
-coordinated = MessageCoordinated(
-    coordinator=coordinator,
-    extract_key_func=lambda m: (m.chat.id, m.id),
-)
-```
-
-A listener sharing that coordinator must register under the same lock, so give it a matching `extract_lock_key_func`.
-
----
-
-They can also be removed at runtime:
+Listeners can also be removed at runtime:
 
 ```python
 await client.unregister_listener(Message)
-await client.unregister_coordinated(Message)
 ```
 
 ---
@@ -268,7 +201,7 @@ except ListenerCancelled:
     await client.send_message(chat_id, "Session was cancelled.")
 ```
 
-Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`), and `CoordinationError` is the family for coordination errors.
+Every error derives from `PyroflowError`. `ListenerError` covers waiting and `ask` (`ListenerTimeout`, `ListenerCancelled`, `ListenerAlreadyExists`).
 
 ---
 
@@ -277,7 +210,7 @@ Every error derives from `PyroflowError`. `ListenerError` covers waiting and `as
 The only prerequisite is [uv](https://docs.astral.sh/uv/).
 
 ```bash
-make sync        # install the locked environment with every extra
+make sync        # install the locked environment
 make test        # run the test suite
 make lint        # ruff check + ruff format --check
 make typecheck   # ty

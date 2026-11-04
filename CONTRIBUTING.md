@@ -24,9 +24,8 @@ Branch from `main`, one cohesive change per branch, ending in its own pull reque
 | What you are adding | Where it goes | Rule |
 |---|---|---|
 | A method or property on a Pyrogram type | inside the `@patch_cls` class that patches that type | 2.1, 2.2 |
-| Support for a new update type | a listener and a coordinated policy, each in the package of its kind | 2.3 |
-| A backend, or a change to one | its Memory and Redis versions together | 2.4–2.6 |
-| An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` | 1.4, 2.7 |
+| Support for a new update type | a listener in `pyroflow.update_listener` | 2.3 |
+| An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` | 1.4, 2.4 |
 | A helper | `pyroflow.utils` when sections share it, the section's `_internal.py` when one section uses it; `pytrove` first | 1.5 |
 | A dependency | an extra, unless every feature needs it | 3.1–3.3 |
 | A test | the `tests/` path that mirrors the module; static type tests in `tests/typing/` | 0.1 |
@@ -39,7 +38,7 @@ Lay each module out in the fixed order (4.3). Annotate completely with modern sy
 
 ### 5. Test it
 
-Test every element you added or changed, at the path that mirrors its module (0.1, 0.2). Redis is faked; nothing touches a real server, the network or Telegram, and the suite still passes without the `redis` extra (0.3).
+Test every element you added or changed, at the path that mirrors its module (0.1, 0.2). Nothing touches a real server, the network or Telegram (0.3).
 
 ### 6. Document it
 
@@ -54,7 +53,7 @@ Give every function and class a Google-style docstring (6.3); give every module-
 | `make typecheck` | `ty` on the library, and on `tests/typing/` with warnings as errors | on each commit (hook) |
 | `make test` | the suite in the locked environment with every extra | on every change |
 | `make test-doctest` | every docstring `Example` as a doctest | when adding or changing an example |
-| `make test-minimal` | import and the suite in a fresh environment without the `redis` extra or the Redis fakes | when touching imports, extras or Redis tests |
+| `make test-minimal` | import and the suite in a fresh environment installed from source | when touching imports or dependencies |
 | `make test-floor` / `make test-ceil` | the suite on the lowest version every floor allows, on the oldest Python / on the newest release of every dependency, on the newest Python | when adding a dependency or changing a bound |
 | `make build` | the sdist and the wheel | when touching packaging |
 
@@ -72,7 +71,7 @@ Write Conventional Commits; a breaking change carries its `!`, its `BREAKING CHA
 
 **0.2 Every element is tested.** Every function, class, method, property, helper, constant, enum and module-level definition has a test of its own: its behaviour, its branches, its edge cases and its error paths. Coverage that happens incidentally through another element's test does not count. The public entry points (1.2) are tested too.
 
-**0.3 Optional dependencies.** The suite runs without the `redis` extra and without the Redis fakes (`make test-minimal`); the Redis tests skip on their own. With them installed, every Redis test runs. Tests never use a real Redis server, the network or Telegram: Redis is faked with `fakeredis` and `lupa`.
+**0.3 No outside world.** Tests never use a real server, the network or Telegram, and the suite passes on a fresh install of the package with only the test tools (`make test-minimal`).
 
 ### Priority 1 — Compatibility and the public interface
 
@@ -109,21 +108,15 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **1.10 Code versus rule.** Code that violates a rule is fixed. A rule is never weakened to justify code.
 
-### Priority 2 — Pyrogram integration and backends
+### Priority 2 — Pyrogram integration
 
 **2.1 Patch, don't subclass.** Methods added to Pyrogram types (`Client`, `Message`, `User`, ...) go inside the class decorated with `@patch_cls`, never in a subclass, so users keep using Pyrogram's own classes.
 
 **2.2 Override signatures.** Pyrogram overrides (`Dispatcher.handler_worker(self, lock)`, `start`, `stop`) keep kurigram's signatures. Change one only after checking it against the installed `kurigram`.
 
-**2.3 A new update type is supported whole.** It gets its listener and its coordinated policy together (`XListener`, `XCoordinated`), each bound to the type with `__update_type__`.
+**2.3 A new update type gets its listener.** Support for it is an `XListener` bound to the type with `__update_type__`.
 
-**2.4 Backends move together.** A change to a Memory backend is matched in its Redis backend in the same change, and the other way round.
-
-**2.5 One coordinator, no nested lock.** The listener and the coordinated of an update type share one `UpdateCoordinator`, which holds every piece of state the sessions share. Its listener registry calls (`register_listener`, `listener_owners`, `unregister_listener`, `cancel_listener`) are atomic on their own and never take `lock()`. `UpdateListener.resolve` runs while the dispatcher holds the update's lock, and the lock is not reentrant: taking it again there deadlocks the worker permanently, with no timeout to recover.
-
-**2.6 `redis` stays optional.** `redis` is imported only under `TYPE_CHECKING`, and the user passes the Redis client in, because `redis` is an optional extra (3.1).
-
-**2.7 Errors.** A new error lives in `pyroflow.errors` and subclasses its family: `ListenerError` for waiting and `ask`, `CoordinationError` for coordination, or `PyroflowError` when it fits neither. Its class docstring is the message template, formatted with the value at raise time.
+**2.4 Errors.** A new error lives in `pyroflow.errors` and subclasses its family: `ListenerError` for waiting and `ask`, or `PyroflowError` when it does not fit. Its class docstring is the message template, formatted with the value at raise time.
 
 ### Priority 3 — Dependencies
 
@@ -207,8 +200,8 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 **6.4 Variables and fields.** Every module-level variable, public or private (constants, type aliases, type variables), and every element of a model-like structure (dataclass, `TypedDict` and `NamedTuple` fields, enum members, class attributes, and the instance attributes a stateful class sets in `__init__`) has a one-line docstring on the line right under it. The docstring says what it holds, never repeating its name or type. The class docstring has no `Attributes` section repeating them.
 
 ```python
-_LOCK_TTL: Final[float] = 30.0
-"""Seconds a coordination lock lives before the backend frees it."""
+_DEFAULT_TIMEOUT: Final[float] = 30.0
+"""Seconds `listen` waits when the caller gives no timeout."""
 
 
 class ChatKind(Enum):

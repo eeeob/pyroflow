@@ -33,9 +33,8 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 | ما تضيفه | مكانه | القاعدة |
 |---|---|---|
 | `method` أو `property` على نوع من Pyrogram | داخل الكلاس المعلَّم بـ `@patch_cls` الذي يرقّع ذلك النوع | 2.1، 2.2 |
-| دعم نوع `update` جديد | `listener` و`coordinated policy`، كلٌّ في حزمة نوعه | 2.3 |
-| `backend` جديد أو تعديل عليه | نسختا Memory وRedis معًا | 2.4–2.6 |
-| `enum` أو `type alias` أو `model` أو خطأ أو ثابت عام | `pyroflow.enums`، `pyroflow.typings`، `pyroflow.models`، `pyroflow.errors`، `pyroflow.constants` | 1.4، 2.7 |
+| دعم نوع `update` جديد | `listener` في `pyroflow.update_listener` | 2.3 |
+| `enum` أو `type alias` أو `model` أو خطأ أو ثابت عام | `pyroflow.enums`، `pyroflow.typings`، `pyroflow.models`، `pyroflow.errors`، `pyroflow.constants` | 1.4، 2.4 |
 | أداة مساعدة (`helper`) | `pyroflow.utils` إن تشاركتها الأقسام، و`_internal.py` الخاص بالقسم إن استخدمها قسم واحد؛ وابحث في `pytrove` أولًا | 1.5 |
 | اعتمادية (`dependency`) | `extra`، إلا إن احتاجتها كل الميزات | 3.1–3.3 |
 | اختبار | مسار `tests/` المقابل للـ `module`؛ واختبارات الأنواع الساكنة في `tests/typing/` | 0.1 |
@@ -58,7 +57,7 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 
 اختبر كل عنصر أضفته أو غيّرته، في المسار المقابل لـ `module` الخاص به (0.1، 0.2).
 
-Redis مزيّف في الاختبارات. لا شيء يلمس خادمًا حقيقيًا أو الشبكة أو Telegram. وتنجح الاختبارات أيضًا دون الـ `extra` المسمى `redis` (0.3).
+لا شيء في الاختبارات يلمس خادمًا حقيقيًا أو الشبكة أو Telegram (0.3).
 
 ### 6. وثّقه
 
@@ -76,7 +75,7 @@ Redis مزيّف في الاختبارات. لا شيء يلمس خادمًا ح
 | `make typecheck` | `ty` على المكتبة، وعلى `tests/typing/` مع اعتبار التحذيرات أخطاء | مع كل `commit` (`hook`) |
 | `make test` | الاختبارات في البيئة المقفلة مع كل الـ `extras` | مع كل تغيير |
 | `make test-doctest` | كل `Example` في الـ `docstrings` بوصفه `doctest` | عند إضافة مثال أو تغييره |
-| `make test-minimal` | الاستيراد والاختبارات في بيئة جديدة دون الـ `extra` المسمى `redis` ودون تزييف Redis | عند لمس الاستيرادات أو الـ `extras` أو اختبارات Redis |
+| `make test-minimal` | الاستيراد والاختبارات في بيئة جديدة مثبّتة من المصدر | عند لمس الاستيرادات أو الاعتماديات |
 | `make test-floor` / `make test-ceil` | الاختبارات على أدنى إصدار تسمح به كل الحدود الدنيا مع أقدم Python / على أحدث إصدار لكل اعتمادية مع أحدث Python | عند إضافة اعتمادية أو تغيير حد |
 | `make build` | الـ `sdist` والـ `wheel` | عند لمس التحزيم |
 
@@ -98,7 +97,7 @@ Redis مزيّف في الاختبارات. لا شيء يلمس خادمًا ح
 
 **0.2 كل عنصر مُختبَر.** لكل دالة وكلاس و`method` و`property` و`helper` وثابت و`enum` وتعريف على مستوى الـ `module` اختبار خاص به. يغطي الاختبار سلوكه وفروعه وحالاته الحدّية ومسارات الخطأ فيه. التغطية العَرَضية عبر اختبار عنصر آخر لا تُحتسب. وتُختبر نقاط الدخول العامة (1.2) أيضًا.
 
-**0.3 الاعتماديات الاختيارية.** تعمل الاختبارات دون الـ `extra` المسمى `redis` ودون تزييف Redis (`make test-minimal`)، وتتخطى اختبارات Redis نفسها تلقائيًا. وعند تثبيتها تعمل كل اختبارات Redis. لا تستخدم الاختبارات خادم Redis حقيقيًا ولا الشبكة ولا Telegram؛ يُزيَّف Redis بـ `fakeredis` و`lupa`.
+**0.3 لا عالم خارجي.** لا تستخدم الاختبارات خادمًا حقيقيًا ولا الشبكة ولا Telegram، وتنجح على تثبيت جديد للحزمة مع أدوات الاختبار وحدها (`make test-minimal`).
 
 ### الأولوية 1 — التوافق والواجهة العامة
 
@@ -135,21 +134,15 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **1.10 الكود مقابل القاعدة.** الكود المخالف لقاعدة يُصلَح. ولا تُضعَّف قاعدة لتبرير كود.
 
-### الأولوية 2 — التكامل مع Pyrogram والـ backends
+### الأولوية 2 — التكامل مع Pyrogram
 
 **2.1 رقّع ولا ترث.** الـ `methods` المضافة إلى أنواع Pyrogram (`Client`، `Message`، `User`، ...) توضع داخل الكلاس المزيَّن بـ `@patch_cls`، لا في كلاس فرعي، كي يبقى المستخدم على كلاسات Pyrogram نفسها.
 
 **2.2 تواقيع الـ overrides.** تحتفظ الـ `overrides` على Pyrogram (`Dispatcher.handler_worker(self, lock)`، `start`، `stop`) بتواقيع kurigram. لا تغيّر أحدها إلا بعد مطابقته مع `kurigram` المثبّت.
 
-**2.3 نوع الـ update الجديد يُدعم كاملًا.** يحصل على `listener` و`coordinated policy` معًا (`XListener`، `XCoordinated`)، وكلٌّ منها مربوط بالنوع عبر `__update_type__`.
+**2.3 نوع الـ update الجديد يحصل على listener.** دعمه هو `XListener` مربوط بالنوع عبر `__update_type__`.
 
-**2.4 الـ backends تتغير معًا.** أي تغيير في `backend` الـ Memory يقابله تغيير في `backend` الـ Redis في التغيير نفسه، والعكس.
-
-**2.5 منسق واحد، ولا قفل متداخل.** الـ listener والـ coordinated لنوع update واحد يتشاركان `UpdateCoordinator` واحدًا، يحمل كل حالة تتشاركها الـ sessions. استدعاءات سجل الـ listeners فيه (`register_listener` و`listener_owners` و`unregister_listener` و`cancel_listener`) ذرية بذاتها ولا تأخذ `lock()` أبدًا. السبب أن `UpdateListener.resolve` يعمل والـ dispatcher يمسك قفل الـ update، والقفل غير قابل لإعادة الدخول (`non-reentrant`). أخذه مرة ثانية هناك يجمّد الـ `worker` نهائيًا (`deadlock`)، ولا `timeout` يُنقذه.
-
-**2.6 تبقى `redis` اختيارية.** لا يُستورد `redis` إلا تحت `TYPE_CHECKING`، ويمرّر المستخدم عميل Redis بنفسه، لأن `redis` `extra` اختياري (3.1).
-
-**2.7 الأخطاء.** كل خطأ جديد يُعرَّف في `pyroflow.errors` ويرث عائلته: `ListenerError` للانتظار و`ask`، و`CoordinationError` للتنسيق، أو `PyroflowError` إن لم يناسب أيًّا منهما. الـ `docstring` الخاص بالكلاس هو قالب الرسالة، ويُملأ بالقيمة لحظة رفع الخطأ.
+**2.4 الأخطاء.** كل خطأ جديد يُعرَّف في `pyroflow.errors` ويرث عائلته: `ListenerError` للانتظار و`ask`، أو `PyroflowError` إن لم يناسبها. الـ `docstring` الخاص بالكلاس هو قالب الرسالة، ويُملأ بالقيمة لحظة رفع الخطأ.
 
 ### الأولوية 3 — الاعتماديات
 
@@ -233,8 +226,8 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 **6.4 المتغيرات والحقول.** لكل متغير على مستوى الـ `module`، عامًا كان أو خاصًا (الثوابت، والـ `type aliases`، والـ `type variables`)، ولكل عنصر في بنية شبيهة بالـ `model` (حقول `dataclass` و`TypedDict` و`NamedTuple`، وأعضاء الـ `enum`، وخصائص الكلاس، وخصائص الـ `instance` التي يضبطها كلاس ذو حالة في `__init__`)، `docstring` من سطر واحد في السطر الذي يليه مباشرة. يقول الـ `docstring` ما الذي يحمله العنصر، ولا يكرر اسمه ولا نوعه. ولا يحتوي `docstring` الكلاس قسم `Attributes` يكررها.
 
 ```python
-_LOCK_TTL: Final[float] = 30.0
-"""Seconds a coordination lock lives before the backend frees it."""
+_DEFAULT_TIMEOUT: Final[float] = 30.0
+"""Seconds `listen` waits when the caller gives no timeout."""
 
 
 class ChatKind(Enum):
