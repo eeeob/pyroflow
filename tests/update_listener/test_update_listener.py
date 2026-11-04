@@ -371,6 +371,22 @@ async def test_resolve_bypass_cancels_the_listener_and_is_false() -> None:
     assert lis.listeners == {}
 
 
+async def test_resolve_skips_a_listener_taken_while_is_bypass_ran() -> None:
+    async def slow_no_bypass(update: Message) -> bool:
+        await asyncio.sleep(0.01)
+        return False
+
+    lis = _make(is_bypass_func=slow_no_bypass)
+    task = await _pending(lis, 100, 7)
+    first, second = make_message(100, 7, 5), make_message(100, 7, 6)
+
+    results = await asyncio.gather(lis.resolve(first), lis.resolve(second))
+
+    assert results == [True, False]
+    assert await task is first
+    assert lis.listeners == {}
+
+
 # --- extract_key / is_bypass ----------------------------------------------------
 
 

@@ -237,7 +237,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if listener is None or listener.done():
                 continue
 
-            if await self.is_bypass(update):
+            bypass = await self.is_bypass(update)
+
+            # `is_bypass` may yield; another update or a newer `listen` may have taken the slot.
+            if self.listeners.get(sub) is not listener or listener.done():
+                continue
+
+            if bypass:
                 self.cancel(sub)
                 return False
 
