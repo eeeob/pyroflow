@@ -68,4 +68,18 @@ class MessageListenCancelPolicy(StrEnum):
     """Only on a press that a callback wait took."""
 
 
-__all__ = ("DuplicatePolicy", "MessageListenCancelPolicy")
+class MessageListenCancelScope(StrEnum):
+    """How many message listens tied to a pressed message one press cancels.
+
+    Example:
+        >>> MessageListenCancelScope.ALL == "all"
+        True
+    """
+
+    ALL = auto()
+    """Every message listen tied to the pressed message."""
+    FIRST = auto()
+    """Only the most specific one, the first in `ListenerKey.sub_keys` order."""
+
+
+__all__ = ("DuplicatePolicy", "MessageListenCancelPolicy", "MessageListenCancelScope")

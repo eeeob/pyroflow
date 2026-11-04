@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
-from ..enums import MessageListenCancelPolicy
+from ..enums import MessageListenCancelPolicy, MessageListenCancelScope
 from ..models import ListenerKey
 from ..types import Message
 from .callback_query_listener import CallbackQueryListener
@@ -19,9 +19,10 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
     After a press is resolved, and when `cancel_policy` allows it, the
     client's message listener (`Client.message_listen`) is searched for the
     waits tied to the pressed message: their `context.message_id` is that
-    message's id, as `ask` records it. Each ends with `ListenerCancelled`.
-    Only message waits are cancelled, and only those aimed at the presser or
-    at anyone in the chat.
+    message's id, as `ask` records it. Every one of them, or only the most
+    specific, as `cancel_scope` says, ends with `ListenerCancelled`. Only
+    message waits are cancelled, and only those aimed at the presser or at
+    anyone in the chat.
 
     For example, a question sent with `ask` can carry a "back" button: a
     press on it ends the wait for the text answer.
@@ -58,6 +59,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         self,
         *args: Any,
         cancel_policy: MessageListenCancelPolicy = MessageListenCancelPolicy.UNRESOLVED,
+        cancel_scope: MessageListenCancelScope = MessageListenCancelScope.ALL,
         **kw: Any,
     ) -> None:
         """Initialize the listener.
@@ -66,12 +68,16 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
             *args: Passed to `CallbackQueryListener`.
             cancel_policy: Which presses cancel: every press, only those no
                 callback wait took (the default), or only those one took.
+            cancel_scope: How many tied message listens a press cancels:
+                all of them (the default), or only the most specific.
             **kw: Passed to `CallbackQueryListener`.
         """
         super().__init__(*args, **kw)
 
         self.cancel_policy = cancel_policy
         """Which presses cancel the message listen tied to the pressed message."""
+        self.cancel_scope = cancel_scope
+        """How many tied message listens a press cancels."""
 
     async def resolve(self, update: CallbackQuery) -> bool:
         """Resolve the callback, then cancel the message listen on its message if `cancel_policy` allows.
@@ -95,12 +101,13 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         return resolved
 
     def _cancel_message_listen(self, update: CallbackQuery) -> None:
-        """Cancel every message listen tied to the pressed message.
+        """Cancel the message listens tied to the pressed message, as `cancel_scope` says.
 
         The candidates are the sub-keys of `(chat, presser, pressed message)`,
-        so a press only ends waits aimed at the presser or at anyone in the
-        chat; each whose `context.message_id` is the pressed message's id is
-        cancelled. Nothing is cancelled when the callback carries no message,
+        most specific first, so a press only ends waits aimed at the presser
+        or at anyone in the chat. Those whose `context.message_id` is the
+        pressed message's id are cancelled: every one, or with
+        `MessageListenCancelScope.FIRST` only the first. Nothing is cancelled when the callback carries no message,
         chat or message id, or the client has no message listener.
 
         Args:
@@ -121,6 +128,9 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
             if listener is not None and listener.context.message_id == m.id:
                 m_listen.cancel(sub)
+
+                if self.cancel_scope is MessageListenCancelScope.FIRST:
+                    return
 
 
 __all__ = ("MessageListenCancellingCallbackQueryListener",)

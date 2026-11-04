@@ -13,7 +13,7 @@ from pyroflow import (
     CallbackQueryListener,
     MessageListener,
 )
-from pyroflow.enums import MessageListenCancelPolicy
+from pyroflow.enums import MessageListenCancelPolicy, MessageListenCancelScope
 from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerContext, ListenerKey
 from pyroflow.types import Message
@@ -62,14 +62,18 @@ def test_is_a_callback_query_listener() -> None:
 def test_init_defaults() -> None:
     lis = MessageListenCancellingCallbackQueryListener()
     assert lis.cancel_policy is MessageListenCancelPolicy.UNRESOLVED
+    assert lis.cancel_scope is MessageListenCancelScope.ALL
     assert lis.extract_key_func == lis._extract_key
 
 
 def test_init_stores_its_arguments_and_forwards_the_rest() -> None:
     lis = MessageListenCancellingCallbackQueryListener(
-        cancel_policy=MessageListenCancelPolicy.ALWAYS, timeout=3
+        cancel_policy=MessageListenCancelPolicy.ALWAYS,
+        cancel_scope=MessageListenCancelScope.FIRST,
+        timeout=3,
     )
     assert lis.cancel_policy is MessageListenCancelPolicy.ALWAYS
+    assert lis.cancel_scope is MessageListenCancelScope.FIRST
     assert lis.timeout == 3
 
 
@@ -85,6 +89,21 @@ async def test_cancel_message_listen_cancels_every_wait_tied_to_the_pressed_mess
     for task in (specific, chat_wide):
         with pytest.raises(ListenerCancelled):
             await task
+
+
+async def test_cancel_message_listen_with_first_scope_cancels_only_the_most_specific() -> None:
+    mlis = MessageListener()
+    specific = await _listen(mlis, 100, 7, prompt_id=5)
+    chat_wide = await _listen(mlis, 100, prompt_id=5)
+    cbq = make_callback_query(_client=_FakeClient(mlis))
+    lis = MessageListenCancellingCallbackQueryListener(cancel_scope=MessageListenCancelScope.FIRST)
+
+    lis._cancel_message_listen(cbq)
+
+    assert list(mlis.listeners) == [ListenerKey(100)]
+    with pytest.raises(ListenerCancelled):
+        await specific
+    await _stop(mlis, chat_wide)
 
 
 async def test_cancel_message_listen_does_not_depend_on_extract_key() -> None:

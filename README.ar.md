@@ -260,7 +260,10 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 - `RESOLVED`: الضغطة التي أخذها انتظار callback فقط.
 - `ALWAYS`: كل ضغطة.
 
-ويُلغى كل انتظار رسائل مرتبط بالرسالة المضغوطة (`context.message_id` فيه)، لا أولها فقط.
+و`cancel_scope` يحدد كم انتظار رسائل مرتبط بالرسالة المضغوطة (`context.message_id` فيه) تلغيه الضغطة:
+
+- `MessageListenCancelScope.ALL` (الافتراضي): كل انتظار مرتبط.
+- `FIRST`: الأكثر تحديدًا فقط، أي الأول بترتيب `sub_keys`.
 
 > ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.
