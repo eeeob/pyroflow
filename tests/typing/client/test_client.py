@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.client``."""
+"""Static type tests for ``pyroflow.client.client``."""
 
 from __future__ import annotations as _annotations
 

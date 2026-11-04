@@ -28,6 +28,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODULES = [
     "pyroflow",
     "pyroflow.client",
+    "pyroflow.client.client",
+    "pyroflow.client.bot_commands_mixin",
     "pyroflow.constants",
     "pyroflow.dispatcher",
     "pyroflow.enums",
