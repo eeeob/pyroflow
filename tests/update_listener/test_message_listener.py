@@ -9,22 +9,29 @@ from typing import Any, TYPE_CHECKING
 import pytest
 from pyrogram import filters
 
-from pyroflow import CallbackQueryListener, MessageListener
-from pyroflow.errors import ListenerTimeout
+import pyroflow.update_listener.message_listener as message_listener_module
+from pyroflow import MessageListener
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_message
 
 if TYPE_CHECKING:
+    from pyrogram.filters import Filter
+
     from pyroflow.types import Message
 
 
 # --- class / __init__ --------------------------------------------------------
 
 
-def test_init_defaults_to_builtin_key_functions() -> None:
+def test_module_logger() -> None:
+    assert message_listener_module.log.name == "pyroflow.update_listener.message_listener"
+
+
+def test_init_defaults_to_builtin_key_and_listen_functions() -> None:
     lis = MessageListener()
     assert lis.extract_key_func == lis._extract_key
+    assert lis.on_listen_func == lis._warn_single_update_filter
 
 
 def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
@@ -36,34 +43,35 @@ def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
     assert lis.timeout == 3
 
 
-# --- the single-update warning ----------------------------------------------------
-
-
-def test_message_id_names_one_update() -> None:
-    assert MessageListener._message_id_names_one_update is True
+# --- _warn_single_update_filter ------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("listener_cls", "message_id", "strict", "warned"),
+    ("message_id", "filters_", "strict", "warned"),
     [
-        (MessageListener, 5, False, True),
-        (MessageListener, 5, True, False),
-        (MessageListener, None, False, False),
-        (CallbackQueryListener, 5, False, False),
+        (5, filters.text, False, True),
+        (5, filters.text, True, False),
+        (5, None, False, False),
+        (None, filters.text, False, False),
     ],
 )
-async def test_listen_warns_of_a_wait_a_rejected_message_leaves_open(
+def test_warn_single_update_filter_warns_of_a_wait_a_rejected_message_leaves_open(
     caplog: pytest.LogCaptureFixture,
-    listener_cls: type[MessageListener | CallbackQueryListener],
     message_id: int | None,
+    filters_: Filter | None,
     strict: bool,
     warned: bool,
 ) -> None:
-    lis = listener_cls()
-
-    with caplog.at_level(logging.WARNING):
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(1, 2, message_id, filters=filters.text, strict=strict, timeout=0.001)
+    with caplog.at_level(logging.WARNING, logger=message_listener_module.log.name):
+        MessageListener()._warn_single_update_filter(
+            chat_id=1,
+            user_id=2,
+            message_id=message_id,
+            meta=None,
+            filters=filters_,
+            strict=strict,
+            timeout=None,
+        )
 
     assert ("waits for a single update with a non-strict filter" in caplog.text) is warned
 

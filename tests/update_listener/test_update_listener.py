@@ -146,13 +146,8 @@ async def _chat_key(update: Message) -> ListenerKey:
     return ListenerKey(update.chat.id)
 
 
-def test_module_exports_and_logger() -> None:
+def test_module_exports() -> None:
     assert update_listener_module.__all__ == ("UpdateListener",)
-    assert update_listener_module.log.name == "pyroflow.update_listener.update_listener"
-
-
-def test_message_id_names_one_update_is_off_by_default() -> None:
-    assert UpdateListener._message_id_names_one_update is False
 
 
 # --- __init__ -----------------------------------------------------------------
@@ -163,6 +158,7 @@ def test_init_defaults() -> None:
     assert lis.duplicate_policy is DuplicatePolicy.REPLACE
     assert lis.extract_key_func is None
     assert lis.on_error_func is None
+    assert lis.on_listen_func is None
     assert lis.timeout is None
     assert lis.listeners == {}
     assert lis.is_closed is False
@@ -173,11 +169,13 @@ def test_init_stores_arguments() -> None:
         duplicate_policy=DuplicatePolicy.REJECT,
         extract_key_func=_key_of,
         on_error_func=print,
+        on_listen_func=dict,
         timeout=3,
     )
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
     assert lis.extract_key_func is _key_of
     assert lis.on_error_func is print
+    assert lis.on_listen_func is dict
     assert lis.timeout == 3
 
 
@@ -427,6 +425,42 @@ async def test_listen_does_not_report_an_error_raised_before_the_wait() -> None:
         assert seen == []
     finally:
         await _drain(first)
+
+
+async def test_listen_passes_its_arguments_to_on_listen_func_before_registering() -> None:
+    seen: list[tuple[dict[str, object], bool]] = []
+    lis = _make()
+    lis.on_listen_func = lambda **kw: seen.append((kw, ListenerKey(1, 2, 3) in lis.listeners))
+
+    task = await _pending(lis, 1, 2, 3, meta={"a": 1}, filters=TEXT_A, strict=True, timeout=5)
+    await _drain(task)
+
+    assert seen == [
+        (
+            {
+                "chat_id": 1,
+                "user_id": 2,
+                "message_id": 3,
+                "meta": {"a": 1},
+                "filters": TEXT_A,
+                "strict": True,
+                "timeout": 5,
+            },
+            False,
+        )
+    ]
+
+
+async def test_listen_starts_no_wait_when_on_listen_func_raises() -> None:
+    def refuse(**kw: object) -> None:
+        msg = "refused"
+        raise ValueError(msg)
+
+    lis = _make(on_listen_func=refuse)
+
+    with pytest.raises(ValueError, match="refused"):
+        await lis.listen(1)
+    assert lis.listeners == {}
 
 
 def test_call_is_listen() -> None:

@@ -3,9 +3,8 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-import logging
 from abc import ABC
-from typing import ClassVar, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from pytrove import maybe_awaitable, is_exception
 
@@ -22,13 +21,12 @@ from ..enums import DuplicatePolicy
 from ..models import ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pyrogram.filters import Filter
     from pytrove.typings import MaybeCoroutineCallable, Number
 
     from ..typings import MetaT
-
-
-log = logging.getLogger(__name__)
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -58,6 +56,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             and before `listen` raises the error. Errors raised before a wait
             starts, such as `ListenerAlreadyExists`, are not reported. A
             failing callback is logged and never hides the error.
+        on_listen_func: `(**listen_kwargs) -> object`, called by `listen` with
+            its arguments by name (`chat_id`, `user_id`, `message_id`,
+            `meta`, `filters`, `strict` and `timeout`, as passed) before the
+            wait is registered; its result is ignored. It must be sync and
+            fast, as it runs inline on the event loop; an error it raises
+            propagates from `listen` and no wait starts.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         **kw: Passed to the next class in the MRO.
 
@@ -77,14 +81,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         (True, 7)
     """
 
-    _message_id_names_one_update: ClassVar[bool] = False
-    """Whether a key's `message_id` names a single update, so a rejected one never comes again."""
-
     def __init__(
         self,
         duplicate_policy: DuplicatePolicy | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
         on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
+        on_listen_func: Callable[..., object] | None = None,
         timeout: Number | None = None,
         **kw: object,
     ) -> None:
@@ -101,6 +103,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """Optional key extractor behind `extract_key`."""
         self.on_error_func = on_error_func
         """Optional callback for the `ListenerError` that ends a wait."""
+        self.on_listen_func = on_listen_func
+        """Optional callback that sees the arguments of every `listen` call."""
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
@@ -241,7 +245,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             - The key names one update. A `MessageListener` key with a
               `message_id` names a single incoming message; if the filter
               rejects it, no other update can match. `MessageListener` logs a
-              warning for such a wait.
+              warning for such a wait through its default `on_listen_func`.
             - The filter cannot pass this update type at all, such as a
               photo filter on a `CallbackQueryListener`.
             - The user keeps sending updates the filter rejects.
@@ -267,16 +271,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if self.is_closed:
             raise ListenerCancelled(key)
 
-        if (
-            self._message_id_names_one_update
-            and message_id is not None
-            and filters is not None
-            and not strict
-        ):
-            log.warning(
-                "Listener for %s waits for a single update with a non-strict filter; "
-                "if the filter rejects it, the wait stays open until its timeout",
-                key,
+        if self.on_listen_func is not None:
+            # Inline, not through `maybe_awaitable`: yielding here could let the awaited update slip past.
+            self.on_listen_func(
+                chat_id=chat_id,
+                user_id=user_id,
+                message_id=message_id,
+                meta=meta,
+                filters=filters,
+                strict=strict,
+                timeout=timeout,
             )
 
         current = self.listeners.get(key)

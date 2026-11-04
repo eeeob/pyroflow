@@ -34,9 +34,13 @@ Every breaking change lists what changed, who is affected and how to migrate.
   matches but that fails the filter is skipped and the listener keeps
   waiting, or, with `strict=True`, the wait ends with the new
   `ListenerRejected` (a `ListenerCancelled` that carries the rejected
-  update). `MessageListener` logs a warning for a non-strict filter on a key
-  with a `message_id`, which names one message and can leave the wait open.
+  update). `MessageListener`'s default `on_listen_func` logs a warning for a
+  non-strict filter on a key with a `message_id`, which names one message and
+  can leave the wait open.
 - `UpdateListener.reject(key, update)`: end a wait with `ListenerRejected`.
+- `UpdateListener(on_listen_func=...)`: called inline with the arguments of
+  every `listen` call by name, before the wait is registered; an error it
+  raises stops the wait from starting.
 - `UpdateListener(on_error_func=...)`: called with the error and the
   `ListenerModel` when a `ListenerError` ends a wait (a timeout, a
   cancellation or a strict rejection), before `listen` raises it. A failing callback is logged and never hides the error.

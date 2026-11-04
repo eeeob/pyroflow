@@ -52,6 +52,7 @@ def test_init_defaults_to_builtin_key_functions() -> None:
     lis = CallbackQueryListener()
     assert lis.extract_key_func == lis._extract_key
     assert lis.on_error_func is None
+    assert lis.on_listen_func is None
 
 
 def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
