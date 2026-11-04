@@ -229,7 +229,7 @@ from pyroflow import MessageListenCancellingCallbackQueryListener
 client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
-`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `message_id_context_key` names the `context` attribute that holds the message id (default `"message_id"`).
+`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. Every message wait tied to the pressed message (its `context.message_id`) is cancelled.
 
 > ⚠️ **A wait that never ends.** Without `strict`, a wait stays open until `timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.

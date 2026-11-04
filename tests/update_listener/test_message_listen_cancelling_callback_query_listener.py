@@ -61,35 +61,30 @@ def test_is_a_callback_query_listener() -> None:
 
 def test_init_defaults() -> None:
     lis = MessageListenCancellingCallbackQueryListener()
-    assert lis.message_id_context_key == "message_id"
-    assert MessageListenCancellingCallbackQueryListener.MESSAGE_ID_CONTEXT_KEY == "message_id"
     assert lis.cancel_policy is MessageListenCancelPolicy.UNRESOLVED
     assert lis.extract_key_func == lis._extract_key
 
 
 def test_init_stores_its_arguments_and_forwards_the_rest() -> None:
     lis = MessageListenCancellingCallbackQueryListener(
-        message_id_context_key="prompt", cancel_policy=MessageListenCancelPolicy.ALWAYS, timeout=3
+        cancel_policy=MessageListenCancelPolicy.ALWAYS, timeout=3
     )
-    assert lis.message_id_context_key == "prompt"
     assert lis.cancel_policy is MessageListenCancelPolicy.ALWAYS
     assert lis.timeout == 3
 
 
-async def test_cancel_message_listen_reads_the_id_named_by_message_id_context_key() -> None:
+async def test_cancel_message_listen_cancels_every_wait_tied_to_the_pressed_message() -> None:
     mlis = MessageListener()
-    other_key = asyncio.create_task(mlis.listen(100, 7, context=ListenerContext(prompt=5)))
-    await asyncio.sleep(0)
+    specific = await _listen(mlis, 100, 7, prompt_id=5)
+    chat_wide = await _listen(mlis, 100, prompt_id=5)
     cbq = make_callback_query(_client=_FakeClient(mlis))
 
     MessageListenCancellingCallbackQueryListener()._cancel_message_listen(cbq)
-    assert not other_key.done()
 
-    MessageListenCancellingCallbackQueryListener(
-        message_id_context_key="prompt"
-    )._cancel_message_listen(cbq)
-    with pytest.raises(ListenerCancelled):
-        await other_key
+    assert mlis.listeners == {}
+    for task in (specific, chat_wide):
+        with pytest.raises(ListenerCancelled):
+            await task
 
 
 async def test_cancel_message_listen_does_not_depend_on_extract_key() -> None:

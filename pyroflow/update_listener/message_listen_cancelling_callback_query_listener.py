@@ -17,11 +17,11 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
     """`CallbackQueryListener` whose presses cancel the message listen tied to the pressed message.
 
     After a press is resolved, and when `cancel_policy` allows it, the
-    client's message listener (`Client.message_listen`) is searched for a
-    wait tied to the pressed message: the attribute of its `context` named by
-    `message_id_context_key` is that message's id, as `ask` records it. That wait ends with
-    `ListenerCancelled`. Only message waits are cancelled, and only those
-    aimed at the presser or at anyone in the chat.
+    client's message listener (`Client.message_listen`) is searched for the
+    waits tied to the pressed message: their `context.message_id` is that
+    message's id, as `ask` records it. Each ends with `ListenerCancelled`.
+    Only message waits are cancelled, and only those aimed at the presser or
+    at anyone in the chat.
 
     For example, a question sent with `ask` can carry a "back" button: a
     press on it ends the wait for the text answer.
@@ -54,13 +54,9 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         'cancelled'
     """
 
-    MESSAGE_ID_CONTEXT_KEY: str = "message_id"
-    """Default `message_id_context_key`: the `ListenerContext` field `ask` sets."""
-
     def __init__(
         self,
         *args: Any,
-        message_id_context_key: str = MESSAGE_ID_CONTEXT_KEY,
         cancel_policy: MessageListenCancelPolicy = MessageListenCancelPolicy.UNRESOLVED,
         **kw: Any,
     ) -> None:
@@ -68,18 +64,12 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
         Args:
             *args: Passed to `CallbackQueryListener`.
-            message_id_context_key: The name of the `context` attribute holding
-                the id of the message a message wait is tied to. `ask` sets
-                `message_id`, so change it only for waits whose `context`
-                carries the id under another name.
             cancel_policy: Which presses cancel: every press, only those no
                 callback wait took (the default), or only those one took.
             **kw: Passed to `CallbackQueryListener`.
         """
         super().__init__(*args, **kw)
 
-        self.message_id_context_key = message_id_context_key
-        """Name of the `context` attribute holding the id of the message a message wait is tied to."""
         self.cancel_policy = cancel_policy
         """Which presses cancel the message listen tied to the pressed message."""
 
@@ -105,15 +95,13 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         return resolved
 
     def _cancel_message_listen(self, update: CallbackQuery) -> None:
-        """Cancel the message listen tied to the pressed message.
+        """Cancel every message listen tied to the pressed message.
 
         The candidates are the sub-keys of `(chat, presser, pressed message)`,
-        so a press only ends a wait aimed at the presser or at anyone in the
-        chat; the first whose `context` attribute named by
-        `message_id_context_key` is the pressed
-        message's id is cancelled. Nothing is cancelled when the callback
-        carries no message, chat or message id, or the client has no message
-        listener.
+        so a press only ends waits aimed at the presser or at anyone in the
+        chat; each whose `context.message_id` is the pressed message's id is
+        cancelled. Nothing is cancelled when the callback carries no message,
+        chat or message id, or the client has no message listener.
 
         Args:
             update: The incoming callback query.
@@ -131,12 +119,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             listener = m_listen.listeners.get(sub)
 
-            if (
-                listener is not None
-                and getattr(listener.context, self.message_id_context_key, None) == m.id
-            ):
+            if listener is not None and listener.context.message_id == m.id:
                 m_listen.cancel(sub)
-                return
 
 
 __all__ = ("MessageListenCancellingCallbackQueryListener",)
