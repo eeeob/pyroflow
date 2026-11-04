@@ -172,6 +172,7 @@ callback = await client.ask(
 | `timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
 | `meta` | metadata اختيارية تُرفق بالـ listener |
+| `pass_message` | يضيف الرسالة المرسلة أو المعدّلة إلى `meta` تحت `"message"` (الافتراضي: `True`) |
 | `filters` | filter من Pyrogram يجب أن يجتازه الـ update المنتظَر أيضًا |
 | `strict` | `True`: الـ update الذي يرفضه `filters` ينهي الانتظار؛ `False`: يُتخطى ويستمر الانتظار |
 
@@ -214,6 +215,27 @@ def report(exc, model):
     log.info("Wait for %s ended: %r", model.key, exc)
 
 client.register_listener(MessageListener(on_error_func=report))
+```
+
+`ask` يضع في `meta` افتراضيًا الرسالة التي أرسلها أو عدّلها:
+
+- رقمها تحت `"message_id"` (`ASK_MESSAGE_ID_META_KEY`).
+- الرسالة نفسها تحت `"message"` (`ASK_MESSAGE_META_KEY`). مرّر `pass_message=False` لتركها.
+
+بها تستطيع `on_error_func` تنظيف السؤال:
+
+```python
+async def drop_question(exc, model):
+    if question := (model.meta or {}).get("message"):
+        await question.delete()
+```
+
+لينهي زرٌّ على رسالة السؤال انتظارَ جوابه، سجّل `MessageListenCancellingCallbackQueryListener` بدل `CallbackQueryListener`. الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة، فيرفع `ask` الخطأ `ListenerCancelled`. مثال ذلك زر "رجوع":
+
+```python
+from pyroflow import MessageListenCancellingCallbackQueryListener
+
+client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
 > ⚠️ **انتظار لا ينتهي.** بلا `strict`، يبقى الانتظار مفتوحًا حتى `timeout`، أو إلى الأبد بلا `timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:

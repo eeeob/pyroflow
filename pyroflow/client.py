@@ -23,7 +23,7 @@ from pytrove import (
     yield_control,
 )
 
-from .constants import ASK_MESSAGE_ID_META_KEY, BOT_COMMANDS_ATTR
+from .constants import ASK_MESSAGE_ID_META_KEY, ASK_MESSAGE_META_KEY, BOT_COMMANDS_ATTR
 from .utils import (
     patch_cls,
     split_bot_command_entry,
@@ -138,6 +138,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -175,6 +176,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -199,6 +201,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -223,6 +226,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -261,6 +265,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -303,7 +308,11 @@ class Client(PyroClient):
             meta: Metadata attached to the listener. It is copied, and the id
                 of the sent or edited message is added under
                 `ASK_MESSAGE_ID_META_KEY` unless `meta` already has that key;
-                a button pressed on that message cancels the wait.
+                with `MessageListenCancellingCallbackQueryListener` registered, a button
+                pressed on that message cancels the wait.
+            pass_message: Also add the sent or edited message itself under
+                `ASK_MESSAGE_META_KEY` (unless `meta` already has that key),
+                so `on_error_func` can edit or delete it.
             filters: A Pyrogram filter the awaited update must pass besides
                 `listen_user_id` and `listen_message_id`.
             strict: What an update that matches the key but fails `filters`
@@ -380,6 +389,7 @@ class Client(PyroClient):
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
             meta=meta,
+            pass_message=pass_message,
             filters=filters,
             strict=strict,
             timeout=timeout,
@@ -408,6 +418,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -438,6 +449,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -459,6 +471,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -480,6 +493,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -514,6 +528,7 @@ class Client(PyroClient):
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = None,
         meta: MetaT | None = None,
+        pass_message: bool = True,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
@@ -546,6 +561,7 @@ class Client(PyroClient):
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
             meta: As in `ask`.
+            pass_message: As in `ask`.
             filters: As in `ask`.
             strict: As in `ask`.
             timeout: As in `ask`.
@@ -605,6 +621,7 @@ class Client(PyroClient):
             listen_user_id=listen_user_id,
             listen_message_id=listen_message_id,
             meta=meta,
+            pass_message=pass_message,
             filters=filters,
             strict=strict,
             timeout=timeout,
@@ -653,6 +670,7 @@ class Client(PyroClient):
         listen_user_id: int | None,
         listen_message_id: ListenMessageIdT | None,
         meta: MetaT | None,
+        pass_message: bool,
         filters: Filter | None,
         strict: bool,
         timeout: Number | None,
@@ -666,6 +684,7 @@ class Client(PyroClient):
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
             meta: As in `ask`.
+            pass_message: As in `ask`.
             filters: As in `ask`.
             strict: As in `ask`.
             timeout: As in `ask`.
@@ -689,7 +708,11 @@ class Client(PyroClient):
             chat_id=final_chat_id,
             user_id=listen_user_id,
             message_id=listen_message_id,
-            meta={ASK_MESSAGE_ID_META_KEY: m.id, **(meta or {})},
+            meta={
+                ASK_MESSAGE_ID_META_KEY: m.id,
+                **({ASK_MESSAGE_META_KEY: m} if pass_message else {}),
+                **(meta or {}),
+            },
             filters=filters,
             strict=strict,
             timeout=timeout,

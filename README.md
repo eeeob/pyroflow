@@ -160,6 +160,7 @@ callback = await client.ask(
 | `timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `update_type` | Update type to wait for — determines the return type (default: `Message`) |
 | `meta` | Arbitrary metadata attached to the listener |
+| `pass_message` | Also put the sent or edited message in `meta` under `"message"` (default: `True`) |
 | `filters` | A Pyrogram filter the awaited update must also pass |
 | `strict` | `True`: an update that fails `filters` ends the wait; `False`: it is skipped and the wait goes on |
 
@@ -199,6 +200,22 @@ def report(exc, model):
     log.info("Wait for %s ended: %r", model.key, exc)
 
 client.register_listener(MessageListener(on_error_func=report))
+```
+
+By default `ask` also puts the message it sent or edited in `meta`: its id under `"message_id"` (`ASK_MESSAGE_ID_META_KEY`) and the message itself under `"message"` (`ASK_MESSAGE_META_KEY`). Pass `pass_message=False` to leave the message out. With it, `on_error_func` can clean up the question:
+
+```python
+async def drop_question(exc, model):
+    if question := (model.meta or {}).get("message"):
+        await question.delete()
+```
+
+To let a button on the question end the wait for its answer, register `MessageListenCancellingCallbackQueryListener` instead of `CallbackQueryListener`. A press that no callback wait takes cancels the message listen tied to the pressed message, which raises `ListenerCancelled` in `ask`. For example, a "back" button:
+
+```python
+from pyroflow import MessageListenCancellingCallbackQueryListener
+
+client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
 > ⚠️ **A wait that never ends.** Without `strict`, a wait stays open until `timeout`, or forever without one, when every update its key can still match fails the filter:

@@ -197,7 +197,13 @@ async def test_ask_rejects_service_or_empty_message(field: str) -> None:
 async def test_ask_sends_reply_when_not_editable() -> None:
     m = make_msg(message_thread_id=3, direct_messages_topic_id=4, business_connection_id="bc")
     result = await m.ask(
-        "hi", listen_user_id=7, filters=pyrogram.filters.text, strict=True, timeout=1, extra="kw"
+        "hi",
+        listen_user_id=7,
+        pass_message=False,
+        filters=pyrogram.filters.text,
+        strict=True,
+        timeout=1,
+        extra="kw",
     )
 
     assert result is SENTINEL
@@ -208,6 +214,7 @@ async def test_ask_sends_reply_when_not_editable() -> None:
     assert kwargs["direct_messages_topic_id"] == 4
     assert kwargs["business_connection_id"] == "bc"
     assert kwargs["listen_user_id"] == 7
+    assert kwargs["pass_message"] is False
     assert kwargs["filters"] is pyrogram.filters.text
     assert kwargs["strict"] is True
     assert kwargs["timeout"] == 1
@@ -288,7 +295,13 @@ async def test_ask_rich_rejects_service_or_empty_message(field: str) -> None:
 async def test_ask_rich_sends_reply_when_not_editable() -> None:
     m = make_msg(message_thread_id=3, direct_messages_topic_id=4, business_connection_id="bc")
     result = await m.ask_rich(
-        RICH, listen_user_id=7, filters=pyrogram.filters.text, strict=True, timeout=1, extra="kw"
+        RICH,
+        listen_user_id=7,
+        pass_message=False,
+        filters=pyrogram.filters.text,
+        strict=True,
+        timeout=1,
+        extra="kw",
     )
 
     assert result is SENTINEL
@@ -300,6 +313,7 @@ async def test_ask_rich_sends_reply_when_not_editable() -> None:
     assert kwargs["direct_messages_topic_id"] == 4
     assert kwargs["business_connection_id"] == "bc"
     assert kwargs["listen_user_id"] == 7
+    assert kwargs["pass_message"] is False
     assert kwargs["filters"] is pyrogram.filters.text
     assert kwargs["strict"] is True
     assert kwargs["timeout"] == 1

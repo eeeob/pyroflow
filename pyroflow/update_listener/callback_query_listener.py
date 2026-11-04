@@ -4,9 +4,8 @@ from __future__ import annotations as _annotations
 
 from typing import TYPE_CHECKING
 
-from ..constants import ASK_MESSAGE_ID_META_KEY
 from ..models import ListenerKey
-from ..types import CallbackQuery, Message
+from ..types import CallbackQuery
 from .update_listener import UpdateListener
 
 
@@ -63,56 +62,6 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             return None
 
         return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
-
-    async def resolve(self, update: CallbackQuery) -> bool:
-        """Resolve the callback; when no callback listener takes it, cancel the ask on its message.
-
-        A button pressed on a message that a text `ask` waits on ends that
-        ask: see `_cancel_prompted_ask`.
-
-        Args:
-            update: The incoming callback query.
-
-        Returns:
-            Whether a callback listener took the update.
-        """
-        resolved = await super().resolve(update)
-
-        if not resolved:
-            self._cancel_prompted_ask(update)
-
-        return resolved
-
-    def _cancel_prompted_ask(self, update: CallbackQuery) -> None:
-        """Cancel the message listener whose `ask` sent or edited the pressed message.
-
-        `ask` records that message's id in the listener's `meta` under
-        `ASK_MESSAGE_ID_META_KEY`. The candidates are the sub-keys of
-        `(chat, presser, pressed message)`, so a press only ends an ask aimed
-        at the presser or at anyone in the chat; the first whose recorded id
-        matches is cancelled. Nothing is
-        cancelled when the callback carries no message, chat or message id, or
-        the client has no message listener.
-
-        Args:
-            update: The incoming callback query.
-        """
-        m = update.message
-
-        if m is None or m.chat is None or not getattr(m, "id", None):
-            return
-
-        m_listen = update._client.listeners.get(Message)
-
-        if m_listen is None:
-            return
-
-        for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
-            listener = m_listen.listeners.get(sub)
-
-            if listener is not None and (listener.meta or {}).get(ASK_MESSAGE_ID_META_KEY) == m.id:
-                m_listen.cancel(sub)
-                return
 
 
 __all__ = ("CallbackQueryListener",)

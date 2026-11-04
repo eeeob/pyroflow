@@ -40,6 +40,7 @@ MODULES = [
     "pyroflow.update_listener.update_listener",
     "pyroflow.update_listener.message_listener",
     "pyroflow.update_listener.callback_query_listener",
+    "pyroflow.update_listener.message_listen_cancelling_callback_query_listener",
     "pyroflow.utils",
     "pyroflow.utils.bot_commands",
     "pyroflow.utils.helpers",
@@ -61,6 +62,7 @@ def test_public_exports_present() -> None:
         "CallbackQuery",
         "MessageListener",
         "CallbackQueryListener",
+        "MessageListenCancellingCallbackQueryListener",
     ):
         assert hasattr(pyroflow, name), f"pyroflow.{name} is not exported"
 

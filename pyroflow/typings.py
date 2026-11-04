@@ -38,7 +38,7 @@ ListenMessageIdT: TypeAlias = int | Callable[["Message"], int | None]
 
 
 MetaT: TypeAlias = dict[Hashable, Any]
-"""Metadata attached to a listener; `ask` adds the message it sent under `ASK_MESSAGE_ID_META_KEY`."""
+"""Metadata attached to a listener; `ask` adds the message it sent and its id (`ASK_MESSAGE_META_KEY`, `ASK_MESSAGE_ID_META_KEY`)."""
 
 
 __all__ = (

@@ -38,14 +38,22 @@ Every breaking change lists what changed, who is affected and how to migrate.
   non-strict filter on a key with a `message_id`, which names one message and
   can leave the wait open.
 - `UpdateListener.reject(key, update)`: end a wait with `ListenerRejected`.
-- `UpdateListener(on_listen_func=...)`: called inline with the arguments of
-  every `listen` call by name, before the wait is registered; an error it
-  raises stops the wait from starting.
+- `UpdateListener(on_listen_func=...)`: called inline with one dict of the
+  arguments of every `listen` call by name, before the wait is registered;
+  an error it raises stops the wait from starting.
 - `UpdateListener(on_error_func=...)`: called with the error and the
   `ListenerModel` when a `ListenerError` ends a wait (a timeout, a
   cancellation or a strict rejection), before `listen` raises it. A failing callback is logged and never hides the error.
 - `pyroflow.typings.MetaT` (`dict[Hashable, Any]`), the type of `meta`, and
   `pyroflow.constants.ASK_MESSAGE_ID_META_KEY`.
+- `pass_message=` on `ask` and `ask_rich` (default `True`): `meta` also gets
+  the sent or edited message itself under the new
+  `pyroflow.constants.ASK_MESSAGE_META_KEY` (`"message"`), so
+  `on_error_func` can edit or delete the question.
+- `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
+  whose presses that no callback wait takes cancel the message listen tied
+  to the pressed message (see the Changed entry below). The `meta` key it
+  reads is its `message_id_meta_key` attribute.
 - `pyroflow.utils.subsets_largest_first(items)`: every subset of `items`,
   from all of them down to none.
 
@@ -70,14 +78,20 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `ListenerModel` takes its `future` as the second field, with no default.
   `ask` copies `meta` and adds the sent or edited message's id under
   `ASK_MESSAGE_ID_META_KEY` (`"message_id"`, as before) unless `meta` already
-  has it; a non-dict `meta` is no longer accepted. A button pressed on that
-  message cancels the ask when no callback listener takes the press; the ask
-  is found from the presser and the pressed message, so an ask aimed at
-  another user is left alone. Affects code passing a non-dict `meta`,
-  passing `meta` positionally to `listen`, or building `ListenerModel`
-  itself.
+  has it; a non-dict `meta` is no longer accepted. Affects code passing a
+  non-dict `meta`, passing `meta` positionally to `listen`, or building
+  `ListenerModel` itself.
   Migration: pass `meta` as a dict by keyword (`listen(chat, meta={...})`),
   and build models as `ListenerModel(key, loop.create_future())`.
+- **BREAKING:** `CallbackQueryListener` no longer cancels message waits. A
+  press that no callback wait takes cancels the message listen tied to the
+  pressed message (the `ask` that sent it) only with the new
+  `MessageListenCancellingCallbackQueryListener`; the wait is found from the
+  presser and the pressed message, so a wait aimed at another user is left
+  alone. Affects bots whose buttons on an `ask` message were meant to end it.
+  Migration: register
+  `MessageListenCancellingCallbackQueryListener()` instead of
+  `CallbackQueryListener()`.
 - **BREAKING:** `ListenerKey.to_tuple` is a method. Affects code reading
   `key.to_tuple` as a property.
   Migration: call `key.to_tuple()`.
