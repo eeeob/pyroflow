@@ -6,13 +6,11 @@ import pytest
 
 import pyroflow.errors
 from pyroflow.errors import (
-    CoordinationError,
     ListenerAlreadyExists,
     ListenerCancelled,
     ListenerError,
     ListenerTimeout,
     PyroflowError,
-    UpdateAlreadyHandled,
 )
 
 
@@ -35,14 +33,10 @@ def test_pyroflow_error_value_with_braces_is_not_reformatted() -> None:
     assert str(ListenerTimeout("{x}")) == "Listener for {x} timed out"
 
 
-@pytest.mark.parametrize(
-    ("cls", "message"),
-    [(ListenerError, "Listener error"), (CoordinationError, "Coordination error")],
-)
-def test_error_families(cls: type[PyroflowError], message: str) -> None:
-    err = cls(5)
+def test_listener_error_family() -> None:
+    err = ListenerError(5)
     assert isinstance(err, PyroflowError)
-    assert str(err) == message
+    assert str(err) == "Listener error"
     assert err.value == 5
 
 
@@ -71,7 +65,6 @@ def test_listener_cancelled_defaults() -> None:
     [
         (ListenerTimeout, ListenerError, "Listener for 5 timed out"),
         (ListenerAlreadyExists, ListenerError, "A listener already exists for 5"),
-        (UpdateAlreadyHandled, CoordinationError, "Update 5 was already handled"),
     ],
 )
 def test_error_subclass_messages(
@@ -90,6 +83,4 @@ def test_errors_all() -> None:
         "ListenerCancelled",
         "ListenerTimeout",
         "ListenerAlreadyExists",
-        "CoordinationError",
-        "UpdateAlreadyHandled",
     )

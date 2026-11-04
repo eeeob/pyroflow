@@ -1,13 +1,7 @@
-"""Dispatcher coordination pipeline: lock lifecycle and handled registration.
+"""Dispatcher: listener registry, lifecycle, and the route of an update.
 
-These cover `Dispatcher.handle_update`, which drives coordination end to end:
-extract the update's key (its lock) and take the lock, check its identity
-against the handled registry, then process it. The first listener that
-resolves it or handler filter that passes it marks it as handled and releases
-the lock early; an update nothing took is released unmarked for a peer.
-
-The fake `_handle_update` below stands in for that first match by awaiting
-`_settle_handled()` itself, as the real one does.
+Each update goes to the listener of its type first; one it takes stops
+there, any other runs through the handler groups as in Pyrogram.
 """
 
 from __future__ import annotations as _annotations
@@ -15,7 +9,7 @@ from __future__ import annotations as _annotations
 import asyncio
 import logging
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -26,411 +20,17 @@ from pyrogram.handlers import (
     MessageHandler,
     RawUpdateHandler,
 )
-from pyrogram.types import CallbackQuery, Message
+from pyrogram.types import Message
 
 from pyroflow import dispatcher as dispatcher_module
-from pyroflow.dispatcher import (
-    _SETTLEMENT,
-    Dispatcher,
-    _CoordinatedRelease,
-    _settle_handled,
-)
-from pyroflow.enums import ListenOutcome
-from pyroflow.errors import ListenerCancelled, ListenerTimeout, UpdateAlreadyHandled
-from pyroflow.models import ListenerKey
-from pyroflow.update_coordinated import MessageCoordinated
+from pyroflow.dispatcher import Dispatcher
+from pyroflow.errors import ListenerCancelled, ListenerTimeout
 from pyroflow.update_listener import MessageListener
-from pyroflow.update_coordinator import RedisUpdateCoordinator
-from pyroflow.update_coordinator.memory_update_coordinator import (
-    MemoryUpdateCoordinator,
-)
 
 from .conftest import make_callback_query, make_message
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-
-    from pyroflow.update_coordinator import UpdateCoordinator
-
-
-PACKET = (None, None, None)
-
-
-def make_coordinated(**kw: Any) -> MessageCoordinated:
-    """A MessageCoordinated over an in-memory coordinator, locked per chat by default.
-
-    ``extract_key_func`` may be passed to change the lock key.
-    """
-    extract_key_func = kw.pop("extract_key_func", None)
-    kw.setdefault("blocking_timeout", 0.2)
-
-    return MessageCoordinated(
-        extract_key_func=extract_key_func,
-        coordinator=MemoryUpdateCoordinator(Message, **kw),
-    )
-
-
-def fake_dispatcher(
-    coordinated: object | None,
-    body: Callable[[Message], Awaitable[None]] | None = None,
-    *,
-    settles: bool = True,
-    error: BaseException | None = None,
-) -> SimpleNamespace:
-    """A stand-in exposing only what handle_update() touches.
-
-    Its `_handle_update` runs `body`, settles the update as handled when
-    `settles` (as a passing filter does), then raises `error` if given.
-    """
-    fake = SimpleNamespace(coordinateds={} if coordinated is None else {Message: coordinated})
-    fake.ran = []
-
-    async def _handle_update(
-        packet: object, parsed_update: Message, handler_type: object
-    ) -> tuple[int, int]:
-        fake.ran.append(parsed_update.id)
-
-        if body is not None:
-            await body(parsed_update)
-
-        if settles:
-            await _settle_handled()
-
-        if error is not None:
-            raise error
-
-        return (int(settles), 0)
-
-    fake._handle_update = _handle_update
-    return fake
-
-
-def coordinatable_message(message_id: int = 5, chat_id: int = 100, user_id: int = 7) -> Message:
-    """A Message carrying the chat that MessageCoordinated keys on."""
-    return make_message(chat_id, user_id, message_id)
-
-
-async def _is_claimed(coordinated: MessageCoordinated, msg: Message) -> bool:
-    """Whether the update is registered as handled, so peers will skip it."""
-    return await coordinated.coordinator.is_handled(await coordinated.extract_update_id(msg))
-
-
-async def _is_lock_free(coordinated: MessageCoordinated, msg: Message) -> bool:
-    """Whether this update's lock is available to the next caller; releases it again."""
-    lock = coordinated.coordinator.lock(await coordinated.extract_key(msg))
-
-    if not await lock.acquire():
-        return False
-
-    await lock.release()
-    return True
-
-
-async def handle(fake: SimpleNamespace, msg: Message) -> None:
-    await Dispatcher.handle_update(fake, PACKET, msg, type(None))
-
-
-# --- what gets marked as handled -------------------------------------------
-
-
-async def test_settled_update_is_marked_and_released() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    await handle(fake_dispatcher(coordinated), msg)
-
-    assert await _is_claimed(coordinated, msg) is True
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_unsettled_update_is_released_unmarked_for_a_peer() -> None:
-    """No listener and no passing filter: a peer with other handlers may take it."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    await handle(fake_dispatcher(coordinated, settles=False), msg)
-
-    assert await _is_claimed(coordinated, msg) is False
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_peer_takes_an_update_this_session_left_unmarked() -> None:
-    """Two sessions on one backend, each with its own handlers."""
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    first = fake_dispatcher(coordinated, settles=False)
-    second = fake_dispatcher(coordinated)
-
-    await handle(first, msg)
-    await handle(second, msg)
-    await handle(first, msg)
-
-    assert first.ran == [5]
-    assert second.ran == [5]
-    assert await _is_claimed(coordinated, msg) is True
-
-
-async def test_handler_error_after_settling_keeps_the_mark() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    with pytest.raises(RuntimeError):
-        await handle(fake_dispatcher(coordinated, error=RuntimeError("boom")), msg)
-
-    assert await _is_claimed(coordinated, msg) is True
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_error_before_settling_releases_unmarked() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    with pytest.raises(RuntimeError):
-        await handle(fake_dispatcher(coordinated, settles=False, error=RuntimeError("boom")), msg)
-
-    assert await _is_claimed(coordinated, msg) is False
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_stop_propagation_propagates_with_the_update_still_marked() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    with pytest.raises(StopPropagation):
-        await handle(fake_dispatcher(coordinated, error=StopPropagation()), msg)
-
-    assert await _is_claimed(coordinated, msg) is True
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_already_handled_update_is_dropped_and_released() -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-    await coordinated.coordinator.mark_handled(await coordinated.extract_update_id(msg))
-    fake = fake_dispatcher(coordinated)
-
-    await handle(fake, msg)
-
-    assert fake.ran == [], "update already handled by a peer must not be reprocessed"
-    assert await _is_lock_free(coordinated, msg) is True
-
-
-async def test_uncoordinated_update_type_passes_straight_through() -> None:
-    settlements: list[object] = []
-
-    async def body(update: Message) -> None:
-        settlements.append(_SETTLEMENT.get())
-
-    fake = fake_dispatcher(None, body)
-
-    await handle(fake, coordinatable_message())
-
-    assert fake.ran == [5]
-    assert settlements == [None]
-
-
-async def test_none_key_processes_the_update_without_a_lock() -> None:
-    coordinated = make_coordinated(extract_key_func=lambda u: None)
-    coordinated.extract_update_id_func = None  # never reached without a key
-    settlements: list[object] = []
-
-    async def body(update: Message) -> None:
-        settlements.append(_SETTLEMENT.get())
-
-    fake = fake_dispatcher(coordinated, body)
-
-    await handle(fake, coordinatable_message())
-
-    assert fake.ran == [5]
-    assert settlements == [None]
-
-
-async def test_a_contended_lock_makes_the_update_skip(caplog: pytest.LogCaptureFixture) -> None:
-    coordinated = make_coordinated(blocking_timeout=0.01)
-    msg = coordinatable_message()
-
-    held = coordinated.coordinator.lock(await coordinated.extract_key(msg))
-    assert await held.acquire() is True
-
-    fake = fake_dispatcher(coordinated)
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await handle(fake, msg)
-
-    assert fake.ran == [], "an update whose lock is held must be skipped"
-    assert await _is_claimed(coordinated, msg) is False, "a skipped update must stay available"
-    assert "Timeout waiting for coordinated lock" in caplog.text
-
-
-@pytest.mark.parametrize("stage", ["extract_key", "acquire", "extract_update_id", "is_handled"])
-async def test_failing_coordination_setup_processes_uncoordinated(
-    stage: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    coordinated = make_coordinated()
-    msg = coordinatable_message()
-
-    def fail(*args: object) -> NoReturn:
-        raise RuntimeError(stage)
-
-    if stage == "extract_key":
-        coordinated.extract_key_func = fail
-    elif stage == "extract_update_id":
-        coordinated.extract_update_id_func = fail
-    elif stage == "is_handled":
-        coordinated.coordinator.is_handled = fail  # ty: ignore[invalid-assignment]
-    else:
-        coordinated.coordinator.lock = lambda key: SimpleNamespace(acquire=fail)  # ty: ignore[invalid-assignment]
-
-    settlements: list[object] = []
-
-    async def body(update: Message) -> None:
-        settlements.append(_SETTLEMENT.get())
-
-    fake = fake_dispatcher(coordinated, body)
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await handle(fake, msg)
-
-    assert fake.ran == [5]
-    assert settlements == [None]
-    assert "Error while setting up coordination" in caplog.text
-
-    if stage in ("extract_update_id", "is_handled"):
-        assert await _is_lock_free(coordinated, msg) is True, (
-            "a failure after acquire leaked the lock"
-        )
-
-
-# --- early release once handled --------------------------------------------
-
-
-async def test_settling_releases_the_lock_before_the_handler_returns() -> None:
-    coordinated = make_coordinated(blocking_timeout=0.01)
-    msg = coordinatable_message()
-    seen: dict[str, bool] = {}
-
-    async def body(update: Message) -> None:
-        seen["held_before"] = not await _is_lock_free(coordinated, update)
-        await _settle_handled()
-        seen["claimed"] = await _is_claimed(coordinated, update)
-        seen["free_after"] = await _is_lock_free(coordinated, update)
-
-    await handle(fake_dispatcher(coordinated, body, settles=False), msg)
-
-    assert seen == {"held_before": True, "claimed": True, "free_after": True}
-
-
-async def test_next_update_in_the_chat_starts_while_a_settled_handler_runs() -> None:
-    coordinated = make_coordinated(blocking_timeout=1)
-    first_running = asyncio.Event()
-    second_done = asyncio.Event()
-
-    async def body(update: Message) -> None:
-        await _settle_handled()
-
-        if update.id == 1:
-            first_running.set()
-            await asyncio.wait_for(second_done.wait(), 1)
-        else:
-            second_done.set()
-
-    fake = fake_dispatcher(coordinated, body, settles=False)
-
-    async def second() -> None:
-        await first_running.wait()
-        await handle(fake, coordinatable_message(message_id=2))
-
-    await asyncio.gather(handle(fake, coordinatable_message(message_id=1)), second())
-
-    assert fake.ran == [1, 2]
-
-
-async def test_chat_lock_serialises_updates_until_settled_without_loss() -> None:
-    """The chat-level default key: ten concurrent updates of one chat take
-    turns until each is settled, and the per-message identity keeps every
-    one from being mistaken for a duplicate."""
-    coordinated = make_coordinated(blocking_timeout=5)
-    concurrent = peak = 0
-
-    async def body(update: Message) -> None:
-        nonlocal concurrent, peak
-        concurrent += 1
-        peak = max(peak, concurrent)
-        await asyncio.sleep(0.01)
-        concurrent -= 1
-
-    fake = fake_dispatcher(coordinated, body)
-
-    await asyncio.gather(*(handle(fake, coordinatable_message(message_id=i)) for i in range(10)))
-
-    assert peak == 1, f"chat lock failed to serialise (peak {peak})"
-    assert sorted(fake.ran) == list(range(10)), f"updates were lost: {sorted(fake.ran)}"
-
-
-async def test_chat_lock_still_skips_a_redelivered_update() -> None:
-    coordinated = make_coordinated(blocking_timeout=5)
-    fake = fake_dispatcher(coordinated)
-
-    for message_id in (1, 1, 2):
-        await handle(fake, coordinatable_message(message_id=message_id))
-
-    assert fake.ran == [1, 2], "a redelivered update was processed twice"
-
-
-async def test_separate_chats_do_not_block_each_other() -> None:
-    coordinated = make_coordinated(blocking_timeout=5)
-    concurrent = peak = 0
-
-    async def body(update: Message) -> None:
-        nonlocal concurrent, peak
-        concurrent += 1
-        peak = max(peak, concurrent)
-        await asyncio.sleep(0.01)
-        concurrent -= 1
-
-    fake = fake_dispatcher(coordinated, body)
-
-    await asyncio.gather(
-        *(handle(fake, coordinatable_message(message_id=1, chat_id=c)) for c in range(5))
-    )
-
-    assert peak > 1, "distinct chats must not serialise against each other"
-
-
-async def test_settlement_is_set_only_while_the_update_is_processed() -> None:
-    coordinated = make_coordinated()
-    settlements: list[object] = []
-
-    async def body(update: Message) -> None:
-        settlements.append(_SETTLEMENT.get())
-
-    await handle(fake_dispatcher(coordinated, body), coordinatable_message())
-
-    assert isinstance(settlements[0], _CoordinatedRelease)
-    assert _SETTLEMENT.get() is None
-
-
-async def test_redis_backend_marks_and_hands_over_across_sessions() -> None:
-    fakeredis = pytest.importorskip("fakeredis")
-    pytest.importorskip("lupa")
-    redis = fakeredis.aioredis.FakeRedis()
-    coordinated = MessageCoordinated(
-        coordinator=RedisUpdateCoordinator(redis, Message, blocking_timeout=1)
-    )
-    msg = coordinatable_message()
-    first = fake_dispatcher(coordinated, settles=False)
-    second = fake_dispatcher(coordinated)
-
-    await handle(first, msg)
-    assert await _is_claimed(coordinated, msg) is False
-
-    await handle(second, msg)
-    await handle(first, msg)
-
-    assert first.ran == [5]
-    assert second.ran == [5]
-    assert await _is_claimed(coordinated, msg) is True
-    assert await _is_lock_free(coordinated, msg) is True
 
 
 # --- module-level definitions ----------------------------------------------
@@ -444,157 +44,27 @@ def test_public_surface() -> None:
     assert dispatcher_module.__all__ == ("Dispatcher",)
 
 
-def test_settlement_context_variable_defaults_to_none() -> None:
-    assert _SETTLEMENT.name == "pyroflow_settlement"
-    assert _SETTLEMENT.get() is None
-
-
-# --- _CoordinatedRelease and _settle_handled --------------------------------
-
-
-class FakeLock:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.releases = 0
-        self.error = error
-
-    async def release(self) -> None:
-        self.releases += 1
-        if self.error is not None:
-            raise self.error
-
-
-class FakeCoordinator:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.marked: list[object] = []
-        self.error = error
-
-    async def mark_handled(self, update_id: object) -> None:
-        self.marked.append(update_id)
-        if self.error is not None:
-            raise self.error
-
-
-def make_release(
-    coordinator: FakeCoordinator | None = None, lock: FakeLock | None = None
-) -> tuple[_CoordinatedRelease, FakeCoordinator, FakeLock]:
-    coordinator = coordinator or FakeCoordinator()
-    lock = lock or FakeLock()
-    release = _CoordinatedRelease(coordinator, lock, ("id",))  # ty: ignore[invalid-argument-type]
-    return release, coordinator, lock
-
-
-async def test_release_starts_unsettled() -> None:
-    release, coordinator, lock = make_release()
-
-    assert release._settled is False
-    assert coordinator.marked == []
-    assert lock.releases == 0
-
-
-@pytest.mark.parametrize(("handled", "marked"), [(True, [("id",)]), (False, [])])
-async def test_settle_marks_only_when_handled_and_always_releases(
-    handled: bool, marked: list[object]
-) -> None:
-    release, coordinator, lock = make_release()
-
-    await release.settle(handled)
-
-    assert coordinator.marked == marked
-    assert lock.releases == 1
-    assert release._settled is True
-
-
-async def test_settle_is_a_one_shot() -> None:
-    release, coordinator, lock = make_release()
-
-    await release.settle(False)
-    await release.settle(True)
-
-    assert coordinator.marked == []
-    assert lock.releases == 1
-
-
-async def test_settle_swallows_a_failing_registration_and_still_releases(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    release, coordinator, lock = make_release(coordinator=FakeCoordinator(RuntimeError("down")))
-
-    with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        assert await release.settle(True) is True
-
-    assert coordinator.marked == [("id",)]
-    assert lock.releases == 1
-    assert "Error marking update ('id',) as handled" in caplog.text
-
-
-async def test_settle_reports_an_update_a_peer_marked_first(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    release, _, lock = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
-
-    with caplog.at_level(logging.WARNING, logger="pyroflow.dispatcher"):
-        assert await release.settle(True) is False
-
-    assert lock.releases == 1
-    assert release._settled is True
-    assert "already handled by a peer" in caplog.text
-
-
-async def test_settle_returns_true_once_settled() -> None:
-    release, _, _ = make_release()
-
-    assert await release.settle(True) is True
-    assert await release.settle(True) is True
-
-
-async def test_settle_swallows_a_failing_release() -> None:
-    release, _, lock = make_release(lock=FakeLock(RuntimeError("down")))
-
-    await release.settle(False)
-
-    assert lock.releases == 1
-    assert release._settled is True
-
-
-async def test_settle_handled_outside_a_coordinated_update_is_a_noop() -> None:
-    assert await _settle_handled() is True
-
-    assert _SETTLEMENT.get() is None
-
-
-async def test_settle_handled_returns_false_for_an_update_a_peer_marked_first() -> None:
-    release, _, _ = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
-    token = _SETTLEMENT.set(release)
-
-    try:
-        assert await _settle_handled() is False
-    finally:
-        _SETTLEMENT.reset(token)
-
-
-async def test_settle_handled_settles_the_current_update_as_handled() -> None:
-    release, coordinator, lock = make_release()
-    token = _SETTLEMENT.set(release)
-
-    try:
-        await _settle_handled()
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert coordinator.marked == [("id",)]
-    assert lock.releases == 1
-
-
 # --- Dispatcher: construction, start and stop -------------------------------
 
 
-class FakeBackend:
-    """A coordinator stand-in that records its lifecycle."""
+class FakeListener:
+    """A listener stand-in bound to `Message`: records its lifecycle and what it resolves."""
 
-    def __init__(self, log: list[str], name: str, error: Exception | None = None) -> None:
-        self.log = log
+    __update_type__ = Message
+
+    def __init__(
+        self,
+        log: list[str] | None = None,
+        name: str = "listener",
+        error: Exception | None = None,
+        *,
+        resolves: bool = True,
+    ) -> None:
+        self.log = [] if log is None else log
         self.name = name
         self.error = error
+        self.resolves = resolves
+        self.resolved: list[object] = []
 
     async def start(self) -> None:
         self.log.append(f"start {self.name}")
@@ -606,23 +76,11 @@ class FakeBackend:
         if self.error is not None:
             raise self.error
 
-
-class FakeComponent(FakeBackend):
-    """A listener or coordinated stand-in bound to `Message`, with its own coordinator unless given one."""
-
-    __update_type__ = Message
-
-    def __init__(
-        self,
-        log: list[str],
-        name: str,
-        error: Exception | None = None,
-        coordinator: FakeBackend | None = None,
-    ) -> None:
-        super().__init__(log, name, error)
-        self.coordinator = (
-            FakeBackend(log, f"{name} coordinator", error) if coordinator is None else coordinator
-        )
+    async def resolve(self, update: object) -> bool:
+        self.resolved.append(update)
+        if self.error is not None:
+            raise self.error
+        return self.resolves
 
 
 def make_client(**kw: Any) -> SimpleNamespace:
@@ -642,14 +100,13 @@ def make_real_dispatcher(**kw: Any) -> Dispatcher:
     return Dispatcher(make_client(**kw))
 
 
-async def test_init_runs_the_original_and_sets_empty_registries() -> None:
+async def test_init_runs_the_original_and_sets_an_empty_registry() -> None:
     client = make_client()
     dispatcher = Dispatcher(client)
 
     assert dispatcher.client is client
     assert isinstance(dispatcher.updates_queue, asyncio.Queue)
     assert dispatcher.listeners == {}
-    assert dispatcher.coordinateds == {}
     assert dispatcher.is_started is False
 
 
@@ -663,7 +120,7 @@ async def test_start_and_stop_through_the_original_dispatcher() -> None:
     assert dispatcher.is_started is False
 
 
-async def test_start_runs_the_original_then_the_coordinators_then_the_listeners() -> None:
+async def test_start_runs_the_original_then_the_listeners() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
 
@@ -673,43 +130,23 @@ async def test_start_runs_the_original_then_the_coordinators_then_the_listeners(
         return "result"
 
     dispatcher.oldstart = oldstart
-    dispatcher.listeners[Message] = FakeComponent(order, "listener")  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[CallbackQuery] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order)  # ty: ignore[invalid-assignment]
 
     assert await dispatcher.start(1, flag=True) == "result"
 
     assert dispatcher.is_started is True
-    assert order[0] == "oldstart (1,) {'flag': True}"
-    assert sorted(order[1:3]) == ["start coordinated coordinator", "start listener coordinator"]
-    assert order[3:] == ["start listener"]
+    assert order == ["oldstart (1,) {'flag': True}", "start listener"]
 
 
-async def test_start_starts_a_shared_coordinator_once() -> None:
+async def test_start_survives_a_failing_listener() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
-    shared = FakeBackend(order, "shared")
-    dispatcher.listeners[Message] = FakeComponent(order, "listener", coordinator=shared)  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated", coordinator=shared)  # ty: ignore[invalid-assignment]
-
-    await dispatcher.start()
-
-    assert order == ["start shared", "start listener"]
-
-
-async def test_start_survives_a_failing_component() -> None:
-    order: list[str] = []
-    dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeComponent(order, "listener", RuntimeError("x"))  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[CallbackQuery] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order, error=RuntimeError("x"))  # ty: ignore[invalid-assignment]
 
     await dispatcher.start()
 
     assert dispatcher.is_started is True
-    assert sorted(order) == [
-        "start coordinated coordinator",
-        "start listener",
-        "start listener coordinator",
-    ]
+    assert order == ["start listener"]
 
 
 async def test_start_leaves_the_dispatcher_stopped_if_the_original_fails() -> None:
@@ -727,7 +164,7 @@ async def test_start_leaves_the_dispatcher_stopped_if_the_original_fails() -> No
     assert dispatcher.is_started is False
 
 
-async def test_stop_stops_the_listeners_then_the_original_then_the_coordinators() -> None:
+async def test_stop_stops_the_listeners_then_the_original() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
     dispatcher.is_started = True
@@ -738,33 +175,12 @@ async def test_stop_stops_the_listeners_then_the_original_then_the_coordinators(
         return "result"
 
     dispatcher.oldstop = oldstop
-    dispatcher.listeners[Message] = FakeComponent(order, "listener", RuntimeError("x"))  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[CallbackQuery] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order, error=RuntimeError("x"))  # ty: ignore[invalid-assignment]
 
     assert await dispatcher.stop(clear_handlers=False) == "result"
 
     assert dispatcher.is_started is False
-    assert order[:2] == ["stop listener", "oldstop () {'clear_handlers': False}"]
-    assert sorted(order[2:]) == ["stop coordinated coordinator", "stop listener coordinator"]
-
-
-async def test_stop_still_stops_the_coordinators_if_the_original_fails() -> None:
-    order: list[str] = []
-    dispatcher = make_real_dispatcher()
-    dispatcher.is_started = True
-
-    async def oldstop() -> None:
-        msg = "boom"
-        raise RuntimeError(msg)
-
-    dispatcher.oldstop = oldstop
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
-
-    with pytest.raises(RuntimeError, match="boom"):
-        await dispatcher.stop()
-
-    assert order == ["stop coordinated coordinator"]
-    assert dispatcher.is_started is True
+    assert order == ["stop listener", "oldstop () {'clear_handlers': False}"]
 
 
 async def test_stop_lets_a_handler_waiting_in_listen_finish_before_draining() -> None:
@@ -789,175 +205,61 @@ async def test_stop_lets_a_handler_waiting_in_listen_finish_before_draining() ->
 
 # --- Dispatcher: registration -----------------------------------------------
 
-REGISTRIES = pytest.mark.parametrize(
-    ("kind", "registry", "label"),
-    [
-        ("listener", "listeners", "UpdateListener"),
-        ("coordinated", "coordinateds", "UpdateCoordinated"),
-    ],
-)
 
-
-@REGISTRIES
-async def test_register_stores_by_update_type(kind: str, registry: str, label: str) -> None:
+async def test_register_listener_stores_it_by_update_type() -> None:
     dispatcher = make_real_dispatcher()
-    component = FakeComponent([], kind)
+    listener = FakeListener()
 
-    getattr(dispatcher, f"register_{kind}")(component)
+    dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]
 
-    assert getattr(dispatcher, registry) == {Message: component}
+    assert dispatcher.listeners == {Message: listener}
 
 
-@REGISTRIES
-async def test_register_rejects_a_second_for_the_same_type(
-    kind: str, registry: str, label: str
-) -> None:
+async def test_register_listener_rejects_a_second_for_the_same_type() -> None:
     dispatcher = make_real_dispatcher()
-    first = FakeComponent([], "first")
-    register = getattr(dispatcher, f"register_{kind}")
-    register(first)
+    first = FakeListener()
+    dispatcher.register_listener(first)  # ty: ignore[invalid-argument-type]
 
-    with pytest.raises(ValueError, match=f"{label} for .* is already registered"):
-        register(FakeComponent([], "second"))
+    with pytest.raises(ValueError, match="UpdateListener for .* is already registered"):
+        dispatcher.register_listener(FakeListener())  # ty: ignore[invalid-argument-type]
 
-    assert getattr(dispatcher, registry) == {Message: first}
+    assert dispatcher.listeners == {Message: first}
 
 
-@REGISTRIES
-async def test_register_rejects_a_running_dispatcher(kind: str, registry: str, label: str) -> None:
+async def test_register_listener_rejects_a_running_dispatcher() -> None:
     dispatcher = make_real_dispatcher()
     dispatcher.is_started = True
 
-    with pytest.raises(RuntimeError, match=f"Cannot register {kind} while dispatcher"):
-        getattr(dispatcher, f"register_{kind}")(FakeComponent([], kind))
+    with pytest.raises(RuntimeError, match="Cannot register listener while dispatcher"):
+        dispatcher.register_listener(FakeListener())  # ty: ignore[invalid-argument-type]
 
-    assert getattr(dispatcher, registry) == {}
-
-
-async def test_coordinators_lists_each_coordinator_once() -> None:
-    dispatcher = make_real_dispatcher()
-    shared = FakeBackend([], "shared")
-    alone = FakeComponent([], "alone")
-    dispatcher.listeners[Message] = FakeComponent([], "listener", coordinator=shared)  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[Message] = FakeComponent([], "coordinated", coordinator=shared)  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[CallbackQuery] = alone  # ty: ignore[invalid-assignment]
-
-    assert dispatcher._coordinators() == [shared, alone.coordinator]
+    assert dispatcher.listeners == {}
 
 
-async def test_check_shared_coordinator_needs_both_components() -> None:
-    dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeComponent([], "listener")  # ty: ignore[invalid-assignment]
-
-    assert dispatcher._check_shared_coordinator(Message) is None
-
-    dispatcher.coordinateds[Message] = FakeComponent([], "coordinated")  # ty: ignore[invalid-assignment]
-
-    with pytest.raises(
-        ValueError, match="The Message listener and coordinated must share one coordinator"
-    ):
-        dispatcher._check_shared_coordinator(Message)
-
-
-@REGISTRIES
-async def test_register_rejects_a_different_coordinator_than_its_pair(
-    kind: str, registry: str, label: str
-) -> None:
-    dispatcher = make_real_dispatcher()
-    other = "coordinateds" if registry == "listeners" else "listeners"
-    getattr(dispatcher, other)[Message] = FakeComponent([], "pair")
-
-    with pytest.raises(ValueError, match="must share one coordinator"):
-        getattr(dispatcher, f"register_{kind}")(FakeComponent([], kind))
-
-    assert getattr(dispatcher, registry) == {}
-
-
-@REGISTRIES
-async def test_register_accepts_the_coordinator_of_its_pair(
-    kind: str, registry: str, label: str
-) -> None:
-    dispatcher = make_real_dispatcher()
-    other = "coordinateds" if registry == "listeners" else "listeners"
-    pair = FakeComponent([], "pair")
-    getattr(dispatcher, other)[Message] = pair
-    component = FakeComponent([], kind, coordinator=pair.coordinator)
-
-    getattr(dispatcher, f"register_{kind}")(component)
-
-    assert getattr(dispatcher, registry) == {Message: component}
-
-
-async def test_unregister_listener_stops_it_and_its_unshared_coordinator() -> None:
+async def test_unregister_listener_removes_and_stops_it() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeComponent(order, "listener")  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order)  # ty: ignore[invalid-assignment]
 
     await dispatcher.unregister_listener(Message)
 
     assert dispatcher.listeners == {}
-    assert order == ["stop listener", "stop listener coordinator"]
+    assert order == ["stop listener"]
 
 
-async def test_unregister_coordinated_stops_only_its_unshared_coordinator() -> None:
+async def test_unregister_listener_of_an_unknown_type_is_a_noop() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated")  # ty: ignore[invalid-assignment]
+    listener = FakeListener(order)
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
 
-    await dispatcher.unregister_coordinated(Message)
+    await dispatcher.unregister_listener(int)
 
-    assert dispatcher.coordinateds == {}
-    assert order == ["stop coordinated coordinator"]
-
-
-@REGISTRIES
-async def test_unregister_keeps_a_coordinator_its_pair_still_uses(
-    kind: str, registry: str, label: str
-) -> None:
-    order: list[str] = []
-    dispatcher = make_real_dispatcher()
-    shared = FakeBackend(order, "shared")
-    dispatcher.listeners[Message] = FakeComponent(order, "listener", coordinator=shared)  # ty: ignore[invalid-assignment]
-    dispatcher.coordinateds[Message] = FakeComponent(order, "coordinated", coordinator=shared)  # ty: ignore[invalid-assignment]
-
-    await getattr(dispatcher, f"unregister_{kind}")(Message)
-
-    assert "stop shared" not in order
-
-
-@REGISTRIES
-async def test_unregister_unknown_type_is_a_noop(kind: str, registry: str, label: str) -> None:
-    order: list[str] = []
-    dispatcher = make_real_dispatcher()
-    component = FakeComponent(order, kind)
-    getattr(dispatcher, registry)[Message] = component
-
-    await getattr(dispatcher, f"unregister_{kind}")(int)
-
-    assert getattr(dispatcher, registry) == {Message: component}
+    assert dispatcher.listeners == {Message: listener}
     assert order == []
 
 
 # --- Dispatcher.handle_listen -----------------------------------------------
-
-
-class FakeListener:
-    __update_type__ = Message
-
-    def __init__(
-        self,
-        error: Exception | None = None,
-        outcome: ListenOutcome = ListenOutcome.RESOLVED,
-    ) -> None:
-        self.resolved: list[object] = []
-        self.error = error
-        self.outcome = outcome
-
-    async def resolve(self, update: object) -> ListenOutcome:
-        self.resolved.append(update)
-        if self.error is not None:
-            raise self.error
-        return self.outcome
 
 
 async def test_handle_listen_resolved_update_stops_propagation() -> None:
@@ -976,7 +278,7 @@ async def test_handle_listen_unmatched_update_propagates_on(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     dispatcher = make_real_dispatcher()
-    listener = FakeListener(outcome=ListenOutcome.UNMATCHED)
+    listener = FakeListener(resolves=False)
     dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
     msg = make_message()
 
@@ -990,20 +292,13 @@ async def test_handle_listen_unmatched_update_propagates_on(
 async def test_handle_listen_lets_an_update_through_an_idle_listener() -> None:
     dispatcher = make_real_dispatcher()
     dispatcher.register_listener(MessageListener())
-    release, _, _ = make_release()
-    token = _SETTLEMENT.set(release)
 
-    try:
-        assert await dispatcher.handle_listen(make_message()) is None
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert release._settled is False
+    assert await dispatcher.handle_listen(make_message()) is None
 
 
 async def test_handle_listen_logs_a_listener_error(caplog: pytest.LogCaptureFixture) -> None:
     dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(RuntimeError("boom"))  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(error=RuntimeError("boom"))  # ty: ignore[invalid-assignment]
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
         await dispatcher.handle_listen(make_message())
@@ -1021,68 +316,7 @@ async def test_handle_listen_dispatches_on_the_exact_type() -> None:
     assert listener.resolved == []
 
 
-async def test_handle_listen_settles_a_resolved_update_before_stopping() -> None:
-    dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener()  # ty: ignore[invalid-assignment]
-    release, coordinator, lock = make_release()
-    token = _SETTLEMENT.set(release)
-
-    try:
-        with pytest.raises(StopPropagation):
-            await dispatcher.handle_listen(make_message())
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert coordinator.marked == [("id",)]
-    assert lock.releases == 1
-
-
-async def test_handle_listen_still_stops_an_update_a_peer_marked_first() -> None:
-    dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener()  # ty: ignore[invalid-assignment]
-    release, _, lock = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
-    token = _SETTLEMENT.set(release)
-
-    try:
-        with pytest.raises(StopPropagation):
-            await dispatcher.handle_listen(make_message())
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert lock.releases == 1
-
-
-async def test_handle_listen_leaves_an_unmatched_update_unsettled() -> None:
-    dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(outcome=ListenOutcome.UNMATCHED)  # ty: ignore[invalid-assignment]
-    release, coordinator, lock = make_release()
-    token = _SETTLEMENT.set(release)
-
-    try:
-        await dispatcher.handle_listen(make_message())
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert release._settled is False
-
-
-async def test_handle_listen_stops_a_foreign_update_without_settling_it() -> None:
-    dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(outcome=ListenOutcome.FOREIGN)  # ty: ignore[invalid-assignment]
-    release, coordinator, lock = make_release()
-    token = _SETTLEMENT.set(release)
-
-    try:
-        with pytest.raises(StopPropagation):
-            await dispatcher.handle_listen(make_message())
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert release._settled is False
-    assert coordinator.marked == []
-
-
-# --- Dispatcher._handle_update ----------------------------------------------
+# --- Dispatcher.handle_update -----------------------------------------------
 
 RAW_PACKET = ("raw-update", {"users": 1}, {"chats": 2})
 
@@ -1125,7 +359,7 @@ async def test_runs_the_first_matching_handler_of_each_group() -> None:
     ]
     dispatcher.groups[1] = [MessageHandler(recording(calls, "c"))]
 
-    result = await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler)
+    result = await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
 
     assert result == (2, 0)
     assert calls == [("a", msg), ("c", msg)]
@@ -1141,7 +375,7 @@ async def test_skips_error_handlers_and_handlers_of_another_type() -> None:
         MessageHandler(recording(calls, "message")),
     ]
 
-    assert await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler) == (1, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) == (1, 0)
     assert calls == [("message", msg)]
 
 
@@ -1156,7 +390,7 @@ async def test_handler_whose_filter_rejects_is_skipped() -> None:
     rejecting.check = reject
     dispatcher.groups[0] = [rejecting]
 
-    assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (0, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, make_message(), MessageHandler) == (0, 0)
     assert calls == []
 
 
@@ -1165,7 +399,7 @@ async def test_raw_handler_receives_the_raw_packet() -> None:
     calls: list[tuple[object, ...]] = []
     dispatcher.groups[0] = [RawUpdateHandler(recording(calls, "raw"))]
 
-    assert await dispatcher._handle_update(RAW_PACKET, None, type(None)) == (1, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) == (1, 0)
     assert calls == [("raw", *RAW_PACKET)]
 
 
@@ -1174,7 +408,7 @@ async def test_no_parsed_update_skips_the_listener() -> None:
     listener = FakeListener()
     dispatcher.listeners[type(None)] = listener  # ty: ignore[invalid-assignment]
 
-    assert await dispatcher._handle_update(RAW_PACKET, None, type(None)) == (0, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) == (0, 0)
     assert listener.resolved == []
 
 
@@ -1185,7 +419,7 @@ async def test_resolved_listener_stops_before_any_handler() -> None:
     dispatcher.groups[0] = [MessageHandler(recording(calls, "a"))]
 
     with pytest.raises(StopPropagation):
-        await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
+        await dispatcher.handle_update(RAW_PACKET, make_message(), MessageHandler)
 
     assert calls == []
 
@@ -1210,7 +444,7 @@ async def test_failing_check_is_logged_and_the_next_handler_runs(
     dispatcher.groups[0] = [broken, MessageHandler(recording(calls, "next"))]
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        result = await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler)
+        result = await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
 
     assert result == (1, 0)
     assert calls == [("next", msg)]
@@ -1226,7 +460,7 @@ async def test_continue_propagation_tries_the_next_handler_uncounted() -> None:
         MessageHandler(recording(calls, "b")),
     ]
 
-    assert await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler) == (1, 0)
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) == (1, 0)
     assert calls == [("a", msg), ("b", msg)]
 
 
@@ -1239,7 +473,7 @@ async def test_stop_propagation_propagates_out() -> None:
     dispatcher.groups[1] = [MessageHandler(recording(calls, "b"))]
 
     with pytest.raises(type(error)):
-        await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler)
+        await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
 
     assert calls == [("a", msg)]
 
@@ -1254,72 +488,9 @@ async def test_handler_error_is_counted_and_reported_then_the_group_ends() -> No
     dispatcher.groups[0] = [broken, MessageHandler(recording(calls, "same-group"))]
     dispatcher.groups[1] = [MessageHandler(recording(calls, "other-group"))]
 
-    assert await dispatcher._handle_update(RAW_PACKET, msg, MessageHandler) == (1, 1)
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) == (1, 1)
     assert calls == [("broken", msg), ("other-group", msg)]
     assert seen == [(error, broken, *RAW_PACKET)]
-
-
-async def test_passing_filter_settles_the_update_before_its_handler_runs() -> None:
-    dispatcher = make_real_dispatcher()
-    release, coordinator, lock = make_release()
-    settled_in_handler: list[bool] = []
-
-    async def callback(client: object, update: object) -> None:
-        settled_in_handler.append(release._settled)
-
-    dispatcher.groups[0] = [MessageHandler(callback)]
-    dispatcher.groups[1] = [MessageHandler(callback)]
-    token = _SETTLEMENT.set(release)
-
-    try:
-        await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert settled_in_handler == [True, True]
-    assert coordinator.marked == [("id",)]
-    assert lock.releases == 1
-
-
-async def test_update_a_peer_marked_first_runs_no_handler() -> None:
-    dispatcher = make_real_dispatcher()
-    calls: list[tuple[object, ...]] = []
-    release, _, lock = make_release(coordinator=FakeCoordinator(UpdateAlreadyHandled(("id",))))
-    dispatcher.groups[0] = [MessageHandler(recording(calls, "a"))]
-    dispatcher.groups[1] = [MessageHandler(recording(calls, "b"))]
-    token = _SETTLEMENT.set(release)
-
-    try:
-        assert await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler) == (
-            0,
-            0,
-        )
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert calls == []
-    assert lock.releases == 1
-
-
-async def test_rejecting_filters_leave_the_update_unsettled() -> None:
-    dispatcher = make_real_dispatcher()
-    calls: list[tuple[object, ...]] = []
-    rejecting = MessageHandler(recording(calls, "rejecting"))
-
-    async def reject(client: object, update: object) -> bool:
-        return False
-
-    rejecting.check = reject
-    dispatcher.groups[0] = [rejecting]
-    release, _, _ = make_release()
-    token = _SETTLEMENT.set(release)
-
-    try:
-        await dispatcher._handle_update(RAW_PACKET, make_message(), MessageHandler)
-    finally:
-        _SETTLEMENT.reset(token)
-
-    assert release._settled is False
 
 
 # --- Dispatcher.handler_worker ----------------------------------------------
@@ -1402,89 +573,35 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
     assert dispatcher.updates_queue.qsize() == 1, "the worker must stop at the sentinel"
 
 
-# --- listening under coordination ---------------------------------------------
+# --- listening end to end ----------------------------------------------------
 
 
-def make_session(coordinator: UpdateCoordinator) -> tuple[Dispatcher, list[tuple[object, ...]]]:
-    """A dispatcher whose coordinated and listener share `coordinator`, with one recording handler."""
+async def test_a_listened_reply_skips_the_handlers_and_the_next_one_reaches_them() -> None:
     dispatcher = make_real_dispatcher()
-    dispatcher.register_coordinated(MessageCoordinated(coordinator=coordinator))
-    dispatcher.register_listener(MessageListener(coordinator=coordinator))
+    listener = MessageListener()
+    dispatcher.register_listener(listener)
     calls: list[tuple[object, ...]] = []
     dispatcher.groups[0] = [MessageHandler(recording(calls, "handler"))]
-    return dispatcher, calls
-
-
-async def test_a_reply_reaching_another_session_first_waits_for_the_listening_one() -> None:
-    fakeredis = pytest.importorskip("fakeredis")
-    pytest.importorskip("lupa")
-    redis = fakeredis.aioredis.FakeRedis()
-    try:
-        a, a_calls = make_session(RedisUpdateCoordinator(redis, Message, blocking_timeout=1))
-        b, b_calls = make_session(RedisUpdateCoordinator(redis, Message, blocking_timeout=1))
-        coordinated = b.coordinateds[Message]
-        waiter = asyncio.create_task(a.listeners[Message].listen(100, 7))
-        await asyncio.sleep(0.05)
-        msg = make_message(100, 7, 5)
-
-        with pytest.raises(StopPropagation):
-            await b.handle_update(PACKET, msg, MessageHandler)
-
-        assert b_calls == []
-        assert await _is_claimed(coordinated, msg) is False
-
-        with pytest.raises(StopPropagation):
-            await a.handle_update(PACKET, msg, MessageHandler)
-
-        assert await waiter is msg
-        assert a_calls == []
-        assert await _is_claimed(coordinated, msg) is True
-
-        # The update is settled: the session that stood down now drops it.
-        await b.handle_update(PACKET, msg, MessageHandler)
-        assert b_calls == []
-    finally:
-        await redis.aclose()
-
-
-async def test_listen_waits_for_an_update_being_settled() -> None:
-    coordinator = MemoryUpdateCoordinator(Message, blocking_timeout=1)
-    dispatcher, calls = make_session(coordinator)
-    listener = dispatcher.listeners[Message]
-    gate = asyncio.Event()
-    (handler,) = dispatcher.groups[0]
-
-    async def slow_check(client: object, update: object) -> bool:
-        await gate.wait()
-        return True
-
-    handler.check = slow_check
-    first = make_message(100, 7, 5)
-    processing = asyncio.create_task(dispatcher.handle_update(PACKET, first, MessageHandler))
-    await asyncio.sleep(0.01)
     waiter = asyncio.create_task(listener.listen(100, 7))
-    await asyncio.sleep(0.01)
+    await asyncio.sleep(0)
+    reply = make_message(100, 7, 5)
 
-    assert ListenerKey(100, 7) not in listener.listeners
-
-    gate.set()
-    await processing
-    await asyncio.sleep(0.01)
-
-    assert calls == [("handler", first)]
-    assert not waiter.done()
-
-    second = make_message(100, 7, 6)
     with pytest.raises(StopPropagation):
-        await dispatcher.handle_update(PACKET, second, MessageHandler)
+        await dispatcher.handle_update(RAW_PACKET, reply, MessageHandler)
 
-    assert await waiter is second
+    assert await waiter is reply
+    assert calls == []
+
+    later = make_message(100, 7, 6)
+    await dispatcher.handle_update(RAW_PACKET, later, MessageHandler)
+
+    assert calls == [("handler", later)]
 
 
 async def test_listen_inside_a_handler_of_the_same_chat_does_not_deadlock() -> None:
-    coordinator = MemoryUpdateCoordinator(Message, blocking_timeout=0.2)
-    dispatcher, _ = make_session(coordinator)
-    listener = dispatcher.listeners[Message]
+    dispatcher = make_real_dispatcher()
+    listener = MessageListener()
+    dispatcher.register_listener(listener)
     errors: list[BaseException] = []
 
     async def asks_again(client: object, update: Message) -> None:
@@ -1496,7 +613,7 @@ async def test_listen_inside_a_handler_of_the_same_chat_does_not_deadlock() -> N
     dispatcher.groups[0] = [MessageHandler(asks_again)]
 
     await asyncio.wait_for(
-        dispatcher.handle_update(PACKET, make_message(100, 7, 5), MessageHandler), 1
+        dispatcher.handle_update(RAW_PACKET, make_message(100, 7, 5), MessageHandler), 1
     )
 
     assert len(errors) == 1

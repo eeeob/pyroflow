@@ -52,18 +52,18 @@ if TYPE_CHECKING:
 
 @patch_cls
 class Client(PyroClient):
-    """Pyrogram's `Client`, patched in place with listeners, coordination and `ask`.
+    """Pyrogram's `Client`, patched in place with listeners and `ask`.
 
     Attach the per-update-type systems before the client starts with
-    `register_listener` and `register_coordinated`. An
-    update claimed by a listener never reaches the normal handlers. Like
+    `register_listener`. An update claimed by a listener never reaches the
+    normal handlers. Like
     `pyrogram.Client`, every `async` method can also be called synchronously
     from outside an event loop.
     """
 
     # `patch_cls` يجعل `Dispatcher` الخاص بـ `pyroflow` هو نفسه الخاص بـ `pyrogram` وقت التشغيل
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
-    """The dispatcher that routes updates to listeners, coordination and handlers."""
+    """The dispatcher that routes updates to listeners and handlers."""
     ask_error_handlers: dict[type[pyro_types.Update], AskErrorHandlersT]
     """Client-wide `ask` error handlers of each update type, tried after the per-call ones."""
 
@@ -100,13 +100,9 @@ class Client(PyroClient):
     if TYPE_CHECKING:
         register_listener = Dispatcher.register_listener
         """Forward to `Dispatcher.register_listener`."""
-        register_coordinated = Dispatcher.register_coordinated
-        """Forward to `Dispatcher.register_coordinated`."""
 
         unregister_listener = Dispatcher.unregister_listener
         """Forward to `Dispatcher.unregister_listener`."""
-        unregister_coordinated = Dispatcher.unregister_coordinated
-        """Forward to `Dispatcher.unregister_coordinated`."""
 
     else:
 
@@ -114,17 +110,9 @@ class Client(PyroClient):
             """Forward to `Dispatcher.register_listener`."""
             return self.dispatcher.register_listener(*args, **kw)
 
-        def register_coordinated(self, *args: Any, **kw: Any) -> None:
-            """Forward to `Dispatcher.register_coordinated`."""
-            return self.dispatcher.register_coordinated(*args, **kw)
-
         async def unregister_listener(self, *args: Any, **kw: Any) -> None:
             """Forward to `Dispatcher.unregister_listener`."""
             return await self.dispatcher.unregister_listener(*args, **kw)
-
-        async def unregister_coordinated(self, *args: Any, **kw: Any) -> None:
-            """Forward to `Dispatcher.unregister_coordinated`."""
-            return await self.dispatcher.unregister_coordinated(*args, **kw)
 
     def register_ask_error_handler(
         self,

@@ -3,7 +3,6 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-import logging
 from abc import ABC
 from typing import Any, TYPE_CHECKING
 
@@ -12,17 +11,11 @@ from pytrove import maybe_awaitable
 from ..typings import UpdateType
 from ..utils import UpdateBound, get_update_executor
 from ..errors import ListenerAlreadyExists, ListenerCancelled, ListenerTimeout
-from ..enums import DuplicatePolicy, ListenOutcome
+from ..enums import DuplicatePolicy
 from ..models import ListenerKey, ListenerModel
-from ..update_coordinator import MemoryUpdateCoordinator, UpdateCoordinator
 
 if TYPE_CHECKING:
     from pytrove.typings import MaybeCoroutineCallable, Number, JsonValue as JsonValueT
-
-    from ..typings import CoordinatedUpdateKeyT
-
-
-log = logging.getLogger(__name__)
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -33,24 +26,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     overriding `extract_key` or through `extract_key_func`. A sync `*_func`
     runs in a thread, on the client's executor when it has one.
 
-    The waiting futures live in this process. Every piece of shared state
-    lives in the `coordinator`: the lock taken around a registration, and the
-    registry of which session owns each key. Pass the same coordinator to the
-    `UpdateCoordinated` of this update type: registering then takes the lock
-    an update holds until it is settled, so an update is decided either fully
-    before a registration or fully after it.
+    Every waiting listener lives in this process: an update is matched only
+    against the listeners of the client that received it.
 
     Args:
-        coordinator: The backend; a new `MemoryUpdateCoordinator` if `None`.
-            It serves one listener only.
-        duplicate_policy: What `listen` does when the key is already
-            registered; `DuplicatePolicy.REPLACE` if `None`.
+        duplicate_policy: What `listen` does when the key already has a
+            waiting listener; `DuplicatePolicy.REPLACE` if `None`.
         extract_key_func: `(update) -> ListenerKey | None`, sync or async,
             used by `extract_key`; `None` skips the update.
         is_bypass_func: `(update) -> bool`, sync or async, used by `is_bypass`;
             if `None`, matched listeners are always resolved.
-        extract_lock_key_func: `(key) -> lock key`, sync or async, used by
-            `extract_lock_key`; if `None`, the chat of the key.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         **kw: Passed to the next class in the MRO.
 
@@ -64,126 +49,62 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         ...     )
         ...     waiter = asyncio.create_task(listener.listen(1))
         ...     await asyncio.sleep(0)
-        ...     outcome = await listener.resolve(Message(id=7, chat=Chat(id=1)))
-        ...     return outcome, (await waiter).id
+        ...     resolved = await listener.resolve(Message(id=7, chat=Chat(id=1)))
+        ...     return resolved, (await waiter).id
         >>> asyncio.run(main())
-        (<ListenOutcome.RESOLVED: 'resolved'>, 7)
+        (True, 7)
     """
 
     def __init__(
         self,
-        coordinator: UpdateCoordinator | None = None,
         duplicate_policy: DuplicatePolicy | None = None,
         extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
         is_bypass_func: MaybeCoroutineCallable[[UpdateType], bool] | None = None,
-        extract_lock_key_func: MaybeCoroutineCallable[[ListenerKey], CoordinatedUpdateKeyT]
-        | None = None,
         timeout: Number | None = None,
         **kw: Any,
     ) -> None:
-        """Initialise the listener; see the class docstring for the parameters.
-
-        Raises:
-            ValueError: If `coordinator` handles another update type or already
-                serves another listener.
-        """
+        """Initialise the listener; see the class docstring for the parameters."""
         super().__init__(**kw)
-
-        update_type = self.__class__.__update_type__
-
-        if coordinator is None:
-            coordinator = MemoryUpdateCoordinator(update_type)
-        elif coordinator.update_type is not update_type:
-            msg = (
-                f"{self.__class__.__name__} needs a coordinator for {update_type.__name__}, "
-                f"got one for {coordinator.update_type.__name__}"
-            )
-            raise ValueError(msg)
-
-        if coordinator.on_listener_lost is not None:
-            msg = f"The {update_type.__name__} coordinator already serves another listener"
-            raise ValueError(msg)
-
-        coordinator.on_listener_lost = self.discard
 
         if duplicate_policy is None:
             duplicate_policy = DuplicatePolicy.REPLACE
 
-        self.coordinator = coordinator
-        """Backend holding the registration lock and the registry shared across sessions."""
         self.duplicate_policy = duplicate_policy
-        """What `listen` does when the key is already registered."""
+        """What `listen` does when the key already has a waiting listener."""
 
         self.extract_key_func = extract_key_func
         """Optional key extractor behind `extract_key`."""
         self.is_bypass_func = is_bypass_func
         """Optional predicate behind `is_bypass`."""
-        self.extract_lock_key_func = extract_lock_key_func
-        """Optional lock key extractor behind `extract_lock_key`."""
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
 
         self.listeners: dict[ListenerKey, ListenerModel] = {}
-        """Waiting listeners of this process; the `coordinator` knows every session's."""
+        """Waiting listeners, by key."""
         self.is_closed = False
         """Whether `stop` ran since the last `start`; `listen` refuses to wait while it is."""
 
     async def start(self) -> None:
-        """Accept `listen` calls again after a `stop`; the dispatcher starts the coordinator."""
+        """Accept `listen` calls again after a `stop`."""
         self.is_closed = False
 
     async def stop(self) -> None:
-        """Refuse new `listen` calls and cancel every waiting listener of this process.
-
-        The coordinator is left running: the dispatcher stops it once nothing
-        uses it.
-        """
+        """Refuse new `listen` calls and cancel every waiting listener."""
         self.is_closed = True
 
         for key in list(self.listeners):
-            self.discard(key)
+            self.cancel(key)
 
-    def discard(
-        self, key: ListenerKey, owner_id: str | None = None, *, is_duplicate: bool = False
-    ) -> bool:
-        """Cancel the local listener for `key`, leaving the coordinator untouched.
-
-        The waiter gets `ListenerCancelled`. The coordinator calls this when a
-        peer took over or cancelled one of this session's registrations.
+    def cancel(self, key: ListenerKey, *, is_duplicate: bool = False) -> bool:
+        """Cancel the listener waiting on `key`; its waiter gets `ListenerCancelled`.
 
         Args:
             key: The key identifying the listener.
-            owner_id: Only cancel the listener registered under this owner id,
-                so a late report leaves a newer listener on the same key alone.
             is_duplicate: Mark the cancellation as caused by a newer listener.
 
         Returns:
             Whether a listener was cancelled.
-        """
-        listener = self.listeners.get(key)
-
-        if listener is None or (owner_id is not None and listener.owner_id != owner_id):
-            return False
-
-        del self.listeners[key]
-
-        if not listener.done():
-            listener.set_exc(ListenerCancelled(key, is_duplicate=is_duplicate))
-
-        return True
-
-    async def cancel(self, key: ListenerKey) -> bool:
-        """Cancel the listener for `key` in every session.
-
-        The local waiter fails at once; a peer's waiter fails when that peer
-        learns its registration is gone.
-
-        Args:
-            key: The key identifying the listener to cancel.
-
-        Returns:
-            Whether a listener was waiting here or registered anywhere.
 
         Example:
             >>> from pyroflow.update_listener import MessageListener
@@ -191,7 +112,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ...     listener = MessageListener()
             ...     waiter = asyncio.create_task(listener.listen(1))
             ...     await asyncio.sleep(0)
-            ...     cancelled = await listener.cancel(ListenerKey(1))
+            ...     cancelled = listener.cancel(ListenerKey(1))
             ...     try:
             ...         await waiter
             ...     except ListenerCancelled:
@@ -199,15 +120,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             True
         """
-        discarded = self.discard(key)
-        removed = await self.coordinator.cancel_listener(key)
+        listener = self.listeners.pop(key, None)
 
-        return discarded or removed is not None
+        if listener is None:
+            return False
 
-    def _forget(self, key: ListenerKey, listener: ListenerModel) -> None:
-        """Drop `listener` from `listeners` unless a newer listener replaced it."""
-        if self.listeners.get(key) is listener:
-            del self.listeners[key]
+        if not listener.done():
+            listener.set_exc(ListenerCancelled(key, is_duplicate=is_duplicate))
+
+        return True
 
     async def listen(
         self,
@@ -221,10 +142,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     ) -> UpdateType:
         """Wait for the next update matching the given key.
 
-        The listener is registered under the coordinator lock named by
-        `extract_lock_key`. An update the dispatcher is processing holds the
-        same lock until it is settled, so the listener takes only updates
-        settled after it is registered. Also callable as `listener(...)`.
+        The listener is registered before this coroutine first yields, so it
+        takes the first matching update the dispatcher handles after the
+        call. Also callable as `listener(...)`.
 
         Args:
             chat_id: The chat to listen in.
@@ -240,14 +160,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             The matching Pyrogram update.
 
         Raises:
-            ListenerAlreadyExists: If the key is already registered in any
-                session and `duplicate_policy` is `DuplicatePolicy.REJECT`.
+            ListenerAlreadyExists: If a listener already waits on the key and
+                `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
                 waiting, including when a newer listener replaces it.
-            TimeoutError: If the in-memory lock of `extract_lock_key` is not
-                acquired within the coordinator's `blocking_timeout`; redis-py
-                raises `LockError` instead. Nothing is registered then.
 
         Example:
             >>> from pyroflow.update_listener import MessageListener
@@ -264,35 +181,17 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if self.is_closed:
             raise ListenerCancelled(key)
 
-        replace = self.duplicate_policy is DuplicatePolicy.REPLACE
-        owner_id = self.coordinator.new_owner_id()
+        current = self.listeners.get(key)
 
-        async with self.coordinator.lock(await self.extract_lock_key(key)):
-            current = self.listeners.get(key)
+        # A finished listener whose `listen` has not returned yet is no longer waiting.
+        if current is not None and not current.done():
+            if self.duplicate_policy is DuplicatePolicy.REJECT:
+                raise ListenerAlreadyExists(key)
 
-            # A finished listener whose `listen` has not returned yet is no longer waiting.
-            if current is not None and not current.done():
-                if not replace:
-                    raise ListenerAlreadyExists(key)
+            self.cancel(key, is_duplicate=True)
 
-                self.discard(key, is_duplicate=True)
-
-            # Local first, so `resolve` never meets a registration of ours without its waiter.
-            listener = ListenerModel(key, meta, prompt_id=prompt_id, owner_id=owner_id)
-            self.listeners[key] = listener
-
-            try:
-                previous = await self.coordinator.register_listener(key, owner_id, replace=replace)
-
-                if previous is not None and not replace:
-                    if not self.coordinator.is_mine(previous):
-                        raise ListenerAlreadyExists(key)
-
-                    # No local waiter holds it, so it is a finished `listen` still unregistering.
-                    await self.coordinator.register_listener(key, owner_id, replace=True)
-            except BaseException:
-                self._forget(key, listener)
-                raise
+        listener = ListenerModel(key, meta, prompt_id=prompt_id)
+        self.listeners[key] = listener
 
         if timeout is None:
             timeout = self.timeout
@@ -302,39 +201,27 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         except asyncio.TimeoutError:
             raise ListenerTimeout(key) from None
         finally:
-            self._forget(key, listener)
-
-            try:
-                # Compare-and-delete: a newer registration under `key` survives.
-                await self.coordinator.unregister_listener(key, owner_id)
-            except Exception:
-                log.exception("Failed to unregister the listener for %s", key)
+            # A newer listener may have replaced this one under `key`.
+            if self.listeners.get(key) is listener:
+                del self.listeners[key]
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
 
-    async def resolve(self, update: UpdateType) -> ListenOutcome:
-        """Decide which listener, of any session, owns the update, and take it if it is ours.
+    async def resolve(self, update: UpdateType) -> bool:
+        """Give the update to the most specific listener waiting for it.
 
         Candidates are tried in the order of `ListenerKey.sub_keys`, from
-        `(chat_id, user_id, message_id)` down to `(chat_id)`, and the first one
-        registered in the coordinator decides:
-
-        - Owned by another session: `FOREIGN`, so this session leaves the
-          update to it.
-        - Owned by this session: its waiter gets the update, `RESOLVED`. A
-          registration whose waiter already finished is skipped.
-        - `is_bypass` true for the update: the matched listener is cancelled,
-          wherever it waits, and the update goes on as `UNMATCHED`.
-
-        With no key or no registered candidate the outcome is `UNMATCHED`. The
-        dispatcher calls this while holding the update's coordination lock.
+        `(chat_id, user_id, message_id)` down to `(chat_id)`; the first one
+        with a waiting listener takes the update. When `is_bypass` is true for
+        the update, that listener is cancelled instead and the update goes on
+        to the handlers.
 
         Args:
             update: The incoming Pyrogram update.
 
         Returns:
-            The outcome for the dispatcher.
+            Whether a listener took the update.
 
         Raises:
             TypeError: If `update` is not an instance of `__update_type__`.
@@ -342,38 +229,23 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         key = await self.extract_key(update)
 
         if key is None:
-            return ListenOutcome.UNMATCHED
+            return False
 
-        sub_keys = list(key.sub_keys())
-        owners = await self.coordinator.listener_owners(sub_keys)
-
-        for sub, owner_id in zip(sub_keys, owners, strict=True):
-            if owner_id is None:
-                continue
-
-            if not self.coordinator.is_mine(owner_id):
-                if await self.is_bypass(update):
-                    await self.coordinator.cancel_listener(sub)
-                    return ListenOutcome.UNMATCHED
-
-                return ListenOutcome.FOREIGN
-
+        for sub in key.sub_keys():
             listener = self.listeners.get(sub)
 
-            if listener is None or listener.owner_id != owner_id or listener.done():
-                # A finished `listen` that has not unregistered yet.
+            if listener is None or listener.done():
                 continue
 
             if await self.is_bypass(update):
-                await self.cancel(sub)
-                return ListenOutcome.UNMATCHED
+                self.cancel(sub)
+                return False
 
-            # The claim: only one update removes a registration.
-            if await self.coordinator.unregister_listener(sub, owner_id) and not listener.done():
-                listener.resolve(update)
-                return ListenOutcome.RESOLVED
+            del self.listeners[sub]
+            listener.resolve(update)
+            return True
 
-        return ListenOutcome.UNMATCHED
+        return False
 
     async def extract_key(self, update: UpdateType) -> ListenerKey | None:
         """Extract the listener key of the update.
@@ -413,39 +285,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             log_exc=False,
         )
 
-    async def extract_lock_key(self, key: ListenerKey) -> CoordinatedUpdateKeyT:
-        """Return the coordinator lock `listen` registers `key` under.
-
-        It must name the lock `UpdateCoordinated.extract_key` gives every
-        update that can match `key`; otherwise an update may be decided while
-        the listener registers. The default, the chat, matches the default of
-        `MessageCoordinated` and `CallbackQueryCoordinated`.
-
-        Args:
-            key: The key `listen` is about to register.
-
-        Returns:
-            The lock key.
-
-        Example:
-            >>> from pyroflow.update_listener import MessageListener
-            >>> asyncio.run(MessageListener().extract_lock_key(ListenerKey(1, 2, 3)))
-            (1,)
-        """
-        if self.extract_lock_key_func is None:
-            return (key.chat_id,)
-
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.extract_lock_key_func, key, log_exc=False
-        )
-
     async def is_bypass(self, update: UpdateType) -> bool:
         """Return whether a matched listener should be cancelled instead of resolved.
 
-        Only called from `resolve`, after a registration matched the update's
-        key. On `True` the matched listener is cancelled wherever it waits and
-        the update goes on to the normal handlers. Every session must agree on
-        it, so keep it a function of the update alone.
+        Only called from `resolve`, after a waiting listener matched the
+        update's key. On `True` that listener is cancelled and the update goes
+        on to the normal handlers.
 
         Args:
             update: The incoming update object, already matched to a

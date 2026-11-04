@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install the locked environment with every extra
+      - name: Install the locked environment
         run: make sync
 
       - name: Run tests
@@ -63,7 +63,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       # Also the smoke import: catches version-guard / missing-dependency breaks.
-      - name: Import and test the package without the redis extra
+      - name: Import and test the package from a fresh install
         run: make test-minimal
 
   lint:
@@ -78,7 +78,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install the locked environment with every extra
+      - name: Install the locked environment
         run: make sync
 
       - name: Lint and check formatting
@@ -97,7 +97,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install the locked environment with every extra
+      - name: Install the locked environment
         run: make sync
 
       - name: Type check

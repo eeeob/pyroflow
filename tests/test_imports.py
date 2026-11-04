@@ -11,7 +11,6 @@ import ast
 import importlib
 import pkgutil
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -37,14 +36,6 @@ MODULES = [
     "pyroflow.models",
     "pyroflow.types",
     "pyroflow.typings",
-    "pyroflow.update_coordinated",
-    "pyroflow.update_coordinated.update_coordinated",
-    "pyroflow.update_coordinated.message_coordinated",
-    "pyroflow.update_coordinated.callback_query_coordinated",
-    "pyroflow.update_coordinator",
-    "pyroflow.update_coordinator.update_coordinator",
-    "pyroflow.update_coordinator.memory_update_coordinator",
-    "pyroflow.update_coordinator.redis_update_coordinator",
     "pyroflow.update_listener",
     "pyroflow.update_listener.update_listener",
     "pyroflow.update_listener.message_listener",
@@ -70,8 +61,6 @@ def test_public_exports_present() -> None:
         "CallbackQuery",
         "MessageListener",
         "CallbackQueryListener",
-        "MessageCoordinated",
-        "CallbackQueryCoordinated",
     ):
         assert hasattr(pyroflow, name), f"pyroflow.{name} is not exported"
 
@@ -169,31 +158,8 @@ def test_version_line_matches_hatch_pattern() -> None:
     assert match.group("version") == pyroflow.__version__
 
 
-def test_all_modules_import_without_redis() -> None:
-    """Every module imports when the optional ``redis`` extra is absent."""
-    script = (
-        "import importlib, pkgutil, sys\n"
-        "sys.modules['redis'] = None\n"
-        "import pyroflow\n"
-        "for info in pkgutil.walk_packages(pyroflow.__path__, 'pyroflow.'):\n"
-        "    importlib.import_module(info.name)\n"
-        "print('ok')\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        cwd=PROJECT_ROOT,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "ok" in result.stdout, result.stderr
-
-
-def test_only_redis_extra_is_declared() -> None:
+def test_no_extras_are_declared() -> None:
     with open(PROJECT_ROOT / "pyproject.toml", "rb") as fh:
-        extras = tomllib.load(fh)["project"].get("optional-dependencies", {})
+        project = tomllib.load(fh)["project"]
 
-    assert set(extras) == {"redis"}
+    assert "optional-dependencies" not in project

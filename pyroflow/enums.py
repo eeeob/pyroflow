@@ -51,20 +51,4 @@ class DuplicatePolicy(StrEnum):
     """Cancel the existing listener, then register the new one."""
 
 
-class ListenOutcome(StrEnum):
-    """What `UpdateListener.resolve` decided for an update.
-
-    Example:
-        >>> ListenOutcome.FOREIGN == "foreign"
-        True
-    """
-
-    RESOLVED = auto()
-    """A listener of this session took the update: it is handled and no handler runs."""
-    FOREIGN = auto()
-    """A listener of another session owns the update: this session leaves it to that session."""
-    UNMATCHED = auto()
-    """No listener takes the update, so it goes on to the handlers."""
-
-
-__all__ = ("DuplicatePolicy", "ListenOutcome")
+__all__ = ("DuplicatePolicy",)

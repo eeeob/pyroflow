@@ -4,7 +4,6 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
-from ..enums import ListenOutcome
 from ..models import ListenerKey
 from ..types import CallbackQuery, Message
 from .update_listener import UpdateListener
@@ -78,7 +77,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         # `_is_listenable` يضمن أن `message` و `chat` ليسا `None` قبل استخراج المفتاح
         return ListenerKey(m.chat.id, update.from_user.id, m.id)  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `_is_listenable` guarantees `message` and `chat` are set
 
-    async def resolve(self, update: CallbackQuery) -> ListenOutcome:
+    async def resolve(self, update: CallbackQuery) -> bool:
         """Resolve the callback; when no callback listener takes it, cancel the ask on its message.
 
         A button pressed on a message that a text `ask` waits on ends that
@@ -88,17 +87,17 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             update: The incoming callback query.
 
         Returns:
-            The outcome of `UpdateListener.resolve`.
+            Whether a callback listener took the update.
         """
-        outcome = await super().resolve(update)
+        resolved = await super().resolve(update)
 
-        if outcome is ListenOutcome.UNMATCHED:
-            await self._cancel_prompted_ask(update)
+        if not resolved:
+            self._cancel_prompted_ask(update)
 
-        return outcome
+        return resolved
 
-    async def _cancel_prompted_ask(self, update: CallbackQuery) -> None:
-        """Cancel the message listener of this process whose `prompt_id` is the pressed message.
+    def _cancel_prompted_ask(self, update: CallbackQuery) -> None:
+        """Cancel the message listener whose `prompt_id` is the pressed message.
 
         The candidates are the sub-keys of `(chat, presser, pressed message)`,
         so a press only ends an ask aimed at the presser or at anyone in the
@@ -123,7 +122,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             listener = m_listen.listeners.get(sub)
 
             if listener is not None and listener.prompt_id == m.id:
-                await m_listen.cancel(sub)
+                m_listen.cancel(sub)
                 return
 
 

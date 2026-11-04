@@ -1,4 +1,4 @@
-"""Conversation extensions for Pyrogram: `ask`, listeners and update coordination.
+"""Conversation extensions for Pyrogram: `ask` and listeners.
 
 Importing this package patches Pyrogram's classes in place.
 """
@@ -6,8 +6,6 @@ Importing this package patches Pyrogram's classes in place.
 __version__ = "0.2.1"
 """The installed release, as a PEP 440 version string."""
 
-from .update_coordinated import *
-from .update_coordinator import *
 from .update_listener import *
 
 from .client import *
@@ -19,8 +17,6 @@ from .types import *
 from . import filters
 
 __all__ = (
-    *update_coordinated.__all__,
-    *update_coordinator.__all__,
     *update_listener.__all__,
     *client.__all__,
     *dispatcher.__all__,

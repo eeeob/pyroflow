@@ -83,15 +83,12 @@ def _load_pyproject() -> dict[str, Any]:
         return tomllib.load(fh)
 
 
-def test_declared_dependencies_are_pinned_where_needed() -> None:
-    """cachetools is used for ``TLRUCache`` (added in 4.1.0); an unbounded
-    ``cachetools`` spec can resolve an incompatible version."""
+def test_declared_dependencies_have_floors() -> None:
+    """Every runtime dependency declares a lower bound, as pyproject.toml promises."""
     deps = _load_pyproject()["project"]["dependencies"]
     reqs = [Requirement(d) for d in deps]
-    cachetools = next((r for r in reqs if r.name.lower() == "cachetools"), None)
-    assert cachetools is not None, "cachetools missing from dependencies"
-    assert "4.0.0" not in cachetools.specifier
-    assert "4.1.0" in cachetools.specifier
+    assert {r.name.lower() for r in reqs} == {"kurigram", "pytrove"}
+    assert all(any(s.operator == ">=" for s in r.specifier) for r in reqs)
 
 
 def test_requires_python_floor_is_310() -> None:

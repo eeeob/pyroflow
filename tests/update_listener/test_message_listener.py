@@ -134,12 +134,12 @@ async def test_stop_clears_cache_even_when_base_stop_fails(
     lis = MessageListener()
     lis._bot_commands_cache[1] = frozenset({"start"})
 
-    def boom(key: ListenerKey) -> bool:
+    def boom(key: ListenerKey, **kw: object) -> bool:
         msg = "boom"
         raise RuntimeError(msg)
 
     lis.listeners[ListenerKey(1)] = ListenerModel(ListenerKey(1))
-    monkeypatch.setattr(lis, "discard", boom)
+    monkeypatch.setattr(lis, "cancel", boom)
 
     with pytest.raises(RuntimeError, match="boom"):
         await lis.stop()

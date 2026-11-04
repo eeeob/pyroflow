@@ -261,37 +261,27 @@ def test_callback_listen_raises_key_error_when_unregistered() -> None:
 
 
 class _Stoppable:
-    """A listener or coordinated stand-in that is its own coordinator, so unregistering stops it either way."""
+    """A listener stand-in that records being stopped."""
 
     __update_type__ = Message
 
     def __init__(self) -> None:
         self.stopped = False
-        self.coordinator = self
 
     async def stop(self) -> None:
         self.stopped = True
 
 
-@pytest.mark.parametrize(
-    ("register", "unregister", "attr"),
-    [
-        ("register_listener", "unregister_listener", "listeners"),
-        ("register_coordinated", "unregister_coordinated", "coordinateds"),
-    ],
-)
-async def test_register_and_unregister_forward_to_the_dispatcher(
-    register: str, unregister: str, attr: str
-) -> None:
+async def test_register_and_unregister_listener_forward_to_the_dispatcher() -> None:
     c = make_client()
     item = _Stoppable()
 
-    assert getattr(c, register)(item) is None
-    assert getattr(c.dispatcher, attr) == {Message: item}
+    assert c.register_listener(item) is None
+    assert c.dispatcher.listeners == {Message: item}
 
-    await getattr(c, unregister)(Message)
+    await c.unregister_listener(Message)
 
-    assert getattr(c.dispatcher, attr) == {}
+    assert c.dispatcher.listeners == {}
     assert item.stopped is True
 
 
@@ -732,7 +722,6 @@ def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:
         "ask",
         "ask_rich",
         "unregister_listener",
-        "unregister_coordinated",
     ):
         method = getattr(pyroflow.Client, name)
         assert inspect.iscoroutinefunction(method.__wrapped__), name

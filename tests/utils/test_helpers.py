@@ -16,12 +16,10 @@ from typing import Any
 import pytest
 
 from pyroflow.utils import (
-    AsyncioLock,
     UpdateBound,
     get_update_executor,
     handle_ask_error,
     helpers,
-    redis_token_lock,
 )
 from pyrogram.types import Message
 
@@ -151,28 +149,6 @@ async def test_no_mappings_reports_false() -> None:
     assert await handle_ask_error(ExcA(), "m") is False
 
 
-# --- AsyncioLock ----------------------------------------------------------
-
-
-async def test_asyncio_lock_release_unlocks() -> None:
-    lock = AsyncioLock()
-    await lock.acquire()
-    assert lock.locked()
-
-    assert await lock.release() is None
-    assert not lock.locked()
-
-
-async def test_asyncio_lock_aexit_releases_on_exception() -> None:
-    lock = AsyncioLock()
-
-    with pytest.raises(ExcA):
-        async with lock:
-            raise ExcA
-
-    assert not lock.locked()
-
-
 # --- UpdateBound: more branches ------------------------------------------
 
 
@@ -291,74 +267,9 @@ def test_get_update_executor_client_without_executor() -> None:
     assert get_update_executor(SimpleNamespace(_client=SimpleNamespace())) is None
 
 
-async def test_redis_token_lock_writes_its_token_and_releases() -> None:
-    fake_aioredis = pytest.importorskip("fakeredis.aioredis")
-    pytest.importorskip("lupa")  # release runs a Lua script
-    lock_module = pytest.importorskip("redis.asyncio.lock")
-
-    redis = fake_aioredis.FakeRedis()
-    try:
-        lock = redis_token_lock(redis, "k", token="owner:1", timeout=5)
-
-        assert isinstance(lock, lock_module.Lock)
-        assert lock.token == "owner:1"
-        assert await lock.acquire() is True
-        assert await redis.get("k") == b"owner:1"
-        await lock.release()
-        assert await redis.exists("k") == 0
-    finally:
-        await redis.aclose()
-
-
-async def test_redis_token_lock_async_with_writes_its_token() -> None:
-    fake_aioredis = pytest.importorskip("fakeredis.aioredis")
-    pytest.importorskip("lupa")
-    redis = fake_aioredis.FakeRedis()
-    try:
-        async with redis_token_lock(redis, "k", token="owner:1"):
-            assert await redis.get("k") == b"owner:1"
-    finally:
-        await redis.aclose()
-
-
-async def test_redis_token_lock_explicit_acquire_token_wins() -> None:
-    fake_aioredis = pytest.importorskip("fakeredis.aioredis")
-    redis = fake_aioredis.FakeRedis()
-    try:
-        assert await redis_token_lock(redis, "k", token="owner:1").acquire(token="other") is True
-        assert await redis.get("k") == b"other"
-    finally:
-        await redis.aclose()
-
-
-async def test_redis_token_lock_returns_false_when_held() -> None:
-    fake_aioredis = pytest.importorskip("fakeredis.aioredis")
-    redis = fake_aioredis.FakeRedis()
-    try:
-        await redis.set("k", "someone")
-        lock = redis_token_lock(redis, "k", token="owner:1", blocking_timeout=0.05, sleep=0.01)
-
-        assert await lock.acquire() is False
-        assert await redis.get("k") == b"someone"
-    finally:
-        await redis.aclose()
-
-
-def test_redis_token_lock_class_is_built_once() -> None:
-    lock_module = pytest.importorskip("redis.asyncio.lock")
-
-    cls = helpers._redis_token_lock_class()
-
-    assert cls is helpers._redis_token_lock_class()
-    assert isinstance(cls, type)
-    assert issubclass(cls, lock_module.Lock)
-
-
 def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == (
-        "AsyncioLock",
         "UpdateBound",
         "get_update_executor",
         "handle_ask_error",
-        "redis_token_lock",
     )

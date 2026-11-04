@@ -19,14 +19,11 @@ BIN := $(if $(OS),Scripts,bin)
 VERSION = $(shell $(UV) run --no-project --with hatchling hatchling version)
 TAG = v$(VERSION)
 
-.PHONY: sync sync-minimal hooks format lint typecheck test test-doctest \
+.PHONY: sync hooks format lint typecheck test test-doctest \
 	test-minimal test-floor test-ceil build version tag clean
 
 # Other recipes sync on their own; this exists so CI can install in its own step.
 sync:
-	$(UV) sync --all-extras
-
-sync-minimal:
 	$(UV) sync
 
 hooks:
@@ -54,8 +51,7 @@ test:
 test-doctest:
 	$(RUN) pytest --doctest-modules pyroflow || [ $$? -eq 5 ]
 
-# The bare package plus the test runner, nothing optional: every Redis test
-# must skip.
+# The bare package plus the test runner, built from source rather than the lock.
 test-minimal:
 	$(UV) venv --clear $(VENV_MIN)
 	VIRTUAL_ENV=$(VENV_MIN) $(UV) pip install . --group test
@@ -65,14 +61,14 @@ test-minimal:
 # The lowest version every floor in pyproject.toml allows, on the oldest Python.
 test-floor:
 	$(UV) venv --clear --python $(PYTHON_FLOOR) $(VENV_FLOOR)
-	VIRTUAL_ENV=$(VENV_FLOOR) $(UV) pip install --resolution lowest-direct --all-extras --group test --group test-redis -r pyproject.toml
+	VIRTUAL_ENV=$(VENV_FLOOR) $(UV) pip install --resolution lowest-direct --group test -r pyproject.toml
 	VIRTUAL_ENV=$(VENV_FLOOR) $(UV) pip install --no-deps -e .
 	$(VENV_FLOOR)/$(BIN)/python -m pytest
 
 # The newest release of every dependency, on the newest Python.
 test-ceil:
 	$(UV) venv --clear --python $(PYTHON_CEIL) $(VENV_CEIL)
-	VIRTUAL_ENV=$(VENV_CEIL) $(UV) pip install --all-extras --group test --group test-redis -r pyproject.toml
+	VIRTUAL_ENV=$(VENV_CEIL) $(UV) pip install --group test -r pyproject.toml
 	VIRTUAL_ENV=$(VENV_CEIL) $(UV) pip install --no-deps -e .
 	$(VENV_CEIL)/$(BIN)/python -m pytest
 

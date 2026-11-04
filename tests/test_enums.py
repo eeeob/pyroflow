@@ -8,7 +8,7 @@ from enum import auto
 import pytest
 
 import pyroflow.enums
-from pyroflow.enums import DuplicatePolicy, ListenOutcome
+from pyroflow.enums import DuplicatePolicy
 
 
 def test_duplicate_policy_behaves_like_str_enum() -> None:
@@ -26,12 +26,8 @@ def test_duplicate_policy_str_is_the_value() -> None:
     assert f"{DuplicatePolicy.REJECT}" == "reject"
 
 
-def test_listen_outcome_values() -> None:
-    assert [str(member) for member in ListenOutcome] == ["resolved", "foreign", "unmatched"]
-
-
 def test_enums_all() -> None:
-    assert pyroflow.enums.__all__ == ("DuplicatePolicy", "ListenOutcome")
+    assert pyroflow.enums.__all__ == ("DuplicatePolicy",)
 
 
 @pytest.mark.skipif(sys.version_info >= (3, 11), reason="StrEnum backport exists on 3.10 only")

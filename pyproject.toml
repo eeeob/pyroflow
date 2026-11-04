@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pyroflow"
 dynamic = ["version"]
-description = "Conversation-oriented Pyrogram extension with per-update listeners and multi-session coordination"
+description = "Conversation-oriented Pyrogram extension with per-update listeners and ask"
 requires-python = ">=3.10"
 authors = [{ name = "Abdullah", email = "aldheeb01@gmail.com" }]
 readme = "README.md"
@@ -21,7 +21,6 @@ keywords = [
     "async",
     "conversation",
     "listener",
-    "coordinator",
 ]
 
 classifiers = [
@@ -44,8 +43,6 @@ classifiers = [
 # Every dependency has a floor and, by default, no ceiling; the reason for each
 # bound sits beside it.
 dependencies = [
-    # Floor set when the feature was added (TTLCache in the Memory backends).
-    "cachetools>=4.1.0",
     # The floor pytrove 2.0 enforces for its Telegram tools
     # (`extract_pyro_update_text`, used by filters).
     "kurigram>=2.2.24",
@@ -63,13 +60,6 @@ dependencies = [
 "Changelog" = "https://github.com/eeeob/pyroflow/blob/main/CHANGELOG.md"
 
 
-[project.optional-dependencies]
-redis = [
-    # 4.2.0 is the first release with `redis.asyncio`, which the Redis backends use.
-    "redis>=4.2.0",
-]
-
-
 # Tooling lives in dependency groups (PEP 735), not extras: a library user never
 # installs it. `uv sync` installs these groups from `uv.lock`, and `make` is the
 # only place the commands that use them are written down.
@@ -78,7 +68,6 @@ redis = [
 dev = [
     { include-group = "lint" },
     { include-group = "test" },
-    { include-group = "test-redis" },
 ]
 
 lint = [
@@ -96,16 +85,6 @@ test = [
     "pytest-asyncio>=0.24",
     # TOML reading below 3.11, for test_compat_static.
     "tomli; python_version < '3.11'",
-]
-
-# In-memory Redis for the Redis-backend tests: no real Redis or network.
-# fakeredis pulls in redis itself, so it stays out of `test` and
-# `make test-minimal` runs with neither; the Redis tests skip via
-# `pytest.importorskip("fakeredis")`.
-test-redis = [
-    "fakeredis>=2.20",
-    # Lua scripting for fakeredis (the Redis backends run Lua scripts).
-    "lupa",
 ]
 
 

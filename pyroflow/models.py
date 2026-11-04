@@ -164,13 +164,6 @@ class ListenerModel:
     """Resolved with the matching update, or failed with an error."""
     prompt_id: int | None = None
     """The message `ask` sent or edited before waiting; a button pressed on it cancels the wait."""
-    owner_id: str | None = None
-    """Owner id the coordinator registered this listener under.
-
-    It tells apart listeners registered under the same key over time, so a
-    stale registration or a late loss report never hits the listener that
-    replaced this one.
-    """
 
     def resolve(self, update: object) -> None:
         """Complete the listener's future with `update`."""
