@@ -303,6 +303,41 @@ async def test_ask_waits_on_the_listener_of_the_given_update_type() -> None:
     assert await c.ask(100, "hi", update_type=CallbackQuery) is listener.result
 
 
+async def test_ask_keeps_the_fields_context_already_has_on_a_copy() -> None:
+    c, listener, _, _ = _ask_client()
+    context = ListenerContext(message_id=9, message="mine", step=1)
+
+    await c.ask(100, "hi", context=context)
+
+    assert listener.calls[0]["context"] == context
+    assert listener.calls[0]["context"] is not context
+
+
+async def test_ask_passes_filters_and_strict_to_the_listener() -> None:
+    c, listener, _, _ = _ask_client()
+    text_only = pyro_filters.text
+
+    await c.ask(100, "hi", filters=text_only, strict=True)
+
+    assert listener.calls[0]["filters"] is text_only
+    assert listener.calls[0]["strict"] is True
+
+
+async def test_ask_raises_the_listener_error_unchanged() -> None:
+    error = ExcA("boom")
+
+    class _RaisingListener:
+        async def __call__(self, **kw: object) -> None:
+            raise error
+
+    c, _, _, _ = _ask_client()
+    c.dispatcher.listeners[Message] = _RaisingListener()
+
+    with pytest.raises(ExcA) as exc:
+        await c.ask(100, "hi")
+    assert exc.value is error
+
+
 # --- ask_rich() -------------------------------------------------------------
 
 
@@ -411,139 +446,6 @@ async def test_ask_rich_waits_on_the_listener_of_the_given_update_type() -> None
     c, listener, _, _ = _ask_client(update_type=CallbackQuery)
 
     assert await c.ask_rich(100, object(), update_type=CallbackQuery) is listener.result
-
-
-# --- ask helpers --------------------------------------------------------------
-
-
-def test_ask_listener_returns_the_registered_listener() -> None:
-    c = make_client()
-    listener = object()
-    c.dispatcher.listeners[CallbackQuery] = listener
-    assert c._ask_listener(CallbackQuery) is listener
-
-
-def test_ask_listener_raises_runtime_error_naming_the_type() -> None:
-    with pytest.raises(RuntimeError, match=r"No listener registered for Message\. Register"):
-        make_client()._ask_listener(Message)
-
-
-@pytest.mark.parametrize("markup", [None, InlineKeyboardMarkup([])])
-def test_check_edit_reply_markup_returns_none_or_an_inline_markup(
-    markup: InlineKeyboardMarkup | None,
-) -> None:
-    assert pyroflow.Client._check_edit_reply_markup(markup) is markup
-
-
-def test_check_edit_reply_markup_rejects_other_markups() -> None:
-    with pytest.raises(ValueError, match="Edit mode only supports InlineKeyboardMarkup"):
-        pyroflow.Client._check_edit_reply_markup(ReplyKeyboardRemove())
-
-
-async def _await_reply(
-    c: pyroflow.Client,
-    listener: object,
-    m: object,
-    chat_id: int | str = 100,
-    **overrides: object,
-) -> object:
-    kw: dict[str, object] = {
-        "listen_user_id": None,
-        "listen_message_id": None,
-        "context": None,
-        "pass_message": True,
-        "filters": None,
-        "strict": False,
-        "timeout": None,
-    }
-    kw.update(overrides)
-    return await c._await_reply(listener, m, chat_id, **kw)
-
-
-async def test_await_reply_waits_on_the_listener_in_the_chat_of_the_message() -> None:
-    c, listener = make_client(), _RecordingListener()
-
-    m = make_message(chat_id=-1001)
-
-    result = await _await_reply(c, listener, m, "@x", listen_user_id=7, timeout=3)
-
-    assert result is listener.result
-    assert listener.calls == [
-        {
-            "chat_id": -1001,
-            "user_id": 7,
-            "message_id": None,
-            "context": ListenerContext(message_id=5, message=m),
-            "filters": None,
-            "strict": False,
-            "timeout": 3,
-        }
-    ]
-
-
-async def test_await_reply_keeps_the_fields_a_copy_of_context_already_has() -> None:
-    c, listener = make_client(), _RecordingListener()
-    context = ListenerContext(message_id=9, message="mine", step=1)
-
-    await _await_reply(c, listener, make_message(), context=context)
-
-    assert listener.calls[0]["context"] == context
-    assert listener.calls[0]["context"] is not context
-
-
-async def test_await_reply_without_pass_message_records_only_the_id() -> None:
-    c, listener = make_client(), _RecordingListener()
-
-    await _await_reply(c, listener, make_message(), pass_message=False)
-
-    assert listener.calls[0]["context"] == ListenerContext(message_id=5)
-
-
-async def test_await_reply_passes_filters_and_strict_to_the_listener() -> None:
-    c, listener = make_client(), _RecordingListener()
-    text_only = pyro_filters.text
-
-    await _await_reply(c, listener, make_message(), filters=text_only, strict=True)
-
-    assert listener.calls[0]["filters"] is text_only
-    assert listener.calls[0]["strict"] is True
-
-
-async def test_await_reply_resolves_a_callable_listen_message_id() -> None:
-    c, listener = make_client(), _RecordingListener()
-    sent = make_message()
-    seen = []
-
-    await _await_reply(c, listener, sent, listen_message_id=lambda m: seen.append(m) or 42)
-
-    assert seen == [sent]
-    assert listener.calls[0]["message_id"] == 42
-
-
-async def test_await_reply_falls_back_to_chat_id_and_resolves_a_str() -> None:
-    c, listener = make_client(), _RecordingListener()
-
-    async def fake_resolve_peer(peer_id: str) -> PeerUser:
-        return PeerUser(user_id=42)
-
-    c.resolve_peer = fake_resolve_peer
-
-    await _await_reply(c, listener, SimpleNamespace(id=5, chat=None))
-    await _await_reply(c, listener, SimpleNamespace(id=5, chat=None), "@someone")
-
-    assert [call["chat_id"] for call in listener.calls] == [100, 42]
-
-
-async def test_await_reply_raises_the_listener_error_unchanged() -> None:
-    class _RaisingListener:
-        async def __call__(self, **kw: object) -> None:
-            raise error
-
-    error = ExcA("boom")
-
-    with pytest.raises(ExcA) as exc:
-        await _await_reply(make_client(), _RaisingListener(), SimpleNamespace(id=5, chat=None))
-    assert exc.value is error
 
 
 def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:

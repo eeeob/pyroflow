@@ -335,10 +335,21 @@ class Client(PyroClient):
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
-        listener = self._ask_listener(update_type)
+        listener = self.listeners.get(update_type)
+
+        if listener is None:
+            msg = (
+                f"No listener registered for {update_type.__name__}. "
+                f"Register one via client.register_listener() before calling ask()."
+            )
+            raise RuntimeError(msg)
 
         if message_id is not None:
-            reply_markup = self._check_edit_reply_markup(reply_markup)
+            if reply_markup is not None and not isinstance(
+                reply_markup, pyro_types.InlineKeyboardMarkup
+            ):
+                msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
+                raise ValueError(msg)
 
             # `patch_cls` يجعل `Message` الخاصة بـ `pyrogram` هي نفسها الخاصة بـ `pyroflow` وقت التشغيل
             m = cast(
@@ -383,14 +394,31 @@ class Client(PyroClient):
                 ),
             )
 
-        return await self._await_reply(
-            listener,
-            m,
-            chat_id,
-            listen_user_id=listen_user_id,
-            listen_message_id=listen_message_id,
+        if not isinstance(listen_message_id, int) and callable(listen_message_id):
+            # Must be a fast, synchronous, non-blocking call — it runs
+            # inline on the event loop, not through `to_thread`/`maybe_awaitable`.
+            listen_message_id = listen_message_id(m)
+
+        final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
+
+        if isinstance(final_chat_id, str):
+            final_chat_id = pyro_ut.get_peer_id(
+                await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
+            )
+
+        context = ListenerContext() if context is None else copy.copy(context)
+
+        if context.message_id is None:
+            context.message_id = m.id
+
+        if pass_message and context.message is None:
+            context.message = m
+
+        return await listener(
+            chat_id=final_chat_id,
+            user_id=listen_user_id,
+            message_id=listen_message_id,
             context=context,
-            pass_message=pass_message,
             filters=filters,
             strict=strict,
             timeout=timeout,
@@ -579,10 +607,21 @@ class Client(PyroClient):
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
         """
-        listener = self._ask_listener(update_type)
+        listener = self.listeners.get(update_type)
+
+        if listener is None:
+            msg = (
+                f"No listener registered for {update_type.__name__}. "
+                f"Register one via client.register_listener() before calling ask()."
+            )
+            raise RuntimeError(msg)
 
         if message_id is not None:
-            reply_markup = self._check_edit_reply_markup(reply_markup)
+            if reply_markup is not None and not isinstance(
+                reply_markup, pyro_types.InlineKeyboardMarkup
+            ):
+                msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
+                raise ValueError(msg)
 
             m = cast(
                 "Message",
@@ -615,84 +654,6 @@ class Client(PyroClient):
                 ),
             )
 
-        return await self._await_reply(
-            listener,
-            m,
-            chat_id,
-            listen_user_id=listen_user_id,
-            listen_message_id=listen_message_id,
-            context=context,
-            pass_message=pass_message,
-            filters=filters,
-            strict=strict,
-            timeout=timeout,
-        )
-
-    def _ask_listener(self, update_type: type[pyro_types.Update]) -> UpdateListener[Any]:
-        """Return the listener registered for `update_type`.
-
-        Raises:
-            RuntimeError: If no listener is registered for `update_type`.
-        """
-        listener = self.listeners.get(update_type)
-
-        if listener is None:
-            msg = (
-                f"No listener registered for {update_type.__name__}. "
-                f"Register one via client.register_listener() before calling ask()."
-            )
-            raise RuntimeError(msg)
-
-        return listener
-
-    @staticmethod
-    def _check_edit_reply_markup(
-        reply_markup: object,
-    ) -> pyro_types.InlineKeyboardMarkup | None:
-        """Return `reply_markup` if it can be attached when editing.
-
-        Raises:
-            ValueError: If `reply_markup` is neither `None` nor `InlineKeyboardMarkup`.
-        """
-        if reply_markup is not None and not isinstance(
-            reply_markup, pyro_types.InlineKeyboardMarkup
-        ):
-            msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
-            raise ValueError(msg)
-
-        return reply_markup
-
-    async def _await_reply(
-        self,
-        listener: UpdateListener[Any],
-        m: Message,
-        chat_id: StrInt,
-        *,
-        listen_user_id: int | None,
-        listen_message_id: ListenMessageIdT | None,
-        context: ListenerContext | None,
-        pass_message: bool,
-        filters: Filter | None,
-        strict: bool,
-        timeout: Number | None,
-    ) -> pyro_types.Update:
-        """Wait on `listener` for the update that answers `m`, the sent or edited message.
-
-        Args:
-            listener: The listener to wait on.
-            m: The message `ask` or `ask_rich` sent or edited.
-            chat_id: Chat to listen in when `m` has no chat id.
-            listen_user_id: As in `ask`.
-            listen_message_id: As in `ask`.
-            context: As in `ask`.
-            pass_message: As in `ask`.
-            filters: As in `ask`.
-            strict: As in `ask`.
-            timeout: As in `ask`.
-
-        Returns:
-            The update `listener` returned.
-        """
         if not isinstance(listen_message_id, int) and callable(listen_message_id):
             # Must be a fast, synchronous, non-blocking call — it runs
             # inline on the event loop, not through `to_thread`/`maybe_awaitable`.
