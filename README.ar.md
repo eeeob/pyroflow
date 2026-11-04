@@ -230,7 +230,7 @@ async def drop_question(exc, model):
         await question.delete()
 ```
 
-لينهي زرٌّ على رسالة السؤال انتظارَ جوابه، سجّل `MessageListenCancellingCallbackQueryListener` بدل `CallbackQueryListener`. الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة، فيرفع `ask` الخطأ `ListenerCancelled`. مثال ذلك زر "رجوع":
+`MessageListenCancellingCallbackQueryListener` هو `CallbackQueryListener` يلغي أيضًا انتظار الرسائل: الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة (`meta["message_id"]` فيه)، فيرفع `ask` الخطأ `ListenerCancelled`. سجّله بدل `CallbackQueryListener` لتحصل على ذلك. مثلًا، زر "رجوع" على رسالة سؤال ينهي عندها انتظار جوابه:
 
 ```python
 from pyroflow import MessageListenCancellingCallbackQueryListener

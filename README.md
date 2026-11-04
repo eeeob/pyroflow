@@ -210,7 +210,7 @@ async def drop_question(exc, model):
         await question.delete()
 ```
 
-To let a button on the question end the wait for its answer, register `MessageListenCancellingCallbackQueryListener` instead of `CallbackQueryListener`. A press that no callback wait takes cancels the message listen tied to the pressed message, which raises `ListenerCancelled` in `ask`. For example, a "back" button:
+`MessageListenCancellingCallbackQueryListener` is a `CallbackQueryListener` that also cancels message listens: a press that no callback wait takes cancels the message wait tied to the pressed message (its `meta["message_id"]`), which raises `ListenerCancelled` in `ask`. Register it instead of `CallbackQueryListener` to get this; for example, a "back" button on a question then ends the wait for its answer:
 
 ```python
 from pyroflow import MessageListenCancellingCallbackQueryListener
