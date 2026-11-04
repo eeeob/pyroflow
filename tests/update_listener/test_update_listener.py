@@ -403,6 +403,33 @@ async def test_listen_reject_leaves_the_first_listener_running() -> None:
         await _drain(first)
 
 
+async def test_listen_reject_ignores_a_finished_listener_still_returning() -> None:
+    lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
+    lis.listeners[ListenerKey(1)] = finished = ListenerModel(ListenerKey(1))
+    finished.resolve("update")
+
+    task = await _pending(lis, 1)
+    try:
+        assert lis.listeners[ListenerKey(1)] is not finished
+        assert not task.done()
+    finally:
+        await _drain(task)
+
+
+async def test_listen_raises_when_the_lock_is_not_acquired() -> None:
+    lis = _make(coordinator=MemoryUpdateCoordinator(Message, blocking_timeout=0.01))
+    lock = lis.coordinator.lock((1,))
+    await lock.acquire()
+    try:
+        with pytest.raises(TimeoutError):
+            await lis.listen(1)
+    finally:
+        await lock.release()
+
+    assert lis.listeners == {}
+    assert _registry(lis) == {}
+
+
 async def test_listen_reject_refuses_a_peer_registration() -> None:
     lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
     await lis.coordinator.register_listener(ListenerKey(1), PEER, replace=False)

@@ -242,6 +242,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
                 waiting, including when a newer listener replaces it.
+            TimeoutError: If the in-memory lock of `extract_lock_key` is not
+                acquired within the coordinator's `blocking_timeout`; redis-py
+                raises `LockError` instead. Nothing is registered then.
 
         Example:
             >>> from pyroflow.update_listener import MessageListener
@@ -262,7 +265,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         owner_id = self.coordinator.new_owner_id()
 
         async with self.coordinator.lock(await self.extract_lock_key(key)):
-            if key in self.listeners:
+            current = self.listeners.get(key)
+
+            # A finished listener whose `listen` has not returned yet is no longer waiting.
+            if current is not None and not current.done():
                 if not replace:
                     raise ListenerAlreadyExists(key)
 

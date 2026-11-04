@@ -36,7 +36,7 @@ from pyroflow.dispatcher import (
     _settle_handled,
 )
 from pyroflow.enums import ListenOutcome
-from pyroflow.errors import UpdateAlreadyHandled
+from pyroflow.errors import ListenerTimeout, UpdateAlreadyHandled
 from pyroflow.models import ListenerKey
 from pyroflow.update_coordinated import MessageCoordinated
 from pyroflow.update_listener import MessageListener
@@ -796,6 +796,31 @@ async def test_register_rejects_a_running_dispatcher(kind: str, registry: str, l
     assert getattr(dispatcher, registry) == {}
 
 
+async def test_coordinators_lists_each_coordinator_once() -> None:
+    dispatcher = make_real_dispatcher()
+    shared = FakeBackend([], "shared")
+    alone = FakeComponent([], "alone")
+    dispatcher.listeners[Message] = FakeComponent([], "listener", coordinator=shared)  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[Message] = FakeComponent([], "coordinated", coordinator=shared)  # ty: ignore[invalid-assignment]
+    dispatcher.coordinateds[CallbackQuery] = alone  # ty: ignore[invalid-assignment]
+
+    assert dispatcher._coordinators() == [shared, alone.coordinator]
+
+
+async def test_check_shared_coordinator_needs_both_components() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.listeners[Message] = FakeComponent([], "listener")  # ty: ignore[invalid-assignment]
+
+    assert dispatcher._check_shared_coordinator(Message) is None
+
+    dispatcher.coordinateds[Message] = FakeComponent([], "coordinated")  # ty: ignore[invalid-assignment]
+
+    with pytest.raises(
+        ValueError, match="The Message listener and coordinated must share one coordinator"
+    ):
+        dispatcher._check_shared_coordinator(Message)
+
+
 @REGISTRIES
 async def test_register_rejects_a_different_coordinator_than_its_pair(
     kind: str, registry: str, label: str
@@ -1416,3 +1441,25 @@ async def test_listen_waits_for_an_update_being_settled() -> None:
         await dispatcher.handle_update(PACKET, second, MessageHandler)
 
     assert await waiter is second
+
+
+async def test_listen_inside_a_handler_of_the_same_chat_does_not_deadlock() -> None:
+    coordinator = MemoryUpdateCoordinator(Message, blocking_timeout=0.2)
+    dispatcher, _ = make_session(coordinator)
+    listener = dispatcher.listeners[Message]
+    errors: list[BaseException] = []
+
+    async def asks_again(client: object, update: Message) -> None:
+        try:
+            await listener.listen(update.chat.id, update.from_user.id, timeout=0.05)
+        except BaseException as e:  # noqa: BLE001  # the test records what `listen` raised
+            errors.append(e)
+
+    dispatcher.groups[0] = [MessageHandler(asks_again)]
+
+    await asyncio.wait_for(
+        dispatcher.handle_update(PACKET, make_message(100, 7, 5), MessageHandler), 1
+    )
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], ListenerTimeout)

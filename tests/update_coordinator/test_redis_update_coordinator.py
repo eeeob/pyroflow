@@ -368,6 +368,30 @@ async def test_start_and_stop_with_no_locks_keep_handled_keys(
     assert await coord.is_handled((1, 2)) is True
 
 
+def test_script_registers_each_source_once(redis: fake_aioredis.FakeRedis) -> None:
+    coord = _coord(redis)
+    script = coord._script(coord.LUA_GETDEL_SCRIPT)
+
+    assert coord._script(coord.LUA_GETDEL_SCRIPT) is script
+    assert coord._script(coord.LUA_REFRESH_LISTENERS_SCRIPT) is not script
+
+
+async def test_fingerprinted_keys_are_the_locks_and_registrations_of_this_type(
+    redis: fake_aioredis.FakeRedis,
+) -> None:
+    coord = _coord(redis)
+    await coord.lock((1,)).acquire()
+    await coord.register_listener(ListenerKey(2), "a", replace=False)
+    await coord.mark_handled((3,))
+    await RedisUpdateCoordinator(redis, CallbackQuery).register_listener(
+        ListenerKey(4), "b", replace=False
+    )
+
+    keys = sorted(k.decode() for k in await coord._fingerprinted_keys())
+
+    assert keys == ["update|listen|Message|2|_|_", "update|lock|Message|1"]
+
+
 # --- the listener registry ------------------------------------------------
 
 
