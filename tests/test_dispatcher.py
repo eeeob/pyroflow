@@ -509,7 +509,9 @@ async def test_handler_worker_parses_and_dispatches_under_the_lock() -> None:
     async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
         return ("parsed", MessageHandler)
 
-    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+    async def handle_update(
+        packet: object, parsed: object, handler_type: object, **kw: object
+    ) -> None:
         seen.append((packet, parsed, handler_type, lock.locked()))
 
     dispatcher.update_parsers = {FakeRawUpdate: parser}
@@ -534,7 +536,9 @@ async def test_handler_worker_resolves_a_listened_update_without_the_lock() -> N
     async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
         return (msg, MessageHandler)
 
-    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+    async def handle_update(
+        packet: object, parsed: object, handler_type: object, **kw: object
+    ) -> None:
         handled.append(parsed)
 
     dispatcher.update_parsers = {FakeRawUpdate: parser}
@@ -567,7 +571,9 @@ async def test_handler_worker_passes_unknown_updates_unparsed() -> None:
     packet = (FakeRawUpdate(), {}, {})
     seen: list[tuple[object, ...]] = []
 
-    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+    async def handle_update(
+        packet: object, parsed: object, handler_type: object, **kw: object
+    ) -> None:
         seen.append((packet, parsed, handler_type))
 
     dispatcher.update_parsers = {}
@@ -591,7 +597,9 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
             raise ValueError(msg)
         return (update, MessageHandler)
 
-    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+    async def handle_update(
+        packet: object, parsed: object, handler_type: object, **kw: object
+    ) -> None:
         handled.append(parsed)
         error = next(errors)
         if error is not None:
@@ -720,7 +728,7 @@ async def test_policy_none_lets_waits_take_every_worker() -> None:
         await asyncio.sleep(0.05)
 
         assert "ping" not in results  # the bot is frozen: no worker reads the queue
-        assert len(client.dispatcher.handler_waits) == 2
+        assert client.dispatcher.handler_waits == []  # `NONE` tracks nothing
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
@@ -819,7 +827,7 @@ async def test_init_defaults_to_lending_with_a_third_and_no_timeout() -> None:
     assert dispatcher.workers_policy == WorkersPolicy()
     assert dispatcher.handler_waits == []
     assert dispatcher.lent_worker_tasks == set()
-    assert isinstance(dispatcher.worker_freed, asyncio.Event)
+    assert dispatcher.worker_freed is None
 
 
 async def test_lacks_free_workers_counts_the_holding_waits() -> None:
@@ -831,14 +839,12 @@ async def test_lacks_free_workers_counts_the_holding_waits() -> None:
     assert dispatcher.lacks_free_workers() is True
 
 
-async def test_enter_handler_wait_with_policy_none_always_holds() -> None:
+async def test_enter_handler_wait_with_policy_none_tracks_nothing() -> None:
     dispatcher = make_real_dispatcher(workers=1)
     dispatcher.workers_policy = WorkersPolicy(WorkersBusyMode.NONE)
 
-    wait = await dispatcher.enter_handler_wait(MessageListener(), ListenerKey(1))
-
-    assert dispatcher.handler_waits == [wait]
-    assert wait.lent is None
+    assert await dispatcher.enter_handler_wait(MessageListener(), ListenerKey(1)) is None
+    assert dispatcher.handler_waits == []
 
 
 async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
@@ -850,6 +856,7 @@ async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
     await asyncio.wait_for(dispatcher.wait_for_free_worker(), 1)
 
     assert loop.time() - start >= 0.04
+    assert isinstance(dispatcher.worker_freed, asyncio.Event)
 
 
 async def test_wait_for_free_worker_returns_once_a_wait_ends() -> None:
@@ -869,6 +876,7 @@ async def test_worker_wait_release_frees_the_slot_once_and_wakes_waiters() -> No
     dispatcher = make_real_dispatcher()
     wait = WorkerWait(dispatcher, MessageListener(), ListenerKey(1))
     dispatcher.handler_waits.append(wait)
+    dispatcher.worker_freed = asyncio.Event()
     woken = asyncio.ensure_future(dispatcher.worker_freed.wait())
     await asyncio.sleep(0)
 
@@ -879,6 +887,14 @@ async def test_worker_wait_release_frees_the_slot_once_and_wakes_waiters() -> No
     assert wait.released is True
     assert await asyncio.wait_for(woken, 1) is True
     assert dispatcher.worker_freed.is_set() is False
+
+
+async def test_worker_wait_release_without_a_timed_wait_makes_no_event() -> None:
+    dispatcher = make_real_dispatcher()
+
+    WorkerWait(dispatcher, MessageListener(), ListenerKey(1)).release()
+
+    assert dispatcher.worker_freed is None
 
 
 async def test_worker_wait_release_gives_back_its_stand_in() -> None:
@@ -914,7 +930,9 @@ async def test_lent_worker_given_back_while_busy_finishes_its_update_first() -> 
     gate = asyncio.Event()
     handled: list[object] = []
 
-    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+    async def handle_update(
+        packet: object, parsed: object, handler_type: object, **kw: object
+    ) -> None:
         handled.append(packet)
         await gate.wait()
 
@@ -948,7 +966,9 @@ async def test_serve_updates_marks_the_worker_for_listen_and_clears_it_after() -
     dispatcher = make_real_dispatcher()
     seen: list[object] = []
 
-    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+    async def handle_update(
+        packet: object, parsed: object, handler_type: object, **kw: object
+    ) -> None:
         seen.append(handler_worker_var.get())
 
     dispatcher.handle_update = handle_update
@@ -962,7 +982,7 @@ async def test_serve_updates_marks_the_worker_for_listen_and_clears_it_after() -
     assert handler_worker_var.get() is None
 
 
-async def test_handle_update_iterates_copies_of_the_groups() -> None:
+async def test_handle_update_iterates_copies_of_the_groups_for_a_stand_in() -> None:
     dispatcher = make_real_dispatcher()
     calls: list[tuple[object, ...]] = []
 
@@ -973,7 +993,7 @@ async def test_handle_update_iterates_copies_of_the_groups() -> None:
     dispatcher.groups[0] = [MessageHandler(adds_a_group)]
     msg = make_message()
 
-    await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
+    await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler, copy_groups=True)
 
     assert calls == [("adder", msg)]
 

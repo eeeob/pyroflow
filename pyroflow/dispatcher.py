@@ -69,8 +69,8 @@ class Dispatcher(PyroDispatcher):
         """The waits inside handlers that hold their worker, oldest first."""
         self.lent_worker_tasks: set[asyncio.Task[None]] = set()
         """The running stand-in workers lent to waits inside handlers."""
-        self.worker_freed = asyncio.Event()
-        """Pulsed whenever a wait inside a handler ends, for waits held by a `busy_timeout`."""
+        self.worker_freed: asyncio.Event | None = None
+        """Pulsed when a wait inside a handler ends; made by the first wait held by a `busy_timeout`."""
 
     async def start(self, *args: object, **kw: object) -> None:
         """Start all registered listeners, then the dispatcher.
@@ -110,8 +110,9 @@ class Dispatcher(PyroDispatcher):
 
         r = await self.oldstop(*args, **kw)
 
-        # A stand-in cancelled just after taking an update ends cancelled; it still did its work.
-        await asyncio.gather(*self.lent_worker_tasks, return_exceptions=True)
+        if self.lent_worker_tasks:
+            # A stand-in cancelled just after taking an update ends cancelled; it still did its work.
+            await asyncio.gather(*self.lent_worker_tasks, return_exceptions=True)
 
         self.is_started = False
 
@@ -124,7 +125,7 @@ class Dispatcher(PyroDispatcher):
 
     async def enter_handler_wait(
         self, listener: UpdateListener[Any], key: ListenerKey
-    ) -> WorkerWait:
+    ) -> WorkerWait | None:
         """Apply `workers_policy` to a wait about to start inside a handler.
 
         Called by `UpdateListener.listen` from the worker task itself. The wait
@@ -139,17 +140,22 @@ class Dispatcher(PyroDispatcher):
             key: The key it waits on.
 
         Returns:
-            The wait's handle; `listen` sets its `model` and calls `release`
-            when the wait ends.
+            The wait's handle, which `listen` sets the `model` of and
+            releases when the wait ends; `None` with `WorkersBusyMode.NONE`,
+            which tracks nothing.
 
         Raises:
             ListenerWorkersBusy: With `WorkersBusyMode.REJECT`, or with
                 `WorkersBusyMode.CANCEL_OLDEST` when no wait holds a worker.
         """
-        wait = WorkerWait(self, listener, key)
         mode = self.workers_policy.mode
 
-        if mode is WorkersBusyMode.NONE or not self.lacks_free_workers():
+        if mode is WorkersBusyMode.NONE:
+            return None
+
+        wait = WorkerWait(self, listener, key)
+
+        if not self.lacks_free_workers():
             self.handler_waits.append(wait)
             return wait
 
@@ -176,6 +182,9 @@ class Dispatcher(PyroDispatcher):
         """Wait up to `WorkersPolicy.busy_timeout` seconds until a wait may hold its worker again."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.workers_policy.busy_timeout
+
+        if self.worker_freed is None:
+            self.worker_freed = asyncio.Event()
 
         while self.lacks_free_workers() and (remaining := deadline - loop.time()) > 0:
             try:
@@ -247,6 +256,8 @@ class Dispatcher(PyroDispatcher):
         packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
         parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None],
+        *,
+        copy_groups: bool = False,
     ) -> None:
         """Run the first matching handler of each group.
 
@@ -258,15 +269,20 @@ class Dispatcher(PyroDispatcher):
             packet: The raw `(update, users, chats)` tuple from Pyrogram.
             parsed_update: The parsed Pyrogram update, or `None`.
             handler_type: The handler class expected to handle this update.
+            copy_groups: Iterate copies of the groups, for a stand-in worker:
+                it holds no lock, so `add_handler` may change them meanwhile.
+                A worker holding its lock needs none, as registration waits
+                for that lock.
 
         Raises:
             StopPropagation: If a handler stopped propagation.
         """
         update, users, chats = packet
 
-        # Copies: a stand-in worker holds no lock, so `add_handler` may change them meanwhile.
-        for group in list(self.groups.values()):
-            for handler in list(group):
+        groups = list(self.groups.values()) if copy_groups else self.groups.values()
+
+        for group in groups:
+            for handler in list(group) if copy_groups else group:
                 if isinstance(handler, ErrorHandler):
                     continue
 
@@ -361,7 +377,9 @@ class Dispatcher(PyroDispatcher):
                         continue
 
                     async with lock if lock is not None else nullcontext():
-                        await self.handle_update(packet, parsed_update, handler_type)
+                        await self.handle_update(
+                            packet, parsed_update, handler_type, copy_groups=lock is None
+                        )
                 except StopPropagation:
                     pass
                 except Exception:
@@ -404,8 +422,9 @@ class WorkerWait:
         if self.lent is not None:
             self.lent.give_back()
 
-        dispatcher.worker_freed.set()
-        dispatcher.worker_freed.clear()
+        if (freed := dispatcher.worker_freed) is not None:
+            freed.set()
+            freed.clear()
 
 
 class LentWorker:
