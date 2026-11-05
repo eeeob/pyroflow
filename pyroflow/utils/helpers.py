@@ -46,18 +46,8 @@ class UpdateBound(Generic[UpdateType]):
         """
         super().__init_subclass__(**kw)
 
-        if ABC in cls.__bases__:
-            return
-
-        if not hasattr(cls, "__update_type__"):
-            msg = f"{cls.__name__} must define __update_type__"
-            raise TypeError(msg)
-
-        update_type = cls.__update_type__
-
-        if not (isinstance(update_type, type) and issubclass(update_type, PyroUpdate)):
-            msg = f"{cls.__name__}.__update_type__ must be a subclass of {PyroUpdate.__name__}"
-            raise TypeError(msg)
+        if ABC not in cls.__bases__:
+            _check_update_type(cls)
 
     def __init__(self, **kw: object) -> None:
         """Check the declared update type again, then pass `kw` on to the next base.
@@ -68,19 +58,7 @@ class UpdateBound(Generic[UpdateType]):
         Raises:
             TypeError: If `__update_type__` is missing or is not a Pyrogram update class.
         """
-        update_type = getattr(self.__class__, "__update_type__", None)
-
-        if update_type is None:
-            msg = f"{self.__class__.__name__} must define __update_type__"
-            raise TypeError(msg)
-
-        if not (isinstance(update_type, type) and issubclass(update_type, PyroUpdate)):
-            msg = (
-                f"{self.__class__.__name__}.__update_type__ must be a subclass of "
-                f"{PyroUpdate.__name__}"
-            )
-            raise TypeError(msg)
-
+        _check_update_type(self.__class__)
         super().__init__(**kw)
 
     @classmethod
@@ -96,6 +74,26 @@ class UpdateBound(Generic[UpdateType]):
         if not isinstance(update, cls.__update_type__):
             msg = f"Expected {cls.__update_type__.__name__}, got {type(update).__name__}"
             raise TypeError(msg)
+
+
+def _check_update_type(cls: type) -> None:
+    """Check that `cls` declares a Pyrogram update class as `__update_type__`.
+
+    Args:
+        cls: The `UpdateBound` subclass to check.
+
+    Raises:
+        TypeError: If `__update_type__` is missing or is not a Pyrogram update class.
+    """
+    update_type = getattr(cls, "__update_type__", None)
+
+    if update_type is None:
+        msg = f"{cls.__name__} must define __update_type__"
+        raise TypeError(msg)
+
+    if not (isinstance(update_type, type) and issubclass(update_type, PyroUpdate)):
+        msg = f"{cls.__name__}.__update_type__ must be a subclass of {PyroUpdate.__name__}"
+        raise TypeError(msg)
 
 
 def get_update_executor(update: object) -> ThreadPoolExecutor | None:

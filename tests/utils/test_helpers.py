@@ -28,6 +28,28 @@ def test_update_bound_rejects_non_update_type() -> None:
             __update_type__ = int
 
 
+# --- _check_update_type ----------------------------------------------------
+
+
+def test_check_update_type_accepts_a_pyrogram_update_class() -> None:
+    assert helpers._check_update_type(type("Good", (), {"__update_type__": Message})) is None
+
+
+@pytest.mark.parametrize(
+    ("update_type", "message"),
+    [
+        (None, "Bad must define __update_type__"),
+        (int, "Bad.__update_type__ must be a subclass of Update"),
+        (Message(id=1), "Bad.__update_type__ must be a subclass of Update"),
+    ],
+)
+def test_check_update_type_rejects_a_missing_or_wrong_type(
+    update_type: object, message: str
+) -> None:
+    with pytest.raises(TypeError, match=message):
+        helpers._check_update_type(type("Bad", (), {"__update_type__": update_type}))
+
+
 # --- UpdateBound: more branches ------------------------------------------
 
 
