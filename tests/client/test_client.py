@@ -173,7 +173,7 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
         {
             "chat_id": 100,
             "user_id": None,
-            "message_id": None,
+            "message_id": 6,  # `AUTO`: the message after the question
             "context": ListenerContext(message_id=5, message=send.result),
             "filters": None,
             "strict": False,
@@ -243,6 +243,30 @@ async def test_ask_listens_on_the_sent_message_for_listen_message_id_sent() -> N
     await c.ask(100, "hi", listen_message_id=ListenMessageId.SENT)
 
     assert listener.calls[0]["message_id"] == 5
+
+
+async def test_ask_listens_on_the_next_message_for_listen_message_id_next() -> None:
+    c, listener, _, _ = _ask_client(make_message(chat_id=100, message_id=5))
+
+    await c.ask(100, "hi", listen_message_id=ListenMessageId.NEXT)
+
+    assert listener.calls[0]["message_id"] == 6
+
+
+async def test_ask_defaults_to_no_message_filter_for_another_update_type() -> None:
+    c, listener, _, _ = _ask_client(update_type=CallbackQuery)
+
+    await c.ask(100, "hi", listen_update_type=CallbackQuery)
+
+    assert listener.calls[0]["message_id"] is None
+
+
+async def test_ask_passes_an_explicit_none_listen_message_id_through() -> None:
+    c, listener, _, _ = _ask_client()
+
+    await c.ask(100, "hi", listen_message_id=None)
+
+    assert listener.calls[0]["message_id"] is None
 
 
 async def test_ask_listens_in_the_chat_of_the_sent_message() -> None:
@@ -365,7 +389,7 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
         {
             "chat_id": 100,
             "user_id": None,
-            "message_id": None,
+            "message_id": 6,  # `AUTO`: the message after the question
             "context": ListenerContext(message_id=5, message=c.send_rich_message.result),
             "filters": None,
             "strict": False,

@@ -170,7 +170,7 @@ callback = await client.ask(
 | `text` | نص الرسالة |
 | `message_id` | إن أُعطي، تُعدَّل الرسالة بدل إرسال رسالة جديدة |
 | `listen_user_id` | تصفية الـ update المنتظَرة حسب المستخدم |
-| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `ListenMessageId.SENT` (من `pyroflow.enums`) للرسالة التي أرسلها `ask` أو عدّلها، مثل انتظار ضغطة على أزرارها |
+| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `None` بلا تصفية، أو `ListenMessageId` (من `pyroflow.enums`): `SENT` للرسالة التي أرسلها `ask` أو عدّلها (ضغطة على أزرارها)، و`NEXT` للرسالة التي بعدها مباشرة. الافتراضي `AUTO`، وهو `NEXT` لانتظار `Message`، وبلا تصفية لغيره. في المجموعات قد تأخذ رسالة عضو آخر الرقم التالي، فمرّر `None` |
 | `listen_timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `listen_update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
 | `listen_context` | `ListenerContext` بقيم تُرفق بالـ listener |
@@ -207,7 +207,7 @@ while True:
         await message.reply("That is not a number.")
 ```
 
-`listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه.
+`listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه. ولأن انتظار `Message` في `ask` يأخذ الرسالة التالية فقط افتراضيًا، يظهر هذا التحذير أيضًا مع `listen_filters` غير صارم هناك: مرّر `listen_strict=True`، أو `listen_message_id=None` لانتظار أي رسالة.
 
 للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`context` وفلتره) قبل أن يرفع `listen` الخطأ:
 

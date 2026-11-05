@@ -23,6 +23,7 @@ from pyrogram.types import (
     Update as PyroUpdate,
 )
 
+from .enums import ListenMessageId
 from .utils import patch_cls
 
 
@@ -153,7 +154,7 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -173,7 +174,7 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -208,7 +209,7 @@ class Message(PyroMessage):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -243,7 +244,7 @@ class Message(PyroMessage):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -278,7 +279,7 @@ class Message(PyroMessage):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -313,8 +314,9 @@ class Message(PyroMessage):
             suggested_post_parameters: Parameters of a suggested channel post.
             reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
             listen_user_id: Only accept updates from this user.
-            listen_message_id: Only accept updates for this message id, or
-                `ListenMessageId.SENT` for the sent or edited message.
+            listen_message_id: Only accept updates for this message id; see
+                `Client.ask` for `None` and the `ListenMessageId` values, and
+                for the default `AUTO`.
             listen_context: Values attached to the created listener; see
                 `Client.ask`.
             listen_filters: A Pyrogram filter the awaited update must pass; see
@@ -395,7 +397,7 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -412,7 +414,7 @@ class Message(PyroMessage):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -441,7 +443,7 @@ class Message(PyroMessage):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -470,7 +472,7 @@ class Message(PyroMessage):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -499,7 +501,7 @@ class Message(PyroMessage):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,

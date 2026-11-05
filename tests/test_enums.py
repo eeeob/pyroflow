@@ -44,7 +44,7 @@ def test_listener_scope_values() -> None:
 
 
 def test_listen_message_id_values() -> None:
-    assert [str(value) for value in ListenMessageId] == ["sent"]
+    assert [str(value) for value in ListenMessageId] == ["auto", "sent", "next"]
 
 
 def test_enums_all() -> None:

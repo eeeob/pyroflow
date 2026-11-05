@@ -18,9 +18,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   that stops deletes the commands the other still uses, unless it stops with
   `remove_commands=False`.
 - `Update.context`: a per-update dict for arbitrary data.
-- `ListenMessageId.SENT` as `listen_message_id` on `ask` and `ask_rich`:
-  wait for an update on the message `ask` sent or edited, such as a press on
-  its buttons.
+- `pyroflow.enums.ListenMessageId` as `listen_message_id` on `ask` and
+  `ask_rich`: `SENT` waits on the message `ask` sent or edited, such as a
+  press on its buttons; `NEXT` waits for the message right after it.
 - `User.lang_code` and `Message.editable`.
 - `py.typed`: the package ships its type hints.
 - `ListenerKey.to_dict()`: the key's fields by name.
@@ -69,6 +69,12 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** `listen_message_id` on `ask` and `ask_rich` (on `Client` and
+  `Message`) defaults to `ListenMessageId.AUTO` instead of `None`: a
+  `Message` wait now takes only the message right after the question
+  (`NEXT`), other waits keep no message filter. In a group another member's
+  message can take that id; there, and for the old behavior, pass
+  `listen_message_id=None`.
 - **BREAKING:** `UpdateListener.resolve` returns whether a listener took the
   update, instead of returning `None` or raising `UnresolvedUpdate`.
   Affects code calling or overriding `resolve`.

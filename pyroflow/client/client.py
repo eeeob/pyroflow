@@ -118,7 +118,7 @@ class Client(PyroClient):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -155,7 +155,7 @@ class Client(PyroClient):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -179,7 +179,7 @@ class Client(PyroClient):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -203,7 +203,7 @@ class Client(PyroClient):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -241,7 +241,7 @@ class Client(PyroClient):
         suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -278,9 +278,13 @@ class Client(PyroClient):
             paid_message_star_count: Telegram Stars paid to send the message.
             suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: Filter the awaited update by user.
-            listen_message_id: Filter the awaited update by message: an id, or
-                `ListenMessageId.SENT` for the message sent or edited here, such
-                as to wait for a press on its buttons.
+            listen_message_id: Filter the awaited update by message: an id,
+                `None` for no filter, or a `ListenMessageId`: `SENT` for the
+                message sent or edited here (a press on its buttons), `NEXT`
+                for the message right after it, or `AUTO` (the default),
+                which is `NEXT` for a `Message` wait and no filter otherwise.
+                In a group, `NEXT` can be taken by another member's message;
+                pass `None` there.
             listen_context: Values attached to the listener. It is copied,
                 and the copy's `message_id` and `message` are set to the id
                 of the sent or edited message and to the message itself,
@@ -368,8 +372,15 @@ class Client(PyroClient):
                 ),
             )
 
+        if listen_message_id is ListenMessageId.AUTO:
+            listen_message_id = (
+                ListenMessageId.NEXT if issubclass(listen_update_type, Message) else None
+            )
+
         if listen_message_id is ListenMessageId.SENT:
             listen_message_id = m.id
+        elif listen_message_id is ListenMessageId.NEXT:
+            listen_message_id = m.id + 1
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 
@@ -417,7 +428,7 @@ class Client(PyroClient):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -447,7 +458,7 @@ class Client(PyroClient):
         | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -468,7 +479,7 @@ class Client(PyroClient):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -489,7 +500,7 @@ class Client(PyroClient):
         reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -523,7 +534,7 @@ class Client(PyroClient):
         suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
         # listen params
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = None,
+        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -620,8 +631,15 @@ class Client(PyroClient):
                 ),
             )
 
+        if listen_message_id is ListenMessageId.AUTO:
+            listen_message_id = (
+                ListenMessageId.NEXT if issubclass(listen_update_type, Message) else None
+            )
+
         if listen_message_id is ListenMessageId.SENT:
             listen_message_id = m.id
+        elif listen_message_id is ListenMessageId.NEXT:
+            listen_message_id = m.id + 1
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 

@@ -86,12 +86,20 @@ class ListenMessageId(StrEnum):
     """A `listen_message_id` of `ask` that stands for a message only known once it is sent.
 
     Example:
-        >>> ListenMessageId.SENT == "sent"
+        >>> ListenMessageId.NEXT == "next"
         True
     """
 
+    AUTO = auto()
+    """The default: `NEXT` when `ask` waits for a `Message`, otherwise no message filter."""
     SENT = auto()
-    """The id of the message `ask` sent or edited, such as for a press on its buttons."""
+    """The message `ask` sent or edited itself; for a `CallbackQuery`, a press on its buttons."""
+    NEXT = auto()
+    """The message right after the one `ask` sent or edited (its id plus one); for a `Message`.
+
+    In a group another member's message can take that id, and the real answer
+    then never matches; pass `listen_message_id=None` there.
+    """
 
 
 __all__ = (

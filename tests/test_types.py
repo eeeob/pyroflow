@@ -13,6 +13,7 @@ from pyrogram.enums import ChatType
 from pyrogram.types import Chat, ReplyParameters
 
 from pyroflow import types as pf_types
+from pyroflow.enums import ListenMessageId
 from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message, User
 
@@ -216,6 +217,7 @@ async def test_ask_sends_reply_when_not_editable() -> None:
     assert kwargs["direct_messages_topic_id"] == 4
     assert kwargs["business_connection_id"] == "bc"
     assert kwargs["listen_user_id"] == 7
+    assert kwargs["listen_message_id"] is ListenMessageId.AUTO
     assert kwargs["listen_context"] is CONTEXT
     assert kwargs["listen_filters"] is pyrogram.filters.text
     assert kwargs["listen_strict"] is True
@@ -315,6 +317,7 @@ async def test_ask_rich_sends_reply_when_not_editable() -> None:
     assert kwargs["direct_messages_topic_id"] == 4
     assert kwargs["business_connection_id"] == "bc"
     assert kwargs["listen_user_id"] == 7
+    assert kwargs["listen_message_id"] is ListenMessageId.AUTO
     assert kwargs["listen_context"] is CONTEXT
     assert kwargs["listen_filters"] is pyrogram.filters.text
     assert kwargs["listen_strict"] is True

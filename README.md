@@ -156,7 +156,7 @@ callback = await client.ask(
 | `text` | Message text |
 | `message_id` | If provided, edits the message instead of sending a new one |
 | `listen_user_id` | Filter the awaited update by user |
-| `listen_message_id` | Filter the awaited update by message: an id, or `ListenMessageId.SENT` (from `pyroflow.enums`) for the message `ask` sent or edited, such as to wait for a press on its buttons |
+| `listen_message_id` | Filter the awaited update by message: an id, `None` for no filter, or a `ListenMessageId` (from `pyroflow.enums`): `SENT` for the message `ask` sent or edited (a press on its buttons), `NEXT` for the message right after it. The default, `AUTO`, is `NEXT` for a `Message` wait and no filter otherwise. In a group another member's message can take the next id; pass `None` there |
 | `listen_timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `listen_update_type` | Update type to wait for — determines the return type (default: `Message`) |
 | `listen_context` | A `ListenerContext` of values attached to the listener |
@@ -190,7 +190,7 @@ while True:
         await message.reply("That is not a number.")
 ```
 
-`listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below.
+`listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below. Since a `Message` wait of `ask` takes only the next message by default, that warning also shows for a non-strict `listen_filters` there: pass `listen_strict=True`, or `listen_message_id=None` to wait for any message.
 
 To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `context`, filter) before `listen` raises:
 
