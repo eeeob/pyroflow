@@ -262,15 +262,13 @@ async def test_unregister_listener_of_an_unknown_type_is_a_noop() -> None:
 # --- Dispatcher.handle_listen -----------------------------------------------
 
 
-async def test_handle_listen_resolved_update_stops_propagation() -> None:
+async def test_handle_listen_is_true_for_an_update_the_listener_took() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener()
     dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
     msg = make_message()
 
-    with pytest.raises(StopPropagation):
-        await dispatcher.handle_listen(msg)
-
+    assert await dispatcher.handle_listen(msg) is True
     assert listener.resolved == [msg]
 
 
@@ -283,7 +281,7 @@ async def test_handle_listen_unmatched_update_propagates_on(
     msg = make_message()
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await dispatcher.handle_listen(msg)
+        assert await dispatcher.handle_listen(msg) is False
 
     assert listener.resolved == [msg]
     assert "Unexpected error in handle_listen" not in caplog.text
@@ -293,7 +291,7 @@ async def test_handle_listen_lets_an_update_through_an_idle_listener() -> None:
     dispatcher = make_real_dispatcher()
     dispatcher.register_listener(MessageListener())
 
-    assert await dispatcher.handle_listen(make_message()) is None
+    assert await dispatcher.handle_listen(make_message()) is False
 
 
 async def test_handle_listen_logs_a_listener_error(caplog: pytest.LogCaptureFixture) -> None:
@@ -301,7 +299,7 @@ async def test_handle_listen_logs_a_listener_error(caplog: pytest.LogCaptureFixt
     dispatcher.listeners[Message] = FakeListener(error=RuntimeError("boom"))  # ty: ignore[invalid-assignment]
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher"):
-        await dispatcher.handle_listen(make_message())
+        assert await dispatcher.handle_listen(make_message()) is False
 
     assert "Unexpected error in handle_listen" in caplog.text
 
@@ -311,8 +309,7 @@ async def test_handle_listen_dispatches_on_the_exact_type() -> None:
     listener = FakeListener()
     dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
 
-    await dispatcher.handle_listen(make_callback_query())
-
+    assert await dispatcher.handle_listen(make_callback_query()) is False
     assert listener.resolved == []
 
 
@@ -403,25 +400,18 @@ async def test_raw_handler_receives_the_raw_packet() -> None:
     assert calls == [("raw", *RAW_PACKET)]
 
 
-async def test_no_parsed_update_skips_the_listener() -> None:
-    dispatcher = make_real_dispatcher()
-    listener = FakeListener()
-    dispatcher.listeners[type(None)] = listener  # ty: ignore[invalid-assignment]
-
-    assert await dispatcher.handle_update(RAW_PACKET, None, type(None)) is None
-    assert listener.resolved == []
-
-
-async def test_resolved_listener_stops_before_any_handler() -> None:
+async def test_handle_update_leaves_the_listener_alone() -> None:
     dispatcher = make_real_dispatcher()
     calls: list[tuple[object, ...]] = []
-    dispatcher.listeners[Message] = FakeListener()  # ty: ignore[invalid-assignment]
+    listener = FakeListener()
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
     dispatcher.groups[0] = [MessageHandler(recording(calls, "a"))]
+    msg = make_message()
 
-    with pytest.raises(StopPropagation):
-        await dispatcher.handle_update(RAW_PACKET, make_message(), MessageHandler)
+    await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
 
-    assert calls == []
+    assert listener.resolved == []
+    assert calls == [("a", msg)]
 
 
 @pytest.mark.parametrize(
@@ -523,6 +513,45 @@ async def test_handler_worker_parses_and_dispatches_under_the_lock() -> None:
     assert lock.locked() is False
 
 
+async def test_handler_worker_resolves_a_listened_update_without_the_lock() -> None:
+    dispatcher = make_real_dispatcher()
+    lock = asyncio.Lock()
+    listener = FakeListener()
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    msg = make_message()
+    handled: list[object] = []
+
+    async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
+        return (msg, MessageHandler)
+
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+        handled.append(parsed)
+
+    dispatcher.update_parsers = {FakeRawUpdate: parser}
+    dispatcher.handle_update = handle_update
+    dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
+    dispatcher.updates_queue.put_nowait(None)
+
+    async with lock:  # Another holder: resolving must not wait for it.
+        await asyncio.wait_for(dispatcher.handler_worker(lock), 1)
+
+    assert listener.resolved == [msg]
+    assert handled == []
+
+
+async def test_handler_worker_offers_no_unparsed_update_to_the_listener() -> None:
+    dispatcher = make_real_dispatcher()
+    listener = FakeListener()
+    dispatcher.listeners[type(None)] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.update_parsers = {}
+    dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
+    dispatcher.updates_queue.put_nowait(None)
+
+    await dispatcher.handler_worker(asyncio.Lock())
+
+    assert listener.resolved == []
+
+
 async def test_handler_worker_passes_unknown_updates_unparsed() -> None:
     dispatcher = make_real_dispatcher()
     packet = (FakeRawUpdate(), {}, {})
@@ -584,17 +613,20 @@ async def test_a_listened_reply_skips_the_handlers_and_the_next_one_reaches_them
     dispatcher.groups[0] = [MessageHandler(recording(calls, "handler"))]
     waiter = asyncio.create_task(listener.listen(100, 7))
     await asyncio.sleep(0)
-    reply = make_message(100, 7, 5)
+    reply, later = make_message(100, 7, 5), make_message(100, 7, 6)
+    parsed = iter([reply, later])
 
-    with pytest.raises(StopPropagation):
-        await dispatcher.handle_update(RAW_PACKET, reply, MessageHandler)
+    async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
+        return (next(parsed), MessageHandler)
+
+    dispatcher.update_parsers = {FakeRawUpdate: parser}
+    for _ in range(2):
+        dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
+    dispatcher.updates_queue.put_nowait(None)
+
+    await dispatcher.handler_worker(asyncio.Lock())
 
     assert await waiter is reply
-    assert calls == []
-
-    later = make_message(100, 7, 6)
-    await dispatcher.handle_update(RAW_PACKET, later, MessageHandler)
-
     assert calls == [("handler", later)]
 
 

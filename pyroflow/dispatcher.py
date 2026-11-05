@@ -30,9 +30,10 @@ class Dispatcher(PyroDispatcher):
     """Pyrogram dispatcher extended with listeners.
 
     Patched onto `pyrogram.dispatcher.Dispatcher` in place, so every client uses
-    it. Each update goes through `handle_update`: the listener registered for
-    its type gets it first and, if it takes it, propagation stops; otherwise
-    the first matching handler of each group runs.
+    it. A worker offers each parsed update to the listener registered for its
+    type first, without the worker's lock; if the listener takes it, no
+    handler runs. Otherwise `handle_update` runs the first matching handler
+    of each group under the lock.
     """
 
     old__init__: Callable[..., None]
@@ -136,30 +137,27 @@ class Dispatcher(PyroDispatcher):
         if listener is not None:
             await listener.stop()
 
-    async def handle_listen(self, parsed_update: PyroUpdate) -> None:
+    async def handle_listen(self, parsed_update: PyroUpdate) -> bool:
         """Offer the update to the listener registered for its type.
 
-        A listener error is logged and the update goes on to the handlers.
+        A listener error is logged, and the update goes on to the handlers.
 
         Args:
             parsed_update: The parsed Pyrogram update to resolve.
 
-        Raises:
-            StopPropagation: If the listener took the update; no handler runs.
+        Returns:
+            Whether the listener took the update, so no handler should run.
         """
         listener = self.listeners.get(type(parsed_update))
 
         if listener is None:
-            return
+            return False
 
         try:
-            resolved = await listener.resolve(parsed_update)
+            return await listener.resolve(parsed_update)
         except Exception:
             log.exception("Unexpected error in handle_listen")
-            return
-
-        if resolved:
-            parsed_update.stop_propagation()
+            return False
 
     async def handle_update(
         self,
@@ -167,10 +165,11 @@ class Dispatcher(PyroDispatcher):
         parsed_update: PyroUpdate | None,
         handler_type: type[PyroHandler | None],
     ) -> None:
-        """Run the update through its listener, then the first matching handler of each group.
+        """Run the first matching handler of each group.
 
-        A handler error is passed to `handle_update_handler_exception` and does
-        not stop the other groups.
+        The listener already had the update (see `handler_worker`). A handler
+        error is passed to `handle_update_handler_exception` and does not stop
+        the other groups.
 
         Args:
             packet: The raw `(update, users, chats)` tuple from Pyrogram.
@@ -178,13 +177,9 @@ class Dispatcher(PyroDispatcher):
             handler_type: The handler class expected to handle this update.
 
         Raises:
-            StopPropagation: If the listener took the update or a handler
-                stopped propagation.
+            StopPropagation: If a handler stopped propagation.
         """
         update, users, chats = packet
-
-        if parsed_update is not None:
-            await self.handle_listen(parsed_update)
 
         for group in self.groups.values():
             for handler in group:
@@ -232,11 +227,13 @@ class Dispatcher(PyroDispatcher):
     async def handler_worker(self, lock: asyncio.Lock) -> None:
         """Parse and dispatch updates from the queue until a `None` sentinel arrives.
 
-        Errors are logged, never raised, so the worker keeps running.
+        A parsed update goes to `handle_listen` first, without the lock, so a
+        listener resolves it whatever the handlers are doing. Errors are
+        logged, never raised, so the worker keeps running.
 
         Args:
-            lock: This worker's own lock; each update is dispatched while
-                holding it.
+            lock: This worker's own lock; each update the listener does not
+                take is handled while holding it.
         """
         while True:
             packet = await self.updates_queue.get()
@@ -251,6 +248,9 @@ class Dispatcher(PyroDispatcher):
                     if (parser := self.update_parsers.get(type(update))) is not None
                     else (None, type(None))
                 )
+
+                if parsed_update is not None and await self.handle_listen(parsed_update):
+                    continue
 
                 async with lock:
                     await self.handle_update(packet, parsed_update, handler_type)

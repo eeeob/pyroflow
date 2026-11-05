@@ -72,6 +72,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** `Dispatcher.handle_listen` returns whether the listener took
+  the update instead of raising `StopPropagation`, and the worker calls it
+  before taking its lock; `handle_update` only runs the handlers. A
+  listener now resolves an update while handlers hold the worker locks.
 - **BREAKING:** `listen_message_id` on `ask` and `ask_rich` (on `Client` and
   `Message`) defaults to `ListenMessageId.AUTO` instead of `None`: a
   `Message` wait now takes only the message right after the question
