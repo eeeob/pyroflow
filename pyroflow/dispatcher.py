@@ -58,20 +58,23 @@ class Dispatcher(PyroDispatcher):
         """Whether the dispatcher is running; registration is refused while it is."""
 
     async def start(self, *args: object, **kw: object) -> None:
-        """Start the dispatcher, then all registered listeners.
+        """Start all registered listeners, then the dispatcher.
+
+        The listeners go first: the original `start` already dispatches the
+        updates missed while stopped, and a handler among them may `listen`.
 
         Args:
             *args: Passed directly to the original dispatcher.
             **kw: Passed directly to the original dispatcher.
         """
-        r = await self.oldstart(*args, **kw)
-
-        self.is_started = True
-
         await gather_helper(
             (listener.start() for listener in self.listeners.values()),
             return_exc=True,
         )
+
+        r = await self.oldstart(*args, **kw)
+
+        self.is_started = True
 
         return r
 

@@ -120,7 +120,7 @@ async def test_start_and_stop_through_the_original_dispatcher() -> None:
     assert dispatcher.is_started is False
 
 
-async def test_start_runs_the_original_then_the_listeners() -> None:
+async def test_start_runs_the_listeners_then_the_original() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
 
@@ -135,7 +135,7 @@ async def test_start_runs_the_original_then_the_listeners() -> None:
     assert await dispatcher.start(1, flag=True) == "result"
 
     assert dispatcher.is_started is True
-    assert order == ["oldstart (1,) {'flag': True}", "start listener"]
+    assert order == ["start listener", "oldstart (1,) {'flag': True}"]
 
 
 async def test_start_survives_a_failing_listener() -> None:
