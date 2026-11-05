@@ -20,12 +20,22 @@ from pyrogram.handlers import (
     MessageHandler,
     RawUpdateHandler,
 )
+from pyrogram.raw.types import UpdateConfig, UpdateLoginToken
 from pyrogram.types import Message
 
+import pyroflow
 from pyroflow import dispatcher as dispatcher_module
-from pyroflow.dispatcher import Dispatcher
-from pyroflow.errors import ListenerCancelled, ListenerTimeout
+from pyroflow.dispatcher import Dispatcher, LentWorker, WorkerWait
+from pyroflow.enums import WorkersBusyMode
+from pyroflow.errors import (
+    ListenerCancelled,
+    ListenerEvicted,
+    ListenerTimeout,
+    ListenerWorkersBusy,
+)
+from pyroflow.models import ListenerKey, WorkersPolicy
 from pyroflow.update_listener import MessageListener
+from pyroflow.utils import handler_worker_var
 
 from .conftest import make_callback_query, make_message
 
@@ -41,7 +51,7 @@ def test_module_logger_is_named_after_the_module() -> None:
 
 
 def test_public_surface() -> None:
-    assert dispatcher_module.__all__ == ("Dispatcher",)
+    assert dispatcher_module.__all__ == ("Dispatcher", "WorkerWait", "LentWorker")
 
 
 # --- Dispatcher: construction, start and stop -------------------------------
@@ -85,12 +95,12 @@ class FakeListener:
 
 def make_client(**kw: Any) -> SimpleNamespace:
     kw.setdefault("loop", asyncio.get_running_loop())
+    kw.setdefault("workers", 0)
     return SimpleNamespace(
         executor=None,
         start_handler=None,
         stop_handler=None,
         no_updates=True,
-        workers=0,
         skip_updates=True,
         **kw,
     )
@@ -650,3 +660,335 @@ async def test_listen_inside_a_handler_of_the_same_chat_does_not_deadlock() -> N
 
     assert len(errors) == 1
     assert isinstance(errors[0], ListenerTimeout)
+
+
+# --- workers policy: the handler side of a wait ---------------------------
+
+
+def _waiting_bot(workers: int) -> tuple[pyroflow.Client, MessageListener, list[object]]:
+    """A real client whose raw handler waits in `listen` for each `UpdateConfig`.
+
+    The waits are on chats 1, 2, ... in arrival order; any other raw update is
+    recorded as `"ping"`, to show a worker still reads the queue.
+    """
+    client = pyroflow.Client(
+        "probe", api_id=1, api_hash="x", in_memory=True, workers=workers, skip_updates=True
+    )
+    listener = MessageListener()
+    client.register_listener(listener)
+    results: list[object] = []
+    chats = iter(range(1, 100))
+
+    async def handler(client: object, update: object, users: object, chats_: object) -> None:
+        if not isinstance(update, UpdateConfig):
+            results.append("ping")
+            return
+
+        chat = next(chats)
+        try:
+            await listener.listen(chat, timeout=5)
+            results.append((chat, "answered"))
+        except Exception as e:  # noqa: BLE001  # the test records how each wait ended
+            results.append((chat, type(e)))
+
+    client.add_handler(RawUpdateHandler(handler))
+    return client, listener, results
+
+
+async def _until(condition: Callable[[], bool], timeout: float = 1) -> None:
+    async def poll() -> None:
+        while not condition():
+            await asyncio.sleep(0.005)
+
+    await asyncio.wait_for(poll(), timeout)
+
+
+async def _start_waits(client: pyroflow.Client, asks: int, *, ping: bool = True) -> None:
+    await client.dispatcher.start()
+    for _ in range(asks):
+        client.dispatcher.updates_queue.put_nowait((UpdateConfig(), {}, {}))
+    if ping:
+        client.dispatcher.updates_queue.put_nowait((UpdateLoginToken(), {}, {}))
+
+
+async def test_policy_none_lets_waits_take_every_worker() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.NONE))
+    await _start_waits(client, 2)
+    try:
+        await _until(lambda: len(listener.listeners) == 2)
+        await asyncio.sleep(0.05)
+
+        assert "ping" not in results  # the bot is frozen: no worker reads the queue
+        assert len(client.dispatcher.handler_waits) == 2
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_policy_lend_on_every_wait_keeps_reading_the_queue() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.LEND, free_workers=2))
+    await _start_waits(client, 2)
+    try:
+        await _until(lambda: "ping" in results)
+
+        assert len(client.dispatcher.lent_worker_tasks) == 2
+        assert client.dispatcher.handler_waits == []
+
+        for chat in (1, 2):
+            assert await listener.resolve(make_message(chat)) is True
+        await _until(lambda: not client.dispatcher.lent_worker_tasks)
+
+        assert sorted(r for r in results if r != "ping") == [(1, "answered"), (2, "answered")]
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_policy_lend_by_default_lends_once_a_third_of_the_workers_is_left() -> None:
+    client, listener, results = _waiting_bot(workers=6)  # a third is 2
+    await _start_waits(client, 5)
+    try:
+        await _until(lambda: "ping" in results and len(listener.listeners) == 5)
+
+        assert len(client.dispatcher.handler_waits) == 4
+        assert len(client.dispatcher.lent_worker_tasks) == 1
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+        assert client.dispatcher.lent_worker_tasks == set()
+
+
+async def test_policy_reject_refuses_the_wait_that_would_take_the_last_worker() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))
+    await _start_waits(client, 2)
+    try:
+        await _until(lambda: "ping" in results)
+
+        assert (2, ListenerWorkersBusy) in results
+        assert list(listener.listeners) == [ListenerKey(1)]
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_policy_busy_timeout_lets_a_freed_worker_go_to_the_waiting_one() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=2))
+    await _start_waits(client, 2, ping=False)
+    try:
+        await _until(lambda: len(listener.listeners) == 1 and len(results) == 0)
+        await asyncio.sleep(0.05)  # the second wait now waits for a free worker
+
+        assert await listener.resolve(make_message(1)) is True
+        await _until(lambda: ListenerKey(2) in listener.listeners)
+
+        assert results == [(1, "answered")]
+        assert len(client.dispatcher.handler_waits) == 1
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_policy_cancel_oldest_evicts_the_oldest_wait() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST))
+    await _start_waits(client, 2)
+    try:
+        await _until(
+            lambda: (1, ListenerEvicted) in results and ListenerKey(2) in listener.listeners
+        )
+
+        assert [wait.key for wait in client.dispatcher.handler_waits] == [ListenerKey(2)]
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_policy_cancel_oldest_without_a_wait_to_evict_refuses() -> None:
+    client, _, results = _waiting_bot(workers=1)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST))
+    await _start_waits(client, 1)
+    try:
+        await _until(lambda: "ping" in results)
+
+        assert results[0] == (1, ListenerWorkersBusy)
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_init_defaults_to_lending_with_a_third_and_no_timeout() -> None:
+    dispatcher = make_real_dispatcher()
+
+    assert dispatcher.workers_policy == WorkersPolicy()
+    assert dispatcher.handler_waits == []
+    assert dispatcher.lent_worker_tasks == set()
+    assert isinstance(dispatcher.worker_freed, asyncio.Event)
+
+
+async def test_lacks_free_workers_counts_the_holding_waits() -> None:
+    dispatcher = make_real_dispatcher(workers=2)
+    dispatcher.workers_policy = WorkersPolicy(free_workers=1)
+
+    assert dispatcher.lacks_free_workers() is False
+    dispatcher.handler_waits.append(WorkerWait(dispatcher, MessageListener(), ListenerKey(1)))
+    assert dispatcher.lacks_free_workers() is True
+
+
+async def test_enter_handler_wait_with_policy_none_always_holds() -> None:
+    dispatcher = make_real_dispatcher(workers=1)
+    dispatcher.workers_policy = WorkersPolicy(WorkersBusyMode.NONE)
+
+    wait = await dispatcher.enter_handler_wait(MessageListener(), ListenerKey(1))
+
+    assert dispatcher.handler_waits == [wait]
+    assert wait.lent is None
+
+
+async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
+    dispatcher = make_real_dispatcher(workers=1)
+    dispatcher.workers_policy = WorkersPolicy(busy_timeout=0.05)
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+
+    await asyncio.wait_for(dispatcher.wait_for_free_worker(), 1)
+
+    assert loop.time() - start >= 0.04
+
+
+async def test_wait_for_free_worker_returns_once_a_wait_ends() -> None:
+    dispatcher = make_real_dispatcher(workers=2)
+    dispatcher.workers_policy = WorkersPolicy(busy_timeout=5)
+    wait = WorkerWait(dispatcher, MessageListener(), ListenerKey(1))
+    dispatcher.handler_waits.append(wait)
+    task = asyncio.ensure_future(dispatcher.wait_for_free_worker())
+    await asyncio.sleep(0.01)
+
+    wait.release()
+
+    await asyncio.wait_for(task, 1)
+
+
+async def test_worker_wait_release_frees_the_slot_once_and_wakes_waiters() -> None:
+    dispatcher = make_real_dispatcher()
+    wait = WorkerWait(dispatcher, MessageListener(), ListenerKey(1))
+    dispatcher.handler_waits.append(wait)
+    woken = asyncio.ensure_future(dispatcher.worker_freed.wait())
+    await asyncio.sleep(0)
+
+    wait.release()
+    wait.release()
+
+    assert dispatcher.handler_waits == []
+    assert wait.released is True
+    assert await asyncio.wait_for(woken, 1) is True
+    assert dispatcher.worker_freed.is_set() is False
+
+
+async def test_worker_wait_release_gives_back_its_stand_in() -> None:
+    dispatcher = make_real_dispatcher()
+    wait = WorkerWait(dispatcher, MessageListener(), ListenerKey(1))
+    wait.lent = LentWorker(dispatcher)
+    await asyncio.sleep(0)
+
+    wait.release()
+    await asyncio.sleep(0.01)
+
+    assert wait.lent.task.cancelled()
+
+
+async def test_lent_worker_given_back_while_idle_stops_and_leaves_the_queue_alone() -> None:
+    dispatcher = make_real_dispatcher()
+    lent = LentWorker(dispatcher)
+    await asyncio.sleep(0)
+    assert lent.idle is True
+    assert dispatcher.lent_worker_tasks == {lent.task}
+
+    lent.give_back()
+    await asyncio.sleep(0.01)
+    dispatcher.updates_queue.put_nowait(("later", {}, {}))
+
+    assert lent.task.cancelled()
+    assert dispatcher.lent_worker_tasks == set()
+    assert dispatcher.updates_queue.qsize() == 1
+
+
+async def test_lent_worker_given_back_while_busy_finishes_its_update_first() -> None:
+    dispatcher = make_real_dispatcher()
+    gate = asyncio.Event()
+    handled: list[object] = []
+
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+        handled.append(packet)
+        await gate.wait()
+
+    dispatcher.handle_update = handle_update
+    dispatcher.update_parsers = {}
+    first, second = ("first", {}, {}), ("second", {}, {})
+    dispatcher.updates_queue.put_nowait(first)
+    dispatcher.updates_queue.put_nowait(second)
+    lent = LentWorker(dispatcher)
+    await asyncio.sleep(0.01)
+
+    lent.give_back()
+    gate.set()
+    await asyncio.wait_for(lent.task, 1)
+
+    assert handled == [first]
+    assert dispatcher.updates_queue.qsize() == 1
+
+
+async def test_lent_worker_puts_the_stop_sentinel_back_for_a_real_worker() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.updates_queue.put_nowait(None)
+    lent = LentWorker(dispatcher)
+
+    await asyncio.wait_for(lent.task, 1)
+
+    assert dispatcher.updates_queue.get_nowait() is None
+
+
+async def test_serve_updates_marks_the_worker_for_listen_and_clears_it_after() -> None:
+    dispatcher = make_real_dispatcher()
+    seen: list[object] = []
+
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+        seen.append(handler_worker_var.get())
+
+    dispatcher.handle_update = handle_update
+    dispatcher.update_parsers = {}
+    dispatcher.updates_queue.put_nowait(("raw", {}, {}))
+    dispatcher.updates_queue.put_nowait(None)
+
+    await dispatcher.serve_updates(asyncio.Lock())
+
+    assert seen == [(dispatcher, asyncio.current_task())]
+    assert handler_worker_var.get() is None
+
+
+async def test_handle_update_iterates_copies_of_the_groups() -> None:
+    dispatcher = make_real_dispatcher()
+    calls: list[tuple[object, ...]] = []
+
+    async def adds_a_group(client: object, update: object) -> None:
+        calls.append(("adder", update))
+        dispatcher.groups[9] = [MessageHandler(recording(calls, "late"))]
+
+    dispatcher.groups[0] = [MessageHandler(adds_a_group)]
+    msg = make_message()
+
+    await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler)
+
+    assert calls == [("adder", msg)]
+
+
+async def test_stop_waits_for_the_stand_in_workers() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.LEND, free_workers=2))
+    await _start_waits(client, 2)
+    await _until(lambda: "ping" in results)
+    assert client.dispatcher.lent_worker_tasks
+
+    await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+    assert client.dispatcher.lent_worker_tasks == set()
+    assert sorted(r for r in results if r != "ping") == [
+        (1, ListenerCancelled),
+        (2, ListenerCancelled),
+    ]

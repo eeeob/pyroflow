@@ -12,6 +12,7 @@ from pyroflow.enums import (
     DuplicatePolicy,
     ListenMessageId,
     MessageListenCancelPolicy,
+    WorkersBusyMode,
     ListenerScope,
 )
 
@@ -47,12 +48,17 @@ def test_listen_message_id_values() -> None:
     assert [str(value) for value in ListenMessageId] == ["auto", "sent", "next"]
 
 
+def test_workers_busy_mode_values() -> None:
+    assert [str(mode) for mode in WorkersBusyMode] == ["lend", "reject", "cancel_oldest", "none"]
+
+
 def test_enums_all() -> None:
     assert pyroflow.enums.__all__ == (
         "DuplicatePolicy",
         "MessageListenCancelPolicy",
         "ListenerScope",
         "ListenMessageId",
+        "WorkersBusyMode",
     )
 
 

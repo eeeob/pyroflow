@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from pyrogram.types import InputRichMessage
 
     from pyroflow import CallbackQuery, Client, Message
+    from pyroflow.models import WorkersPolicy
+
+    def _check_with_workers_policy(client: Client) -> None:
+        assert_type(client.with_workers_policy(WorkersPolicy()), Client)
 
     async def _check_ask_send(client: Client) -> None:
         assert_type(await client.ask(1, "hi"), Message)

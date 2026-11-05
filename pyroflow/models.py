@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from pyrogram.filters import Filter
 
+from .enums import WorkersBusyMode
 from .utils import subsets_largest_first
 
 if TYPE_CHECKING:
@@ -151,8 +152,68 @@ class ListenerModel:
         return self.future.done()
 
 
+@dataclass(frozen=True, slots=True)
+class WorkersPolicy:
+    """What a wait inside a handler does when the workers run short.
+
+    A handler that waits in `ask` or `listen` holds the worker running it;
+    when too many do, no worker is left to read the replies and the bot
+    freezes. Once a wait would leave fewer than `free_workers` workers free,
+    `mode` steps in, after up to `busy_timeout` seconds for one to free. Set
+    it with `Client.with_workers_policy`.
+
+    Raises:
+        ValueError: If `free_workers` is below `1`, or `busy_timeout` is negative.
+
+    Example:
+        >>> WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=1).min_free_workers(12)
+        4
+    """
+
+    mode: WorkersBusyMode = WorkersBusyMode.LEND
+    """What steps in; see `WorkersBusyMode` for each mode and when it fits."""
+    free_workers: int | None = None
+    """Fewest workers a wait may leave free before `mode` steps in; `None` is a third.
+
+    Equal to the client's `workers`, `mode` steps in on every wait: `LEND`
+    lends to each, while `REJECT` and `CANCEL_OLDEST` refuse every wait
+    inside a handler, since none ever holds a worker.
+    """
+    busy_timeout: float = 0
+    """Seconds to wait first for a worker to free; `0` steps in at once.
+
+    While it waits, that worker reads no update, and the wait is registered
+    only afterwards, so an update can slip past it.
+    """
+
+    def __post_init__(self) -> None:
+        """Check the values; see the class docstring."""
+        if self.free_workers is not None and self.free_workers < 1:
+            msg = f"free_workers must be at least 1, got {self.free_workers}"
+            raise ValueError(msg)
+
+        if self.busy_timeout < 0:
+            msg = f"busy_timeout must not be negative, got {self.busy_timeout}"
+            raise ValueError(msg)
+
+    def min_free_workers(self, workers: int) -> int:
+        """Return how many of `workers` a wait inside a handler must leave free.
+
+        Args:
+            workers: The client's number of workers.
+
+        Returns:
+            `free_workers`, or a third of `workers` (at least one) when it is `None`.
+        """
+        if self.free_workers is not None:
+            return self.free_workers
+
+        return max(1, workers // 3)
+
+
 __all__ = (
     "ListenerKey",
     "ListenerContext",
     "ListenerModel",
+    "WorkersPolicy",
 )

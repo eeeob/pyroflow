@@ -9,8 +9,10 @@ from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
     ListenerError,
+    ListenerEvicted,
     ListenerRejected,
     ListenerTimeout,
+    ListenerWorkersBusy,
     PyroflowError,
 )
 
@@ -81,6 +83,12 @@ def test_listener_cancelled_defaults() -> None:
     [
         (ListenerTimeout, ListenerError, "Listener for 5 timed out"),
         (ListenerAlreadyExists, ListenerError, "A listener already exists for 5"),
+        (ListenerWorkersBusy, ListenerError, "No free worker for a wait on 5"),
+        (
+            ListenerEvicted,
+            ListenerCancelled,
+            "Listener for 5 was cancelled to free the worker its handler held",
+        ),
     ],
 )
 def test_error_subclass_messages(
@@ -103,5 +111,7 @@ def test_errors_all() -> None:
         "ListenerCancelled",
         "ListenerRejected",
         "ListenerTimeout",
+        "ListenerEvicted",
+        "ListenerWorkersBusy",
         "ListenerAlreadyExists",
     )

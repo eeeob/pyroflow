@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 from abc import ABC
+from contextvars import ContextVar
 from itertools import combinations
 from typing import Generic, TypeVar, TYPE_CHECKING
 
@@ -11,8 +12,17 @@ from pyrogram.types import Update as PyroUpdate
 from ..typings import UpdateType
 
 if TYPE_CHECKING:
+    import asyncio
     from collections.abc import Iterator, Sequence
     from concurrent.futures import ThreadPoolExecutor
+
+    from ..dispatcher import Dispatcher
+
+
+handler_worker_var: ContextVar[tuple[Dispatcher, asyncio.Task[None]] | None] = ContextVar(
+    "handler_worker_var", default=None
+)
+"""The dispatcher and worker task running the current handler, or `None` outside one."""
 
 
 class UpdateBound(Generic[UpdateType]):
@@ -138,6 +148,7 @@ def subsets_largest_first(items: Sequence[_ItemT]) -> Iterator[tuple[_ItemT, ...
 
 
 __all__ = (
+    "handler_worker_var",
     "UpdateBound",
     "get_update_executor",
     "subsets_largest_first",

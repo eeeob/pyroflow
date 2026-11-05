@@ -7,7 +7,8 @@ import asyncio
 import pytest
 
 import pyroflow.models
-from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
+from pyroflow.enums import WorkersBusyMode
+from pyroflow.models import ListenerContext, ListenerKey, ListenerModel, WorkersPolicy
 
 
 def test_listener_key_to_tuple() -> None:
@@ -157,4 +158,31 @@ def test_listener_context_subclass_declares_fields_with_defaults() -> None:
 
 
 def test_models_all() -> None:
-    assert pyroflow.models.__all__ == ("ListenerKey", "ListenerContext", "ListenerModel")
+    assert pyroflow.models.__all__ == (
+        "ListenerKey",
+        "ListenerContext",
+        "ListenerModel",
+        "WorkersPolicy",
+    )
+
+
+def test_workers_policy_defaults_to_lending_with_a_third_and_no_timeout() -> None:
+    policy = WorkersPolicy()
+    assert (policy.mode, policy.free_workers, policy.busy_timeout) == (
+        WorkersBusyMode.LEND,
+        None,
+        0,
+    )
+
+
+@pytest.mark.parametrize(("free", "timeout"), [(0, 0), (None, -1)])
+def test_workers_policy_rejects_invalid_values(free: int | None, timeout: float) -> None:
+    with pytest.raises(ValueError):
+        WorkersPolicy(free_workers=free, busy_timeout=timeout)
+
+
+@pytest.mark.parametrize(("workers", "free", "expected"), [(9, None, 3), (2, None, 1), (9, 5, 5)])
+def test_workers_policy_min_free_workers_is_the_setting_or_a_third(
+    workers: int, free: int | None, expected: int
+) -> None:
+    assert WorkersPolicy(free_workers=free).min_free_workers(workers) == expected

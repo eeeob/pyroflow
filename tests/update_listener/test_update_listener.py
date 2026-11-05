@@ -22,12 +22,16 @@ from pyroflow.enums import DuplicatePolicy, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
+    ListenerEvicted,
     ListenerRejected,
     ListenerTimeout,
+    ListenerWorkersBusy,
 )
 from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
 from pyroflow.update_listener import update_listener as update_listener_module
 from pyroflow.update_listener.update_listener import UpdateListener
+
+from pyroflow.utils import handler_worker_var
 
 from ..conftest import make_message
 
@@ -270,7 +274,107 @@ async def test_reject_without_a_listener_is_false_and_leaves_a_finished_one_as_i
     assert await done.future == "update"
 
 
+async def test_evict_fails_the_waiter_with_listener_evicted_and_removes_it() -> None:
+    lis = _make()
+    task = await _pending(lis, 100)
+    model = lis.listeners[ListenerKey(100)]
+
+    assert lis.evict(ListenerKey(100), model=model) is True
+    with pytest.raises(ListenerEvicted):
+        await task
+    assert lis.listeners == {}
+
+
+async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
+    lis = _make()
+    task = await _pending(lis, 100)
+    try:
+        assert lis.evict(ListenerKey(100), model=_model(ListenerKey(100))) is False
+        assert lis.evict(ListenerKey(999)) is False
+        assert not task.done()
+    finally:
+        await _drain(task)
+
+
 # --- listen ---------------------------------------------------------------------
+
+
+class _Holder:
+    """Stands in for the dispatcher of a worker: records the waits `listen` enters."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.waits: list[SimpleNamespace] = []
+
+    async def enter_handler_wait(self, listener: object, key: ListenerKey) -> SimpleNamespace:
+        if self.error is not None:
+            raise self.error
+        wait = SimpleNamespace(key=key, model=None, releases=0)
+        wait.release = lambda: setattr(wait, "releases", wait.releases + 1)
+        self.waits.append(wait)
+        return wait
+
+
+def _as_worker(holder: _Holder) -> object:
+    """Mark the running task as a worker of `holder`, as `Dispatcher.serve_updates` does."""
+    return handler_worker_var.set((holder, asyncio.current_task()))
+
+
+async def test_listen_in_a_worker_task_enters_the_wait_and_releases_it_at_the_end() -> None:
+    holder = _Holder()
+    token = _as_worker(holder)
+    try:
+        lis = _make()
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(100, timeout=0.01)
+    finally:
+        handler_worker_var.reset(token)
+
+    (wait,) = holder.waits
+    assert wait.key == ListenerKey(100)
+    assert wait.model is not None
+    assert wait.model.key == ListenerKey(100)
+    assert wait.releases == 1
+
+
+async def test_listen_in_a_task_the_handler_spawned_holds_no_worker() -> None:
+    holder = _Holder()
+    token = _as_worker(holder)
+    try:
+        lis = _make()
+        with pytest.raises(ListenerTimeout):
+            await asyncio.create_task(lis.listen(100, timeout=0.01))
+    finally:
+        handler_worker_var.reset(token)
+
+    assert holder.waits == []
+
+
+async def test_listen_refused_by_the_policy_registers_nothing() -> None:
+    token = _as_worker(_Holder(error=ListenerWorkersBusy(ListenerKey(100))))
+    try:
+        lis = _make()
+        with pytest.raises(ListenerWorkersBusy):
+            await lis.listen(100)
+    finally:
+        handler_worker_var.reset(token)
+
+    assert lis.listeners == {}
+
+
+async def test_listen_releases_the_wait_of_a_rejected_duplicate() -> None:
+    lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
+    first = await _pending(lis, 100)
+    holder = _Holder()
+    token = _as_worker(holder)
+    try:
+        with pytest.raises(ListenerAlreadyExists):
+            await lis.listen(100)
+    finally:
+        handler_worker_var.reset(token)
+        await _drain(first)
+
+    assert holder.waits[0].releases == 1
 
 
 async def test_listen_registers_the_listener_before_yielding() -> None:

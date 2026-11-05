@@ -121,6 +121,28 @@ client.callback_listen   # UpdateListener[CallbackQuery]
 
 A listener takes the next matching update its client receives after `listen` is called. When several waits match one update, such as one for the user and one for the whole chat, only the most specific gets it; pass `resolve_scope=ListenerScope.ALL` (from `pyroflow.enums`) to the listener to give it to every one. Listeners live in the client's own process: pyroflow does not coordinate between sessions, so a bot running in several processes handles each update once in every process that receives it.
 
+### Waiting inside handlers
+
+A handler that waits in `ask` or `listen` holds the worker running it (Pyrogram's `workers`, by default your CPU count plus four). When every worker waits, none is left to read the replies, and the bot freezes. A `WorkersPolicy` decides what happens instead, once a wait would leave fewer than `free_workers` workers free:
+
+```python
+from pyroflow.enums import WorkersBusyMode
+from pyroflow.models import WorkersPolicy
+
+client = Client("bot", workers=12).with_workers_policy(
+    WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
+)
+```
+
+| `mode` | What happens | Fits |
+|---|---|---|
+| `LEND` (default) | The wait gets a stand-in worker until it ends | Most bots; with `free_workers=workers`, heavy listening load such as many groups with many users in conversations |
+| `REJECT` | The wait raises `ListenerWorkersBusy` | A deliberate cap, such as a support bot with fixed capacity |
+| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one takes its worker | Menus and questions users often leave unanswered |
+| `NONE` | Nothing; the bot can freeze | When `workers` is far above any number of open conversations |
+
+`free_workers` defaults to a third of `workers`. `busy_timeout` (default `0`) first waits that many seconds for a worker to free; meanwhile that worker reads no update. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
+
 ---
 
 ### ask()

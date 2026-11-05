@@ -133,6 +133,28 @@ client.callback_listen   # UpdateListener[CallbackQuery]
 
 الـ listeners تعيش داخل عملية الـ client نفسه، ولا تنسّق pyroflow بين الـ sessions. لذلك البوت الذي يعمل في عدة عمليات يعالج كل update مرة في كل عملية تستقبله.
 
+### الانتظار داخل الـ handlers
+
+الـ handler الذي ينتظر في `ask` أو `listen` يحجز الـ worker الذي يشغّله (الـ `workers` في Pyrogram، وعددها افتراضيًا عدد أنوية المعالج زائد أربعة). فإذا انتظرت كل الـ workers، لا يبقى من يقرأ الردود، فيتجمّد البوت. يحدد `WorkersPolicy` ما يحدث بدل ذلك، عندما يترك انتظار جديد أقل من `free_workers` worker حرًا:
+
+```python
+from pyroflow.enums import WorkersBusyMode
+from pyroflow.models import WorkersPolicy
+
+client = Client("bot", workers=12).with_workers_policy(
+    WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
+)
+```
+
+| `mode` | ماذا يحدث | يناسب |
+|---|---|---|
+| `LEND` (الافتراضي) | يأخذ الانتظار worker بديلًا مؤقتًا حتى ينتهي | أغلب البوتات. ومع `free_workers=workers`: ضغط انتظارات كبير، مثل مجموعات كثيرة فيها مستخدمون في محادثات |
+| `REJECT` | يرفع الانتظار `ListenerWorkersBusy` | سقف مقصود، مثل بوت دعم بطاقة ثابتة |
+| `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، ويأخذ الجديد الـ worker الخاص به | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
+| `NONE` | لا شيء، وقد يتجمّد البوت | حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة |
+
+الافتراضي لـ `free_workers` ثلث `workers`. و`busy_timeout` (الافتراضي `0`) ينتظر أولًا هذه المدة لعل worker يتحرر، ولا يقرأ ذلك الـ worker أي update خلالها. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
+
 ---
 
 ### ask()

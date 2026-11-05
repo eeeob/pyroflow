@@ -19,7 +19,13 @@ from ..utils import patch_cls
 from ..types import Message, CallbackQuery
 
 if TYPE_CHECKING:
+    import sys
     from datetime import datetime
+
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
     from pyrogram.filters import Filter
     from pyrogram.types import InputRichMessage
@@ -29,6 +35,7 @@ if TYPE_CHECKING:
     )
 
     from ..dispatcher import Dispatcher
+    from ..models import WorkersPolicy
     from ..typings import (
         ListenMessageIdT,
         UpdateType,
@@ -73,6 +80,35 @@ class Client(PyroClient):
             KeyError: If no `CallbackQuery` listener is registered.
         """
         return self.listeners[CallbackQuery]
+
+    def with_workers_policy(self, policy: WorkersPolicy) -> Self:
+        """Set the `WorkersPolicy` waits inside handlers follow, and return the client.
+
+        Without a call the client uses `WorkersPolicy()`: `LEND`, a third of
+        the workers, no timeout.
+
+        It is a method rather than a `Client(...)` argument so pyroflow does
+        not redeclare `pyrogram.Client.__init__`, a long signature it would
+        then have to follow on every Pyrogram change. Chain it instead:
+        `Client("bot", workers=12).with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))`.
+
+        Args:
+            policy: The policy; see `WorkersPolicy` and `WorkersBusyMode`.
+
+        Returns:
+            The client itself.
+
+        Raises:
+            ValueError: If `policy.free_workers` is above the client's `workers`.
+        """
+        if policy.free_workers is not None and policy.free_workers > self.workers:
+            msg = (
+                f"free_workers must not exceed workers ({self.workers}), got {policy.free_workers}"
+            )
+            raise ValueError(msg)
+
+        self.dispatcher.workers_policy = policy
+        return self
 
     if TYPE_CHECKING:
         register_listener = Dispatcher.register_listener

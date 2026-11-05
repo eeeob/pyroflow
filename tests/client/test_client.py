@@ -19,9 +19,9 @@ from pyrogram.types import (
 )
 
 import pyroflow.client.client as client_module
-from pyroflow.enums import ListenMessageId
+from pyroflow.enums import ListenMessageId, WorkersBusyMode
 from pyroflow.errors import ListenerAlreadyExists
-from pyroflow.models import ListenerContext
+from pyroflow.models import ListenerContext, WorkersPolicy
 from pyroflow.types import CallbackQuery, Message
 
 from ..conftest import make_message
@@ -40,6 +40,23 @@ def make_client() -> pyroflow.Client:
 
 def test_module_exports() -> None:
     assert client_module.__all__ == ("Client",)
+
+
+def test_with_workers_policy_sets_the_dispatchers_policy_and_returns_the_client() -> None:
+    c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=4, busy_timeout=1)
+
+    assert c.with_workers_policy(policy) is c
+    assert c.dispatcher.workers_policy is policy
+
+
+def test_with_workers_policy_rejects_more_free_workers_than_workers() -> None:
+    c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
+
+    with pytest.raises(ValueError, match="must not exceed workers"):
+        c.with_workers_policy(WorkersPolicy(free_workers=5))
+
+    assert c.dispatcher.workers_policy == WorkersPolicy()
 
 
 # --- shared fakes for the rest of the module ---------------------------------

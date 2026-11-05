@@ -9,11 +9,12 @@ from typing import TYPE_CHECKING
 from pytrove import maybe_awaitable, is_exception
 
 from ..typings import UpdateType
-from ..utils import UpdateBound, get_update_executor
+from ..utils import UpdateBound, get_update_executor, handler_worker_var
 from ..errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
     ListenerError,
+    ListenerEvicted,
     ListenerRejected,
     ListenerTimeout,
 )
@@ -50,10 +51,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             used by `extract_key`; `None` skips the update.
         on_error_func: `(exc, listener_model) -> object`, sync or async,
             called when a `ListenerError` ends a wait (a timeout, a
-            cancellation or a strict rejection), after the wait is removed
-            and before `listen` raises the error. Errors raised before a wait
-            starts, such as `ListenerAlreadyExists`, are not reported. A
-            failing callback is logged and never hides the error.
+            cancellation, an eviction or a strict rejection), after the wait
+            is removed and before `listen` raises the error. Errors raised
+            before a wait starts, `ListenerAlreadyExists` and
+            `ListenerWorkersBusy`, are not reported. A failing callback is
+            logged and never hides the error.
         on_listen_func: `(listen_kwargs) -> object`, called by `listen` with
             one dict of its arguments by name (`chat_id`, `user_id`,
             `message_id`, `context`, `filters`, `strict` and `timeout`, as
@@ -163,6 +165,32 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return True
 
+    def evict(self, key: ListenerKey, *, model: ListenerModel | None = None) -> bool:
+        """End the listener waiting on `key` to free the worker its handler holds.
+
+        Its waiter gets `ListenerEvicted`, a `ListenerCancelled`. Used by
+        `WorkersBusyMode.CANCEL_OLDEST`.
+
+        Args:
+            key: The key identifying the listener.
+            model: Evict only this registered wait, not a newer one on the
+                same key; `None` evicts whichever waits.
+
+        Returns:
+            Whether a listener was evicted.
+        """
+        listener = self.listeners.get(key)
+
+        if listener is None or (model is not None and listener is not model):
+            return False
+
+        del self.listeners[key]
+
+        if not listener.done():
+            listener.set_exc(ListenerEvicted(key))
+
+        return True
+
     def reject(self, key: ListenerKey, update: UpdateType) -> bool:
         """End the listener waiting on `key` because `update` failed its filter.
 
@@ -217,6 +245,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         takes the first matching update the dispatcher handles after the
         call. Also callable as `listener(...)`.
 
+        Inside a handler, the wait holds the worker running it, so the
+        dispatcher's `WorkersPolicy` applies first (see
+        `Client.with_workers_policy`). With a `busy_timeout` above zero that
+        can yield before the wait is registered.
+
         Args:
             chat_id: The chat to listen in.
             user_id: The user to wait for; `None` matches any user.
@@ -241,6 +274,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 waiting, including when a newer listener replaces it.
             ListenerRejected: If `strict` is true and an update whose key
                 matches fails `filters`; it carries that update.
+            ListenerEvicted: If `WorkersBusyMode.CANCEL_OLDEST` ended this
+                wait inside a handler to free its worker.
+            ListenerWorkersBusy: If the wait would start inside a handler
+                with too few workers free, under `WorkersBusyMode.REJECT`.
 
         Warning:
             A wait that is not `strict` can stay open for good, until
@@ -290,11 +327,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 }
             )
 
+        holder = handler_worker_var.get()
+        # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
+        worker_wait = (
+            await holder[0].enter_handler_wait(self, key)
+            if holder is not None and asyncio.current_task() is holder[1]
+            else None
+        )
+
         current = self.listeners.get(key)
 
         # A finished listener whose `listen` has not returned yet is no longer waiting.
         if current is not None and not current.done():
             if self.duplicate_policy is DuplicatePolicy.REJECT:
+                if worker_wait is not None:
+                    worker_wait.release()
+
                 raise ListenerAlreadyExists(key)
 
             self.cancel(key, is_duplicate=True)
@@ -307,6 +355,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             filters=filters,
             strict=strict,
         )
+
+        if worker_wait is not None:
+            worker_wait.model = listener
 
         if timeout is None:
             timeout = self.timeout
@@ -325,6 +376,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             # A newer listener may have replaced this one under `key`.
             if self.listeners.get(key) is listener:
                 del self.listeners[key]
+
+            if worker_wait is not None:
+                worker_wait.release()
 
             if error is not None and (on_error := self.on_error_func) is not None:
                 await maybe_awaitable(on_error, error, listener, return_exc=True, log_exc=True)
