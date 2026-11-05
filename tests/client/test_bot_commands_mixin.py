@@ -287,6 +287,17 @@ async def test_start_starts_then_publishes_the_commands() -> None:
     assert c.calls == [("start", (1,), {"flag": True}), ("set", [a], {})]
 
 
+async def test_start_logs_a_failed_publish_and_still_returns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    c = _MixedFake()
+    _declare(c, [_cmd("a")])
+    c.set_error = ExcA("boom")
+
+    assert await c.start() == "started"
+    assert "boom" in caplog.text
+
+
 async def test_stop_deletes_the_sent_commands_then_stops() -> None:
     c = _MixedFake()
     _declare(c, [_cmd("a")])

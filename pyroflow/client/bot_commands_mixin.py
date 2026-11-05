@@ -12,6 +12,7 @@ from pytrove import (
     dedupe,
     gather_abort,
     clean_none_kw,
+    safe_await,
     yield_control,
 )
 
@@ -148,9 +149,13 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             self.bot_command_groups.clear()
 
     async def start(self, *args: Any, **kw: Any) -> PyroClient:
-        """Start the client as usual, then publish the commands."""
+        """Start the client as usual, then publish the commands.
+
+        A failure to publish, such as a command name Telegram rejects, is
+        logged and does not fail `start`: the client is connected by then.
+        """
         result = await super().start(*args, **kw)
-        await self.push_bot_commands()
+        await safe_await(self.push_bot_commands(), return_exc=True, log_exc=True)
         return result
 
     async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
