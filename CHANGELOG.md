@@ -87,9 +87,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - **BREAKING:** `listen_message_id` on `ask` and `ask_rich` (on `Client` and
   `Message`) defaults to `ListenMessageId.AUTO` instead of `None`: a
   `Message` wait now takes only the message right after the question
-  (`NEXT`), other waits keep no message filter. In a group another member's
-  message can take that id; there, and for the old behavior, pass
-  `listen_message_id=None`.
+  (`NEXT`), a `CallbackQuery` wait only a press on the question's buttons
+  (`SENT`), and other waits keep no message filter. In a group another
+  member's message can take the next id; there, and for the old behavior,
+  pass `listen_message_id=None`.
 - **BREAKING:** `UpdateListener.resolve` returns whether a listener took the
   update, instead of returning `None` or raising `UnresolvedUpdate`.
   Affects code calling or overriding `resolve`.

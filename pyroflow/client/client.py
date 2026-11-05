@@ -319,7 +319,8 @@ class Client(PyroClient):
                 `None` for no filter, or a `ListenMessageId`: `SENT` for the
                 message sent or edited here (a press on its buttons), `NEXT`
                 for the message right after it, or `AUTO` (the default),
-                which is `NEXT` for a `Message` wait and no filter otherwise.
+                which is `NEXT` for a `Message` wait, `SENT` for a
+                `CallbackQuery` and no filter otherwise.
                 In a group, `NEXT` can be taken by another member's message;
                 pass `None` there.
             listen_context: Values attached to the listener. It is copied,
@@ -414,7 +415,11 @@ class Client(PyroClient):
 
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
-                ListenMessageId.NEXT if issubclass(listen_update_type, Message) else None
+                ListenMessageId.NEXT
+                if issubclass(listen_update_type, Message)
+                else ListenMessageId.SENT
+                if issubclass(listen_update_type, CallbackQuery)
+                else None
             )
 
         if listen_message_id is ListenMessageId.SENT:
@@ -680,7 +685,11 @@ class Client(PyroClient):
 
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
-                ListenMessageId.NEXT if issubclass(listen_update_type, Message) else None
+                ListenMessageId.NEXT
+                if issubclass(listen_update_type, Message)
+                else ListenMessageId.SENT
+                if issubclass(listen_update_type, CallbackQuery)
+                else None
             )
 
         if listen_message_id is ListenMessageId.SENT:

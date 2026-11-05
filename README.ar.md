@@ -192,7 +192,7 @@ callback = await client.ask(
 | `text` | نص الرسالة |
 | `message_id` | إن أُعطي، تُعدَّل الرسالة بدل إرسال رسالة جديدة |
 | `listen_user_id` | تصفية الـ update المنتظَرة حسب المستخدم |
-| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `None` بلا تصفية، أو `ListenMessageId` (من `pyroflow.enums`): `SENT` للرسالة التي أرسلها `ask` أو عدّلها (ضغطة على أزرارها)، و`NEXT` للرسالة التي بعدها مباشرة. الافتراضي `AUTO`، وهو `NEXT` لانتظار `Message`، وبلا تصفية لغيره. في المجموعات قد تأخذ رسالة عضو آخر الرقم التالي، فمرّر `None` |
+| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `None` بلا تصفية، أو `ListenMessageId` (من `pyroflow.enums`): `SENT` للرسالة التي أرسلها `ask` أو عدّلها (ضغطة على أزرارها)، و`NEXT` للرسالة التي بعدها مباشرة. الافتراضي `AUTO`، وهو `NEXT` لانتظار `Message`، و`SENT` لانتظار `CallbackQuery`، وبلا تصفية لغيرهما. في المجموعات قد تأخذ رسالة عضو آخر الرقم التالي، فمرّر `None` |
 | `listen_timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `listen_update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
 | `listen_context` | `ListenerContext` بقيم تُرفق بالـ listener |

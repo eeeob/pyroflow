@@ -278,12 +278,12 @@ async def test_ask_listens_on_the_next_message_for_listen_message_id_next() -> N
     assert listener.calls[0]["message_id"] == 6
 
 
-async def test_ask_defaults_to_no_message_filter_for_another_update_type() -> None:
+async def test_ask_defaults_to_the_sent_message_for_a_callback_query() -> None:
     c, listener, _, _ = _ask_client(update_type=CallbackQuery)
 
     await c.ask(100, "hi", listen_update_type=CallbackQuery)
 
-    assert listener.calls[0]["message_id"] is None
+    assert listener.calls[0]["message_id"] == 5  # `AUTO`: a press on the question's buttons
 
 
 async def test_ask_passes_an_explicit_none_listen_message_id_through() -> None:

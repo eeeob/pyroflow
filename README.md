@@ -178,7 +178,7 @@ callback = await client.ask(
 | `text` | Message text |
 | `message_id` | If provided, edits the message instead of sending a new one |
 | `listen_user_id` | Filter the awaited update by user |
-| `listen_message_id` | Filter the awaited update by message: an id, `None` for no filter, or a `ListenMessageId` (from `pyroflow.enums`): `SENT` for the message `ask` sent or edited (a press on its buttons), `NEXT` for the message right after it. The default, `AUTO`, is `NEXT` for a `Message` wait and no filter otherwise. In a group another member's message can take the next id; pass `None` there |
+| `listen_message_id` | Filter the awaited update by message: an id, `None` for no filter, or a `ListenMessageId` (from `pyroflow.enums`): `SENT` for the message `ask` sent or edited (a press on its buttons), `NEXT` for the message right after it. The default, `AUTO`, is `NEXT` for a `Message` wait, `SENT` for a `CallbackQuery` and no filter otherwise. In a group another member's message can take the next id; pass `None` there |
 | `listen_timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `listen_update_type` | Update type to wait for — determines the return type (default: `Message`) |
 | `listen_context` | A `ListenerContext` of values attached to the listener |
