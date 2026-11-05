@@ -3,7 +3,7 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -132,8 +132,8 @@ class ListenerModel:
     """The slot the listener is registered under."""
     future: asyncio.Future
     """Resolved with the matching update, or failed with an error."""
-    context: ListenerContext = field(default_factory=ListenerContext)
-    """Values attached to the listener."""
+    context: ListenerContext | None = None
+    """Values attached to the listener, or `None` when none were passed."""
     filters: Filter | None = None
     """Pyrogram filter an update must pass besides the key, or `None` for none."""
     strict: bool = False

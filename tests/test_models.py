@@ -120,16 +120,9 @@ async def test_listener_model_defaults() -> None:
     future = asyncio.get_running_loop().create_future()
     model = ListenerModel(ListenerKey(1), future)
     assert model.future is future
-    assert model.context == ListenerContext()
+    assert model.context is None
     assert model.filters is None
     assert model.strict is False
-
-
-async def test_listener_model_gets_a_new_context_each() -> None:
-    loop = asyncio.get_running_loop()
-    first = ListenerModel(ListenerKey(1), loop.create_future())
-    second = ListenerModel(ListenerKey(1), loop.create_future())
-    assert first.context is not second.context
 
 
 # --- ListenerContext ----------------------------------------------------------------

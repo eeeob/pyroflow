@@ -22,4 +22,4 @@ if TYPE_CHECKING:
         context.note = "x"
         assert_type(order.step, int)
         assert_type(order.message_id, int | None)
-        assert_type(model.context, ListenerContext)
+        assert_type(model.context, ListenerContext | None)

@@ -377,6 +377,15 @@ async def test_listen_releases_the_wait_of_a_rejected_duplicate() -> None:
     assert holder.waits[0].releases == 1
 
 
+async def test_listen_without_context_attaches_none() -> None:
+    lis = _make()
+    task = await _pending(lis, 1)
+    try:
+        assert lis.listeners[ListenerKey(1)].context is None
+    finally:
+        await _drain(task)
+
+
 async def test_listen_registers_the_listener_before_yielding() -> None:
     lis = _make()
     context = ListenerContext(step=1)

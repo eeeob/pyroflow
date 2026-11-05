@@ -250,7 +250,7 @@ answer = await message.ask("Your name?", listen_context=OrderContext(step=1, not
 
 ```python
 async def drop_question(exc, model):
-    if model.context.message:
+    if model.context and model.context.message:
         await model.context.message.delete()
 ```
 

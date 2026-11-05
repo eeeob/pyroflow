@@ -126,7 +126,11 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             listener = m_listen.listeners.get(sub)
 
-            if listener is not None and listener.context.message_id == m.id:
+            if (
+                listener is not None
+                and listener.context is not None
+                and listener.context.message_id == m.id
+            ):
                 m_listen.cancel(sub)
 
                 if self.cancel_scope is ListenerScope.FIRST:

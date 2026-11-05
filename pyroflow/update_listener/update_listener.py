@@ -254,7 +254,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             chat_id: The chat to listen in.
             user_id: The user to wait for; `None` matches any user.
             message_id: The message to wait on; `None` matches any message.
-            context: Values attached to the listener model; `None` attaches an
+            context: Values attached to the listener model; `None` attaches none
                 empty `ListenerContext`.
             filters: A Pyrogram filter the update must pass besides its key.
             strict: What an update whose key matches but that fails `filters`
@@ -351,7 +351,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self.listeners[key] = listener = ListenerModel(
             key,
             future,
-            ListenerContext() if context is None else context,
+            context,
             filters=filters,
             strict=strict,
         )

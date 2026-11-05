@@ -108,7 +108,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - **BREAKING:** `meta` is renamed `context` on `listen` and
   `listen_context` on `ask` and `ask_rich`, and is a `ListenerContext`, no
   longer a value of any type or a dict; it is keyword-only, and
-  `ListenerModel.meta` is `ListenerModel.context`, never `None`.
+  `ListenerModel.meta` is `ListenerModel.context`, `None` unless one was passed.
   `ListenerModel` takes its `future` as the second field, with no default.
   `ask` copies the context and sets the copy's `message_id` and `message` to
   the id of the sent or edited message and to the message itself, each

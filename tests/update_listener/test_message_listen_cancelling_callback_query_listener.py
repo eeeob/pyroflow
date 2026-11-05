@@ -156,6 +156,18 @@ async def test_cancel_message_listen_cancels_message_listener_waiting_on_this_me
         await task
 
 
+async def test_cancel_message_listen_leaves_a_wait_without_context() -> None:
+    mlis = MessageListener()
+    task = asyncio.create_task(mlis.listen(100, 7))
+    await asyncio.sleep(0)
+    cbq = make_callback_query(_client=_FakeClient(mlis))
+
+    MessageListenCancellingCallbackQueryListener()._cancel_message_listen(cbq)
+
+    assert ListenerKey(100, 7) in mlis.listeners
+    await _stop(mlis, task)
+
+
 async def test_cancel_message_listen_reaches_chat_only_message_listener() -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, prompt_id=5)
