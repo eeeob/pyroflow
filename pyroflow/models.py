@@ -3,12 +3,11 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import Field, dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields
 from types import SimpleNamespace
-from typing import ClassVar, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from pyrogram.filters import Filter
-from pytrove import classproperty
 
 from .utils import subsets_largest_first
 
@@ -26,18 +25,6 @@ class ListenerKey:
         >>> ListenerKey(1, 2) == ListenerKey(chat_id=1, user_id=2, message_id=None)
         True
     """
-
-    FIELDS: ClassVar[tuple[Field[object], ...]]
-    """The dataclass fields, in declaration order."""
-
-    if not TYPE_CHECKING:
-
-        @classproperty(cached=True)
-        def FIELDS(cls) -> tuple[Field[object], ...]:
-            """Return the dataclass fields, in declaration order."""
-            if not is_dataclass(cls):
-                return cls.__dict__["FIELDS"]
-            return fields(cls)
 
     chat_id: int
     """The chat the listener waits in."""
@@ -57,7 +44,7 @@ class ListenerKey:
             >>> ListenerKey(1, 2).to_tuple()
             (1, 2, None)
         """
-        return tuple(getattr(self, f.name) for f in self.FIELDS)
+        return tuple(getattr(self, f.name) for f in fields(self))
 
     def to_dict(self) -> dict[str, int | None]:
         """Return the key's components keyed by field name, in field order.
@@ -66,7 +53,7 @@ class ListenerKey:
             >>> ListenerKey(1, 2).to_dict()
             {'chat_id': 1, 'user_id': 2, 'message_id': None}
         """
-        return {f.name: getattr(self, f.name) for f in self.FIELDS}
+        return {f.name: getattr(self, f.name) for f in fields(self)}
 
     def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
         """Yield every key a listener for this update could be registered under, most specific first.
@@ -96,7 +83,7 @@ class ListenerKey:
             msg = "ListenerKey.chat_id must not be None"
             raise AssertionError(msg)
 
-        present = [f.name for f in self.FIELDS[1:] if getattr(self, f.name) is not None]
+        present = [f.name for f in fields(self)[1:] if getattr(self, f.name) is not None]
 
         for kept in subsets_largest_first(present):
             if len(kept) + 1 < min_dep:

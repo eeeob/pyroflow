@@ -3,7 +3,6 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import Field
 
 import pytest
 
@@ -98,19 +97,6 @@ async def test_models_are_slotted() -> None:
     assert not hasattr(key, "__dict__")
     with pytest.raises(AttributeError):
         model.unknown_attr = 1
-
-
-def test_listener_key_fields_are_the_dataclass_fields_in_order() -> None:
-    assert tuple(f.name for f in ListenerKey.FIELDS) == ("chat_id", "user_id", "message_id")
-    assert all(isinstance(f, Field) for f in ListenerKey.FIELDS)
-    assert ListenerKey.FIELDS is ListenerKey.FIELDS
-
-
-def test_listener_key_fields_falls_back_to_class_dict_before_dataclass() -> None:
-    class Plain:
-        FIELDS = "sentinel"
-
-    assert ListenerKey.__dict__["FIELDS"].call(Plain) == "sentinel"
 
 
 def test_listener_key_sub_keys_rejects_a_missing_chat_id() -> None:
