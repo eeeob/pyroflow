@@ -167,6 +167,18 @@ callback = await client.ask(
 - `ListenerTimeout` — no reply arrived within `listen_timeout` seconds
 - `ListenerCancelled` — the listener was cancelled while waiting
 - `ListenerRejected` — with `listen_strict=True`, an update failed `listen_filters` (a `ListenerCancelled` carrying the update)
+- `ListenerAlreadyExists` — with `DuplicatePolicy.REJECT` on the listener, a wait already exists on the key. The question is already sent by then; it is the error's `message`:
+
+```python
+from pyroflow.errors import ListenerAlreadyExists
+
+try:
+    answer = await message.ask("What is your name?")
+except ListenerAlreadyExists as e:
+    await e.message.delete()  # the user is already answering another question
+```
+
+To check before sending instead, look the key up yourself: `ListenerKey(chat_id, user_id) in client.message_listen.listeners`.
 
 **Filters.** `listen_filters` adds a Pyrogram filter the awaited update must pass besides `listen_user_id` and `listen_message_id`. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `listen_strict=True` that update ends the wait with `ListenerRejected` instead, which carries the rejected update:
 

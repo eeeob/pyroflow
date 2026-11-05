@@ -181,6 +181,18 @@ callback = await client.ask(
 - `ListenerTimeout`: لم يصل رد خلال `listen_timeout` ثانية.
 - `ListenerCancelled`: أُلغي الـ listener أثناء الانتظار.
 - `ListenerRejected`: مع `listen_strict=True`، رفض `listen_filters` update (وهو `ListenerCancelled` يحمل الـ update).
+- `ListenerAlreadyExists`: مع `DuplicatePolicy.REJECT` على الـ listener، يوجد انتظار على المفتاح نفسه. يكون السؤال قد أُرسل، وهو `message` في الخطأ:
+
+```python
+from pyroflow.errors import ListenerAlreadyExists
+
+try:
+    answer = await message.ask("What is your name?")
+except ListenerAlreadyExists as e:
+    await e.message.delete()  # the user is already answering another question
+```
+
+وللفحص قبل الإرسال، ابحث عن المفتاح بنفسك: `ListenerKey(chat_id, user_id) in client.message_listen.listeners`.
 
 **الفلاتر.** `listen_filters` يضيف filter من Pyrogram يجب أن يجتازه الـ update المنتظَر، إضافة إلى `listen_user_id` و`listen_message_id`.
 

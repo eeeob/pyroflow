@@ -20,6 +20,7 @@ from pyrogram.types import (
 
 import pyroflow.client.client as client_module
 from pyroflow.enums import ListenMessageId
+from pyroflow.errors import ListenerAlreadyExists
 from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message
 
@@ -58,6 +59,13 @@ class _RecordingListener:
     async def __call__(self, **kw: object) -> object:
         self.calls.append(kw)
         return self.result
+
+
+class _RefusingListener:
+    """Stands in for a listener that refuses the wait as a duplicate."""
+
+    async def __call__(self, **kw: object) -> object:
+        raise ListenerAlreadyExists(kw["chat_id"])
 
 
 class _Recorder:
@@ -269,6 +277,16 @@ async def test_ask_passes_an_explicit_none_listen_message_id_through() -> None:
     assert listener.calls[0]["message_id"] is None
 
 
+async def test_ask_hands_the_sent_message_to_a_refused_duplicate_wait() -> None:
+    c, _, send, _ = _ask_client()
+    c.dispatcher.listeners[Message] = _RefusingListener()
+
+    with pytest.raises(ListenerAlreadyExists) as exc:
+        await c.ask(100, "hi")
+
+    assert exc.value.message is send.result
+
+
 async def test_ask_listens_in_the_chat_of_the_sent_message() -> None:
     c, listener, _, _ = _ask_client(make_message(chat_id=-1001))
 
@@ -451,6 +469,16 @@ async def test_ask_rich_listens_on_the_sent_message_for_listen_message_id_sent()
     await c.ask_rich(100, object(), listen_message_id=ListenMessageId.SENT)
 
     assert listener.calls[0]["message_id"] == 5
+
+
+async def test_ask_rich_hands_the_sent_message_to_a_refused_duplicate_wait() -> None:
+    c, _, _, _ = _ask_client()
+    c.dispatcher.listeners[Message] = _RefusingListener()
+
+    with pytest.raises(ListenerAlreadyExists) as exc:
+        await c.ask_rich(100, object())
+
+    assert exc.value.message is c.send_rich_message.result
 
 
 async def test_ask_rich_waits_on_the_listener_of_the_given_update_type() -> None:

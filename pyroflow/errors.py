@@ -2,6 +2,11 @@
 
 from __future__ import annotations as _annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .types import Message
+
 
 class PyroflowError(Exception):
     """pyroflow error"""  # noqa: D415  # the docstring is the runtime message template
@@ -75,6 +80,9 @@ class ListenerTimeout(ListenerError):
 
 class ListenerAlreadyExists(ListenerError):
     """A listener already exists for {value}"""  # noqa: D415  # the docstring is the runtime message template
+
+    message: Message | None = None
+    """The message `ask` sent or edited before the wait was refused, to delete or edit; `None` from `listen`."""
 
 
 __all__ = (

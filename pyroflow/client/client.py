@@ -13,6 +13,7 @@ from pyrogram import (
 )
 
 from ..enums import ListenMessageId
+from ..errors import ListenerAlreadyExists
 from ..models import ListenerContext
 from ..utils import patch_cls
 from ..types import Message, CallbackQuery
@@ -312,6 +313,9 @@ class Client(PyroClient):
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerAlreadyExists: If the listener refuses a second wait on
+                the key (`DuplicatePolicy.REJECT`). The message is already
+                sent or edited by then; it is the error's `message`.
         """
         listener = self.listeners.get(listen_update_type)
 
@@ -397,15 +401,20 @@ class Client(PyroClient):
         if context.message is None:
             context.message = m
 
-        return await listener(
-            chat_id=final_chat_id,
-            user_id=listen_user_id,
-            message_id=listen_message_id,
-            context=context,
-            filters=listen_filters,
-            strict=listen_strict,
-            timeout=listen_timeout,
-        )
+        try:
+            return await listener(
+                chat_id=final_chat_id,
+                user_id=listen_user_id,
+                message_id=listen_message_id,
+                context=context,
+                filters=listen_filters,
+                strict=listen_strict,
+                timeout=listen_timeout,
+            )
+        except ListenerAlreadyExists as exc:
+            # The message is already out; hand it to the caller, who decides what to do with it.
+            exc.message = m
+            raise
 
     @overload
     async def ask_rich(
@@ -583,6 +592,8 @@ class Client(PyroClient):
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerAlreadyExists: As in `ask`; the error's `message` is the
+                rich message already sent or edited.
         """
         listener = self.listeners.get(listen_update_type)
 
@@ -656,15 +667,20 @@ class Client(PyroClient):
         if context.message is None:
             context.message = m
 
-        return await listener(
-            chat_id=final_chat_id,
-            user_id=listen_user_id,
-            message_id=listen_message_id,
-            context=context,
-            filters=listen_filters,
-            strict=listen_strict,
-            timeout=listen_timeout,
-        )
+        try:
+            return await listener(
+                chat_id=final_chat_id,
+                user_id=listen_user_id,
+                message_id=listen_message_id,
+                context=context,
+                filters=listen_filters,
+                strict=listen_strict,
+                timeout=listen_timeout,
+            )
+        except ListenerAlreadyExists as exc:
+            # The message is already out; hand it to the caller, who decides what to do with it.
+            exc.message = m
+            raise
 
 
 __all__ = ("Client",)
