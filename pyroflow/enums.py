@@ -91,24 +91,15 @@ class ListenMessageId(StrEnum):
     """
 
     AUTO = auto()
-    """The default: `NEXT` for a `Message` wait, `SENT` for a `CallbackQuery`, otherwise no filter."""
+    """`NEXT` for a `Message` wait, `SENT` for a `CallbackQuery`, otherwise no filter."""
     SENT = auto()
-    """The message `ask` sent or edited itself; for a `CallbackQuery`, a press on its buttons."""
+    """The message `ask` sent or edited; for a `CallbackQuery`, a press on its buttons."""
     NEXT = auto()
-    """The message right after the one `ask` sent or edited (its id plus one); for a `Message`.
-
-    In a group another member's message can take that id, and the real answer
-    then never matches; pass `listen_message_id=None` there.
-    """
+    """The message right after the one `ask` sent or edited."""
 
 
 class EphemeralUpdates(StrEnum):
-    """What takes the place of a message id to wait on ephemeral updates.
-
-    Ephemeral ids do not follow each other and can be reused, so no listener
-    key holds one. It needs a user. An ephemeral update reaches only such a
-    wait, and a regular update never does. Two ephemeral messages to one user
-    share the key; tell them apart with filters.
+    """Takes the place of a message id to wait on ephemeral updates, whose ids can repeat.
 
     Example:
         >>> EphemeralUpdates.ANY == "any"
@@ -116,7 +107,7 @@ class EphemeralUpdates(StrEnum):
     """
 
     ANY = auto()
-    """Ephemeral messages, and presses on an ephemeral message's buttons."""
+    """Any ephemeral message, or a press on its buttons."""
 
 
 class WorkersBusyMode(StrEnum):
@@ -133,12 +124,7 @@ class WorkersBusyMode(StrEnum):
     REJECT = auto()
     """The wait raises `ListenerWorkersBusy`; suits a deliberate cap on conversations."""
     CANCEL_OLDEST = auto()
-    """The oldest wait ends with `ListenerEvicted`, and the new one starts once a worker frees.
-
-    It raises `ListenerEvictionTimeout` if none frees in time, or
-    `ListenerWorkersBusy` with no wait to end. Suits menus and questions users
-    often leave unanswered.
-    """
+    """End the oldest wait, then start the new one once a worker frees."""
 
 
 __all__ = (

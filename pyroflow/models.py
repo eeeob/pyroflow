@@ -32,12 +32,7 @@ class ListenerKey:
     user_id: int | None = None
     """The user the listener waits for, or `None` for any user."""
     message_id: ListenerMessageIdT | None = None
-    """The message id the update must carry, or `None` for any regular message.
-
-    For a message this is the incoming message's own id; for a callback
-    query it is the id of the message holding the pressed button. For an
-    ephemeral update it is `EphemeralUpdates.ANY`, never an id.
-    """
+    """The id the update must carry, `EphemeralUpdates.ANY`, or `None` for any regular message."""
 
     def to_tuple(self) -> tuple[int, int | None, ListenerMessageIdT | None]:
         """Return the key's components, in field order.
@@ -175,7 +170,9 @@ class WorkersPolicy:
     when too many do, no worker is left to read the replies and the bot
     freezes. Once a wait would leave fewer than `free_workers` workers free,
     `mode` steps in, after up to `busy_timeout` seconds for one to free. Set
-    it with `Client.setup_pyroflow`; without one, nothing steps in.
+    it with `Client.setup_pyroflow`; without one, nothing steps in. With
+    `free_workers` equal to the client's `workers`, every wait inside a
+    handler is refused.
 
     Raises:
         ValueError: If `free_workers` is below `1`, `busy_timeout` is negative,
@@ -187,25 +184,13 @@ class WorkersPolicy:
     """
 
     mode: WorkersBusyMode
-    """What steps in; see `WorkersBusyMode` for each mode and when it fits."""
+    """What steps in."""
     free_workers: int = 1
-    """Fewest workers a wait may leave free before `mode` steps in.
-
-    Equal to the client's `workers`, `REJECT` and `CANCEL_OLDEST` refuse every
-    wait inside a handler, since none ever holds a worker.
-    """
+    """Fewest workers a wait may leave free before `mode` steps in."""
     busy_timeout: float = 5
-    """Seconds to wait first for a worker to free; `0` steps in at once.
-
-    While it waits, that worker reads no update, and the wait is registered
-    only afterwards, so an update can slip past it.
-    """
+    """Seconds to wait first for a worker to free; `0` steps in at once."""
     evict_timeout: float = 5
-    """Seconds `CANCEL_OLDEST` waits, after ending the oldest wait, for a worker to free.
-
-    An evicted handler may go on working, so its worker is free only once it
-    ends. As with `busy_timeout`, an update can slip past the wait meanwhile.
-    """
+    """Seconds `CANCEL_OLDEST` waits for a worker to free after ending the oldest wait."""
 
     def __post_init__(self) -> None:
         """Check the values; see the class docstring."""

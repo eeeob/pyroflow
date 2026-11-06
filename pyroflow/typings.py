@@ -30,10 +30,10 @@ BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 """The key a collected command group is filed under by `BotCommandsMixin`."""
 
 ListenMessageIdT: TypeAlias = int | ListenMessageId | EphemeralUpdates
-"""A message id, a `ListenMessageId` for the message `ask` sent or edited, or `EphemeralUpdates`."""
+"""A message id, a `ListenMessageId`, or `EphemeralUpdates`."""
 
 ListenerMessageIdT: TypeAlias = int | EphemeralUpdates
-"""What a listener key holds for a message: its id, or `EphemeralUpdates` for ephemeral updates."""
+"""What a listener key holds for a message: its id, or `EphemeralUpdates`."""
 
 
 __all__ = (
