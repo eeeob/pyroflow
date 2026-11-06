@@ -32,21 +32,9 @@ class ListenerError(PyroflowError):
 class ListenerCancelled(ListenerError):
     """Listener for {value} was cancelled"""  # noqa: D415  # the docstring is the runtime message template
 
-    def __init__(self, value: object = None, is_duplicate: bool = False) -> None:
-        """Build the error and record whether a newer listener caused it.
 
-        Args:
-            value: The subject of the error, substituted for `{value}`.
-            is_duplicate: Whether a newer listener for the same key caused the cancellation.
-
-        Example:
-            >>> err = ListenerCancelled("k", is_duplicate=True)
-            >>> str(err), err.is_duplicate
-            ('Listener for k was cancelled', True)
-        """
-        super().__init__(value)
-        self.is_duplicate = is_duplicate
-        """Whether a newer listener for the same key caused the cancellation."""
+class ListenerReplaced(ListenerCancelled):
+    """Listener for {value} was replaced by a newer one on the same key"""  # noqa: D415  # the docstring is the runtime message template
 
 
 class ListenerRejected(ListenerCancelled):
@@ -93,6 +81,7 @@ __all__ = (
     "PyroflowError",
     "ListenerError",
     "ListenerCancelled",
+    "ListenerReplaced",
     "ListenerRejected",
     "ListenerTimeout",
     "ListenerEvicted",

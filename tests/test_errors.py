@@ -11,6 +11,7 @@ from pyroflow.errors import (
     ListenerError,
     ListenerEvicted,
     ListenerRejected,
+    ListenerReplaced,
     ListenerTimeout,
     ListenerEvictionTimeout,
     ListenerWorkersBusy,
@@ -44,18 +45,11 @@ def test_listener_error_family() -> None:
     assert err.value == 5
 
 
-def test_listener_cancelled_message_and_default_is_duplicate() -> None:
+def test_listener_cancelled_message() -> None:
     err = ListenerCancelled("k")
     assert str(err) == "Listener for k was cancelled"
     assert err.value == "k"
-    assert err.is_duplicate is False
     assert isinstance(err, ListenerError)
-
-
-def test_listener_cancelled_is_duplicate() -> None:
-    err = ListenerCancelled("k", is_duplicate=True)
-    assert err.is_duplicate is True
-    assert str(err) == "Listener for k was cancelled"
 
 
 def test_listener_rejected_keeps_the_update_and_is_a_cancellation() -> None:
@@ -63,7 +57,6 @@ def test_listener_rejected_keeps_the_update_and_is_a_cancellation() -> None:
     assert str(err) == "Listener for k was rejected by its filters"
     assert err.value == "k"
     assert err.update == "update"
-    assert err.is_duplicate is False
     assert isinstance(err, ListenerCancelled)
 
 
@@ -84,6 +77,11 @@ def test_listener_cancelled_defaults() -> None:
     [
         (ListenerTimeout, ListenerError, "Listener for 5 timed out"),
         (ListenerAlreadyExists, ListenerError, "A listener already exists for 5"),
+        (
+            ListenerReplaced,
+            ListenerCancelled,
+            "Listener for 5 was replaced by a newer one on the same key",
+        ),
         (ListenerWorkersBusy, ListenerError, "No free worker for a wait on 5"),
         (
             ListenerEvictionTimeout,
@@ -111,6 +109,7 @@ def test_errors_all() -> None:
         "PyroflowError",
         "ListenerError",
         "ListenerCancelled",
+        "ListenerReplaced",
         "ListenerRejected",
         "ListenerTimeout",
         "ListenerEvicted",

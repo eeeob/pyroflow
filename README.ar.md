@@ -200,6 +200,7 @@ callback = await client.ask(
 **الاستثناءات:**
 - `ListenerTimeout`: لم يصل رد خلال `listen_timeout` ثانية.
 - `ListenerCancelled`: أُلغي الـ listener أثناء الانتظار.
+- `ListenerReplaced`: أخذ انتظار أحدث المفتاح نفسه (وهو `ListenerCancelled`).
 - `ListenerRejected`: مع `listen_strict=True`، رفض `listen_filters` update (وهو `ListenerCancelled` يحمل الـ update).
 - `ListenerAlreadyExists`: مع `DuplicatePolicy.REJECT` على الـ listener، يوجد انتظار على المفتاح نفسه. يكون السؤال قد أُرسل.
 

@@ -186,6 +186,7 @@ callback = await client.ask(
 **Raises:**
 - `ListenerTimeout` — no reply arrived within `listen_timeout` seconds
 - `ListenerCancelled` — the listener was cancelled while waiting
+- `ListenerReplaced` — a newer wait took the same key (a `ListenerCancelled`)
 - `ListenerRejected` — with `listen_strict=True`, an update failed `listen_filters` (a `ListenerCancelled` carrying the update)
 - `ListenerAlreadyExists` — with `DuplicatePolicy.REJECT` on the listener, a wait already exists on the key. The question is already sent by then.
 

@@ -27,6 +27,7 @@ from pyroflow.errors import (
     ListenerCancelled,
     ListenerEvicted,
     ListenerRejected,
+    ListenerReplaced,
     ListenerTimeout,
     ListenerWorkersBusy,
 )
@@ -231,17 +232,7 @@ async def test_cancel_fails_the_waiter_and_removes_it() -> None:
     with pytest.raises(ListenerCancelled) as exc:
         await task
     assert exc.value.value == key
-    assert exc.value.is_duplicate is False
-
-
-async def test_cancel_marks_duplicates() -> None:
-    lis = _make()
-    task = await _pending(lis, 1)
-
-    assert lis.cancel(ListenerKey(1), is_duplicate=True) is True
-    with pytest.raises(ListenerCancelled) as exc:
-        await task
-    assert exc.value.is_duplicate is True
+    assert not isinstance(exc.value, ListenerReplaced)
 
 
 async def test_cancel_without_a_listener_is_false_and_leaves_a_finished_one_as_is() -> None:
@@ -486,9 +477,8 @@ async def test_listen_replace_cancels_the_old_listener_and_keeps_the_new() -> No
     first = await _pending(lis, 1)
     second = await _pending(lis, 1)
     try:
-        with pytest.raises(ListenerCancelled) as exc:
+        with pytest.raises(ListenerReplaced):
             await first
-        assert exc.value.is_duplicate is True
         # the old waiter's cleanup must not drop the replacement
         assert ListenerKey(1) in lis.listeners
         assert not second.done()

@@ -16,6 +16,7 @@ from ..errors import (
     ListenerError,
     ListenerEvicted,
     ListenerRejected,
+    ListenerReplaced,
     ListenerTimeout,
 )
 from ..enums import DuplicatePolicy, ListenerScope
@@ -135,12 +136,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         for key in list(self.listeners):
             self.cancel(key)
 
-    def cancel(self, key: ListenerKey, *, is_duplicate: bool = False) -> bool:
+    def cancel(self, key: ListenerKey) -> bool:
         """Cancel the listener waiting on `key`; its waiter gets `ListenerCancelled`.
 
         Args:
             key: The key identifying the listener.
-            is_duplicate: Mark the cancellation as caused by a newer listener.
 
         Returns:
             Whether a listener was cancelled.
@@ -165,7 +165,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             return False
 
         if not listener.done():
-            listener.set_exc(ListenerCancelled(key, is_duplicate=is_duplicate))
+            listener.set_exc(ListenerCancelled(key))
 
         return True
 
@@ -370,7 +370,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if self.duplicate_policy is DuplicatePolicy.REJECT:
                 raise ListenerAlreadyExists(key)
 
-            self.cancel(key, is_duplicate=True)
+            current.set_exc(ListenerReplaced(key))
 
         future = asyncio.get_running_loop().create_future()
         self.listeners[key] = listener = ListenerModel(

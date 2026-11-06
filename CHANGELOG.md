@@ -20,6 +20,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   (`5` by default) for a worker to free, since the evicted handler may go on
   working, or raises the new `ListenerEvictionTimeout` (a
   `ListenerWorkersBusy`). Without a policy, the default, nothing steps in.
+- `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `pyroflow.constants`, the home of public constants (`BOT_COMMANDS_ATTR`).
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
@@ -99,7 +100,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   Affects code calling or overriding `resolve`.
   Migration: check the returned `bool`; an `on_unresolved` override becomes a
   `resolve` override that acts when the result is `False`.
-- **BREAKING:** `UpdateListener.cancel(key, *, is_duplicate=False)` is a plain
+- **BREAKING:** `UpdateListener.cancel(key)` is a plain
   method, no longer a coroutine, and returns whether a listener was
   cancelled. Affects code that awaits it or passes `cancel_coordinator`.
   Migration: call `listener.cancel(key)` without `await`.
