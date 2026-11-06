@@ -144,6 +144,12 @@ async def test_cancel_message_listen_without_message_listener_does_nothing() -> 
     MessageListenCancellingCallbackQueryListener()._cancel_message_listen(cbq)
 
 
+async def test_cancel_message_listen_with_no_message_wait_skips_the_keys() -> None:
+    # `from_user=None` proves the early return never builds the keys, which read it.
+    cbq = make_callback_query(_client=_FakeClient(MessageListener()), from_user=None)
+    MessageListenCancellingCallbackQueryListener()._cancel_message_listen(cbq)
+
+
 async def test_cancel_message_listen_cancels_message_listener_waiting_on_this_message() -> None:
     mlis = MessageListener()
     task = await _listen(mlis, 100, 7, prompt_id=5)

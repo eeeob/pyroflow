@@ -120,7 +120,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
         m_listen = update._client.listeners.get(Message)
 
-        if m_listen is None:
+        if m_listen is None or not m_listen.listeners:
             return
 
         for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id

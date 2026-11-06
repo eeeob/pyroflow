@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import logging
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from typing import Any, TYPE_CHECKING
 
 from pyrogram import StopPropagation, ContinuePropagation, raw
@@ -387,6 +387,8 @@ class Dispatcher(PyroDispatcher):
 class WorkerWait:
     """A wait inside a handler, as `Dispatcher.enter_handler_wait` tracks it."""
 
+    __slots__ = ("dispatcher", "listener", "key", "model", "lent", "released")
+
     def __init__(
         self, dispatcher: Dispatcher, listener: UpdateListener[Any], key: ListenerKey
     ) -> None:
@@ -412,7 +414,7 @@ class WorkerWait:
         self.released = True
         dispatcher = self.dispatcher
 
-        if self in dispatcher.handler_waits:
+        with suppress(ValueError):  # a lent wait was never in the list
             dispatcher.handler_waits.remove(self)
 
         if self.lent is not None:
@@ -425,6 +427,8 @@ class WorkerWait:
 
 class LentWorker:
     """A stand-in worker that serves the update queue while a handler waits."""
+
+    __slots__ = ("given_back", "idle", "task")
 
     def __init__(self, dispatcher: Dispatcher) -> None:
         """Start the stand-in on `dispatcher`; see the class docstring."""

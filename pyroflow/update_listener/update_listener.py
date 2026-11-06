@@ -368,7 +368,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         error: ListenerError | None = None
 
         try:
-            return await asyncio.wait_for(listener.future, timeout)
+            if timeout is None:
+                return await future
+
+            return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             error = ListenerTimeout(key)
             raise error from None
@@ -388,6 +391,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                     await call_maybe_async(on_error, error, listener)
                 except Exception:
                     log.exception("Error in on_error_func of the listener for %s", key)
+
+            if isinstance(error, ListenerTimeout):
+                # `from None` hides the `TimeoutError` but keeps it, and its traceback the task.
+                error.__context__ = None
+
+            # The error's traceback keeps this frame: drop what links back to it, so the
+            # wait, its message and the client are freed without waiting for the cyclic GC.
+            del future, listener, worker_wait, error
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
@@ -415,7 +426,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """
         self.validate_update(update)
 
-        # Most updates have no wait in their chat: skip extracting their key.
+        # With no wait open, as for most updates of a bot, skip extracting the key.
         if not self.listeners:
             return False
 

@@ -7,8 +7,10 @@ then every UpdateListener element directly through a minimal local subclass.
 from __future__ import annotations as _annotations
 
 import asyncio
+import gc
 import logging
 import threading
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
@@ -384,6 +386,27 @@ async def test_listen_without_context_attaches_none() -> None:
         assert lis.listeners[ListenerKey(1)].context is None
     finally:
         await _drain(task)
+
+
+@pytest.mark.parametrize("end", ["timeout", "cancel"])
+async def test_listen_leaves_no_reference_cycle_once_the_wait_fails(end: str) -> None:
+    # Without the cyclic GC, the wait's future must die with the error that ended it.
+    lis = _make()
+    gc.disable()
+    try:
+        task = await _pending(lis, 1, timeout=0.02 if end == "timeout" else None)
+        future = weakref.ref(lis.listeners[ListenerKey(1)].future)
+
+        if end == "cancel":
+            lis.cancel(ListenerKey(1))
+
+        with pytest.raises(ListenerTimeout if end == "timeout" else ListenerCancelled):
+            await task
+
+        del task
+        assert future() is None
+    finally:
+        gc.enable()
 
 
 async def test_listen_registers_the_listener_before_yielding() -> None:
