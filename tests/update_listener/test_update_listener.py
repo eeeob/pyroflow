@@ -245,16 +245,14 @@ async def test_cancel_without_a_listener_is_false_and_leaves_a_finished_one_as_i
     assert await done.future == "update"
 
 
-async def test_reject_fails_the_waiter_with_the_update_and_removes_it() -> None:
+async def test_reject_fails_the_waiter_and_removes_it() -> None:
     lis = _make()
     task = await _pending(lis, 1)
-    update = make_message(1)
 
-    assert lis.reject(ListenerKey(1), update) is True
+    assert lis.reject(ListenerKey(1)) is True
     assert ListenerKey(1) not in lis.listeners
-    with pytest.raises(ListenerRejected) as exc:
+    with pytest.raises(ListenerRejected):
         await task
-    assert exc.value.update is update
 
 
 async def test_reject_without_a_listener_is_false_and_leaves_a_finished_one_as_is() -> None:
@@ -262,8 +260,8 @@ async def test_reject_without_a_listener_is_false_and_leaves_a_finished_one_as_i
     lis.listeners[ListenerKey(2)] = done = _model(ListenerKey(2))
     done.resolve("update")
 
-    assert lis.reject(ListenerKey(1), make_message()) is False
-    assert lis.reject(ListenerKey(2), make_message()) is True
+    assert lis.reject(ListenerKey(1)) is False
+    assert lis.reject(ListenerKey(2)) is True
     assert await done.future == "update"
 
 
@@ -555,7 +553,7 @@ async def test_listen_stores_the_filter_and_strict_on_the_model() -> None:
     [
         (lambda lis, key: None, ListenerTimeout),
         (lambda lis, key: lis.cancel(key), ListenerCancelled),
-        (lambda lis, key: lis.reject(key, "update"), ListenerRejected),
+        (lambda lis, key: lis.reject(key), ListenerRejected),
     ],
 )
 async def test_listen_reports_the_error_that_ended_the_wait(
@@ -767,7 +765,7 @@ async def test_resolve_skips_a_lenient_rejection_and_keeps_the_listener_waiting(
         await _drain(task)
 
 
-async def test_resolve_strict_rejection_fails_the_listener_with_the_update() -> None:
+async def test_resolve_strict_rejection_fails_the_listener() -> None:
     lis = _make()
     task = await _pending(lis, 100, 7, filters=TEXT_A, strict=True)
     update = make_message(100, 7, 5, text="zzz")
@@ -776,7 +774,6 @@ async def test_resolve_strict_rejection_fails_the_listener_with_the_update() -> 
     with pytest.raises(ListenerRejected) as exc:
         await task
     assert exc.value.value == ListenerKey(100, 7)
-    assert exc.value.update is update
     assert lis.listeners == {}
 
 

@@ -52,18 +52,11 @@ def test_listener_cancelled_message() -> None:
     assert isinstance(err, ListenerError)
 
 
-def test_listener_rejected_keeps_the_update_and_is_a_cancellation() -> None:
-    err = ListenerRejected("k", "update")
+def test_listener_rejected_message_and_family() -> None:
+    err = ListenerRejected("k")
     assert str(err) == "Listener for k was rejected by its filters"
     assert err.value == "k"
-    assert err.update == "update"
     assert isinstance(err, ListenerCancelled)
-
-
-def test_listener_rejected_defaults() -> None:
-    err = ListenerRejected()
-    assert err.value is None
-    assert err.update is None
 
 
 def test_listener_cancelled_defaults() -> None:

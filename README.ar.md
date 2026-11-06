@@ -201,7 +201,7 @@ callback = await client.ask(
 - `ListenerTimeout`: لم يصل رد خلال `listen_timeout` ثانية.
 - `ListenerCancelled`: أُلغي الـ listener أثناء الانتظار.
 - `ListenerReplaced`: أخذ انتظار أحدث المفتاح نفسه (وهو `ListenerCancelled`).
-- `ListenerRejected`: مع `listen_strict=True`، رفض `listen_filters` update (وهو `ListenerCancelled` يحمل الـ update).
+- `ListenerRejected`: مع `listen_strict=True`، رفض `listen_filters` update (وهو `ListenerCancelled`).
 - `ListenerAlreadyExists`: مع `DuplicatePolicy.REJECT` على الـ listener، يوجد انتظار على المفتاح نفسه. يكون السؤال قد أُرسل.
 
 وللفحص قبل الإرسال، ابحث عن المفتاح بنفسك: `ListenerKey(chat_id, user_id) in client.message_listen.listeners`.
@@ -209,7 +209,7 @@ callback = await client.ask(
 **الفلاتر.** `listen_filters` يضيف filter من Pyrogram يجب أن يجتازه الـ update المنتظَر، إضافة إلى `listen_user_id` و`listen_message_id`.
 
 - الـ update الذي يطابق المفتاح ويرفضه الفلتر يذهب إلى الـ handlers، ويستمر الانتظار.
-- مع `listen_strict=True` ينهي ذلك الـ update الانتظار بـ `ListenerRejected`، ويحمل الـ update المرفوض.
+- مع `listen_strict=True` ينهي ذلك الـ update الانتظار بـ `ListenerRejected`.
 
 ```python
 from pyrogram import filters

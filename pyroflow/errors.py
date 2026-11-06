@@ -2,6 +2,11 @@
 
 from __future__ import annotations as _annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import ListenerKey
+
 
 class PyroflowError(Exception):
     """pyroflow error"""  # noqa: D415  # the docstring is the runtime message template
@@ -28,6 +33,9 @@ class PyroflowError(Exception):
 class ListenerError(PyroflowError):
     """Listener error"""  # noqa: D415  # the docstring is the runtime message template
 
+    value: ListenerKey | None
+    """The key of the wait the error is about."""
+
 
 class ListenerCancelled(ListenerError):
     """Listener for {value} was cancelled"""  # noqa: D415  # the docstring is the runtime message template
@@ -39,22 +47,6 @@ class ListenerReplaced(ListenerCancelled):
 
 class ListenerRejected(ListenerCancelled):
     """Listener for {value} was rejected by its filters"""  # noqa: D415  # the docstring is the runtime message template
-
-    def __init__(self, value: object = None, update: object = None) -> None:
-        """Build the error and keep the update a strict filter rejected.
-
-        Args:
-            value: The subject of the error, substituted for `{value}`.
-            update: The update whose key matched but that failed the filter.
-
-        Example:
-            >>> err = ListenerRejected("k", "update")
-            >>> str(err), err.update, isinstance(err, ListenerCancelled)
-            ('Listener for k was rejected by its filters', 'update', True)
-        """
-        super().__init__(value)
-        self.update = update
-        """The update whose key matched but that failed the filter."""
 
 
 class ListenerTimeout(ListenerError):

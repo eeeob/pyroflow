@@ -187,12 +187,12 @@ callback = await client.ask(
 - `ListenerTimeout` — no reply arrived within `listen_timeout` seconds
 - `ListenerCancelled` — the listener was cancelled while waiting
 - `ListenerReplaced` — a newer wait took the same key (a `ListenerCancelled`)
-- `ListenerRejected` — with `listen_strict=True`, an update failed `listen_filters` (a `ListenerCancelled` carrying the update)
+- `ListenerRejected` — with `listen_strict=True`, an update failed `listen_filters` (a `ListenerCancelled`)
 - `ListenerAlreadyExists` — with `DuplicatePolicy.REJECT` on the listener, a wait already exists on the key. The question is already sent by then.
 
 To check before sending instead, look the key up yourself: `ListenerKey(chat_id, user_id) in client.message_listen.listeners`.
 
-**Filters.** `listen_filters` adds a Pyrogram filter the awaited update must pass besides `listen_user_id` and `listen_message_id`. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `listen_strict=True` that update ends the wait with `ListenerRejected` instead, which carries the rejected update:
+**Filters.** `listen_filters` adds a Pyrogram filter the awaited update must pass besides `listen_user_id` and `listen_message_id`. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `listen_strict=True` that update ends the wait with `ListenerRejected` instead:
 
 ```python
 from pyrogram import filters

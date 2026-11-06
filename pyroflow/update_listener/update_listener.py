@@ -195,32 +195,30 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return True
 
-    def reject(self, key: ListenerKey, update: UpdateType) -> bool:
-        """End the listener waiting on `key` because `update` failed its filter.
+    def reject(self, key: ListenerKey) -> bool:
+        """End the listener waiting on `key` because an update failed its filter.
 
-        Its waiter gets `ListenerRejected`, which carries `update`.
+        Its waiter gets `ListenerRejected`.
 
         Args:
             key: The key identifying the listener.
-            update: The update the listener's filter rejected.
 
         Returns:
             Whether a listener was rejected.
 
         Example:
-            >>> from pyrogram.types import Message
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
             ...     listener = MessageListener()
             ...     waiter = asyncio.create_task(listener.listen(1))
             ...     await asyncio.sleep(0)
-            ...     rejected = listener.reject(ListenerKey(1), Message(id=2))
+            ...     rejected = listener.reject(ListenerKey(1))
             ...     try:
             ...         await waiter
-            ...     except ListenerRejected as e:
-            ...         return rejected, e.update.id
+            ...     except ListenerRejected:
+            ...         return rejected
             >>> asyncio.run(main())
-            (True, 2)
+            True
         """
         listener = self.listeners.pop(key, None)
 
@@ -228,7 +226,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             return False
 
         if not listener.done():
-            listener.set_exc(ListenerRejected(key, update))
+            listener.set_exc(ListenerRejected(key))
 
         return True
 
@@ -483,7 +481,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
                 if not passed:
                     if listener.strict:
-                        self.reject(sub, update)
+                        self.reject(sub)
 
                     continue
 
