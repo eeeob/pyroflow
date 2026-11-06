@@ -25,7 +25,7 @@ Branch from `main`, one cohesive change per branch, ending in its own pull reque
 |---|---|---|
 | A method or property on a Pyrogram type | inside the `@patch_cls` class that patches that type | 2.1, 2.2 |
 | Support for a new update type | a listener in `pyroflow.update_listener` | 2.3 |
-| An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` | 1.4, 2.4 |
+| An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` (created with the first one) | 1.4, 2.4 |
 | A helper | `pyroflow.utils` when sections share it, the section's `_internal.py` when one section uses it; `pytrove` first | 1.5 |
 | A dependency | an extra, unless every feature needs it | 3.1–3.3 |
 | A test | the `tests/` path that mirrors the module; static type tests in `tests/typing/` | 0.1 |
@@ -85,7 +85,6 @@ import pyroflow.typings       # type aliases
 import pyroflow.errors        # exceptions
 import pyroflow.models        # data models
 import pyroflow.enums         # enums
-import pyroflow.constants     # public constants
 
 from pyroflow.errors import ListenerTimeout   # a single name stays importable
 ```
@@ -94,7 +93,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **1.3 Compatibility.** The names in `__all__`, their signatures and their observable behaviour are the public interface. Nothing in it is removed or broken without documentation, an assessment of the impact and a migration path. Gradual deprecation is preferred over an immediate break, and a break is never silent.
 
-**1.4 Sections by responsibility.** Every element belongs to one section: enums, typings, models, errors, constants, or the tools. Enum, type, model and error code never lives in a tool or helper file. Every public constant lives in `pyroflow.constants` under a name that says what it is; a private constant (`_NAME`) stays beside the code that uses it.
+**1.4 Sections by responsibility.** Every element belongs to one section: enums, typings, models, errors, constants, or the tools. Enum, type, model and error code never lives in a tool or helper file. Every public constant lives in `pyroflow.constants`, created with the first one, under a name that says what it is; a private constant (`_NAME`) stays beside the code that uses it.
 
 **1.5 Helpers.** Helpers shared by sections live in `pyroflow.utils`, grouped by responsibility into cohesive modules, not one tiny module per function. A helper that only one section uses lives in that section's own `_internal.py`. Before writing a general-purpose helper, check `pytrove`, which is already a dependency, and import it from `pytrove` directly. A type or helper `pytrove` already provides (`StrInt`, `Number`, `MaybeList`, `MaybeCoroutineCallable`, ...) is imported from `pytrove`, never spelled out again; `pyroflow` may still keep a public alias name defined through it. External names are never re-exported through `pyroflow`.
 

@@ -22,7 +22,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `ListenerWorkersBusy`). Without a policy, the default, nothing steps in.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
-- `pyroflow.constants`, the home of public constants (`BOT_COMMANDS_ATTR`).
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
   publishes the bot commands declared on registered handlers. It assumes one
   session per bot: when two overlap, such as during a rolling deploy, the one
@@ -155,8 +154,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   longer depends on `cachetools`, `sortedcontainers` or `typing_extensions`.
 - `pyroflow.typings` now also holds `UpdateType`.
 - Every module defines `__all__`; `pyroflow.typings`, `pyroflow.errors`,
-  `pyroflow.models`, `pyroflow.enums` and `pyroflow.constants` are the entry
-  points for each kind of name.
+  `pyroflow.models` and `pyroflow.enums` are the entry points for each kind
+  of name.
 - Contributors: development runs through `uv` and the `Makefile`, with `ruff`
   and `ty` enforced; see `CONTRIBUTING.md`.
 

@@ -16,8 +16,8 @@ from pytrove import (
     yield_control,
 )
 
-from ..constants import BOT_COMMANDS_ATTR
 from ..utils import split_bot_command_entry, mark_bot_commands
+from ..utils.bot_commands import _BOT_COMMANDS_ATTR
 
 if TYPE_CHECKING:
     from pyrogram import Client as PyroClient
@@ -73,7 +73,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
         for handlers in self.dispatcher.groups.values():
             for handler in handlers:
-                for entry in getattr(handler, BOT_COMMANDS_ATTR, ()):
+                for entry in getattr(handler, _BOT_COMMANDS_ATTR, ()):
                     language_code, scope, commands = split_bot_command_entry(entry)
                     key = (language_code, scope)
                     group = next((_commands for _key, _commands in declared if _key == key), None)

@@ -9,7 +9,8 @@ from pyrogram import Client, filters, handlers
 from pyrogram.handlers import CallbackQueryHandler, Handler, MessageHandler
 from pyrogram.types import BotCommand, BotCommandScopeAllPrivateChats
 
-from pyroflow.constants import BOT_COMMANDS_ATTR
+import pyroflow.utils.bot_commands
+from pyroflow.utils.bot_commands import _BOT_COMMANDS_ATTR
 from pyroflow.utils import bot_commands, mark_bot_commands, split_bot_command_entry
 
 
@@ -47,7 +48,7 @@ def test_mark_bot_commands_stores_entries_on_message_handlers() -> None:
     func.handlers = [(message_handler, 0)]  # type: ignore[attr-defined]
 
     assert mark_bot_commands(cmd, scoped)(func) is func
-    assert getattr(message_handler, BOT_COMMANDS_ATTR) == (cmd, scoped)
+    assert getattr(message_handler, _BOT_COMMANDS_ATTR) == (cmd, scoped)
 
 
 def test_mark_bot_commands_marks_business_message_handlers() -> None:
@@ -64,7 +65,7 @@ def test_mark_bot_commands_marks_business_message_handlers() -> None:
 
     mark_bot_commands(cmd)(func)
 
-    assert getattr(handler, BOT_COMMANDS_ATTR) == (cmd,)
+    assert getattr(handler, _BOT_COMMANDS_ATTR) == (cmd,)
 
 
 def test_mark_bot_commands_leaves_other_handlers_untouched() -> None:
@@ -78,8 +79,8 @@ def test_mark_bot_commands_leaves_other_handlers_untouched() -> None:
 
     mark_bot_commands(BotCommand("start", "Start"))(func)
 
-    assert not hasattr(callback_handler, BOT_COMMANDS_ATTR)
-    assert hasattr(message_handler, BOT_COMMANDS_ATTR)
+    assert not hasattr(callback_handler, _BOT_COMMANDS_ATTR)
+    assert hasattr(message_handler, _BOT_COMMANDS_ATTR)
 
 
 def test_mark_bot_commands_without_handlers_returns_func_unchanged() -> None:
@@ -99,7 +100,7 @@ def test_mark_bot_commands_above_unbound_on_message() -> None:
         pass
 
     [(handler, _)] = on_start.handlers  # type: ignore[attr-defined]
-    assert getattr(handler, BOT_COMMANDS_ATTR) == (cmd,)
+    assert getattr(handler, _BOT_COMMANDS_ATTR) == (cmd,)
 
 
 # --- split_bot_command_entry() --------------------------------------------
@@ -138,3 +139,9 @@ def test_split_full_triple_is_returned_as_is() -> None:
 
 def test_module_all_lists_public_names() -> None:
     assert bot_commands.__all__ == ("mark_bot_commands", "split_bot_command_entry")
+
+
+def test_bot_commands_attr_is_namespaced_and_private() -> None:
+    assert _BOT_COMMANDS_ATTR == "_pyroflow_bot_commands"
+    assert _BOT_COMMANDS_ATTR.isidentifier()
+    assert "_BOT_COMMANDS_ATTR" not in pyroflow.utils.bot_commands.__all__

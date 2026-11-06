@@ -30,7 +30,6 @@ MODULES = [
     "pyroflow.client",
     "pyroflow.client.client",
     "pyroflow.client.bot_commands_mixin",
-    "pyroflow.constants",
     "pyroflow.dispatcher",
     "pyroflow.enums",
     "pyroflow.errors",

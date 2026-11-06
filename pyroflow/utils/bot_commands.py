@@ -7,8 +7,6 @@ from typing import Final, TYPE_CHECKING
 from pyrogram import handlers
 from pyrogram.types import BotCommand
 
-from ..constants import BOT_COMMANDS_ATTR
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -16,6 +14,9 @@ if TYPE_CHECKING:
     from pytrove.typings import _FT
 
     from ..typings import BotCommandEntryT, BotCommandPartsT
+
+_BOT_COMMANDS_ATTR: Final[str] = "_pyroflow_bot_commands"
+"""Namespaced `Handler` attribute where `mark_bot_commands` stores its declarations."""
 
 _MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = tuple(
     getattr(handlers, name)
@@ -28,7 +29,7 @@ _MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = tuple(
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
     """Mark a handler function with the bot commands it answers to.
 
-    Nothing is sent here: `entries` are stored under `BOT_COMMANDS_ATTR` on each
+    Nothing is sent here: `entries` are stored under `_BOT_COMMANDS_ATTR` on each
     `MessageHandler` and `BusinessMessageHandler` in `func.handlers`, other
     handlers are left untouched, and `BotCommandsMixin.push_bot_commands`
     publishes them when the client starts.
@@ -51,7 +52,7 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
         ... @PyroClient.on_message(filters.command("start"))
         ... async def on_start(client, message):
         ...     await message.reply("Hi!")
-        >>> [c.command for h, _ in on_start.handlers for c in getattr(h, BOT_COMMANDS_ATTR)]
+        >>> [c.command for h, _ in on_start.handlers for c in getattr(h, _BOT_COMMANDS_ATTR)]
         ['start']
     """
 
@@ -60,7 +61,7 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
         for handler, _ in getattr(func, "handlers", []):
             if not isinstance(handler, _MESSAGES_HANDLER):
                 continue
-            setattr(handler, BOT_COMMANDS_ATTR, entries)
+            setattr(handler, _BOT_COMMANDS_ATTR, entries)
         return func
 
     return decorator

@@ -19,7 +19,7 @@ from pyrogram.types import (
 import pyroflow.client.bot_commands_mixin as module
 import pyroflow.utils.bot_commands as bot_commands_module
 from pyroflow.client.bot_commands_mixin import BotCommandsMixin, _ClientForTypeCheckers
-from pyroflow.constants import BOT_COMMANDS_ATTR
+from pyroflow.utils.bot_commands import _BOT_COMMANDS_ATTR
 
 
 class ExcA(Exception):
@@ -79,7 +79,7 @@ class _MixedClient(BotCommandsMixin, pyroflow.Client):
 def _declare(client: _MixedFake, *entries: object, group: int = 0) -> SimpleNamespace:
     """Register a fake handler in `client.dispatcher.groups` that declares `entries`."""
     handler = SimpleNamespace()
-    setattr(handler, BOT_COMMANDS_ATTR, entries)
+    setattr(handler, _BOT_COMMANDS_ATTR, entries)
     client.dispatcher.groups.setdefault(group, []).append(handler)
     return handler
 
@@ -90,7 +90,7 @@ def _handler(*entries: object) -> MessageHandler:
 
     handler = MessageHandler(callback)
     if entries:
-        setattr(handler, BOT_COMMANDS_ATTR, entries)
+        setattr(handler, _BOT_COMMANDS_ATTR, entries)
     return handler
 
 
