@@ -235,7 +235,7 @@ def split_text(
         ...
         ValueError: separator is required when split_text is given more than one rule
     """
-    normalized_rules = tuple(_normalize_rule(rule) for rule in rules)
+    normalized_rules = tuple(map(_normalize_rule, rules))
 
     if not normalized_rules:
         msg = "split_text filter must be given at least one rule"
@@ -259,7 +259,7 @@ def split_text(
         )
 
         if strip:
-            parts = [p.strip() for p in parts]
+            parts = list(map(str.strip, parts))
 
         if len(parts) != len(normalized_rules):
             return False
