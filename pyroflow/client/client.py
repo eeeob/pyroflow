@@ -125,22 +125,29 @@ class Client(PyroClient):
         self.ask_context_message = ask_context_message
         return self
 
-    if TYPE_CHECKING:
-        register_listener = Dispatcher.register_listener
-        """Forward to `Dispatcher.register_listener`."""
+    def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
+        """Register a listener for its declared update type.
 
-        unregister_listener = Dispatcher.unregister_listener
-        """Forward to `Dispatcher.unregister_listener`."""
+        Only one listener per update type, and only before the client starts.
 
-    else:
+        Args:
+            listener: The listener to register.
 
-        def register_listener(self, *args: object, **kw: object) -> None:
-            """Forward to `Dispatcher.register_listener`."""
-            return self.dispatcher.register_listener(*args, **kw)
+        Raises:
+            RuntimeError: If the client is already running.
+            ValueError: If a listener is already registered for that update type.
+        """
+        self.dispatcher.register_listener(listener)
 
-        async def unregister_listener(self, *args: object, **kw: object) -> None:
-            """Forward to `Dispatcher.unregister_listener`."""
-            return await self.dispatcher.unregister_listener(*args, **kw)
+    async def unregister_listener(self, update_type: type[pyro_types.Update]) -> None:
+        """Unregister and stop the listener for the given update type.
+
+        Does nothing if no listener is registered for that type.
+
+        Args:
+            update_type: The Pyrogram update class whose listener to remove.
+        """
+        await self.dispatcher.unregister_listener(update_type)
 
     @overload
     async def ask(
