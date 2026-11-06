@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing_extensions import assert_type
 
-    from pyrogram.types import InputRichMessage
+    from pyrogram.types import InputRichMessage, Message as PyroMessage
 
     from pyroflow import CallbackQuery, Message
 
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
         )
 
     async def _check_respond(message: Message) -> None:
-        assert_type(await message.respond("hi"), Message | None)
+        assert_type(await message.respond("hi"), PyroMessage | None)
         await message.respond("hi", parse_mode=None)
 
     async def _check_respond_rejects_what_only_one_side_takes(message: Message) -> None:
