@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 import pyroflow.models
-from pyroflow.enums import ListenMessageId, WorkersBusyMode
+from pyroflow.enums import EphemeralUpdates, WorkersBusyMode
 from pyroflow.models import ListenerContext, ListenerKey, ListenerModel, WorkersPolicy
 
 
@@ -27,7 +27,7 @@ def test_listener_key_to_dict() -> None:
 
 
 def test_listener_key_sub_keys_of_an_ephemeral_key_yield_only_itself() -> None:
-    key = ListenerKey(1, 2, ListenMessageId.EPHEMERAL)
+    key = ListenerKey(1, 2, EphemeralUpdates.ANY)
     assert list(key.sub_keys()) == [key]
 
 

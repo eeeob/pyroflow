@@ -2,12 +2,12 @@
 
 from __future__ import annotations as _annotations
 
-from typing import Literal, get_args, get_origin
+from typing import get_args, get_origin
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
-from pyroflow.enums import ListenMessageId
+from pyroflow.enums import EphemeralUpdates, ListenMessageId
 from pyroflow.typings import (
     BotCommandEntryT,
     BotCommandGroupKeyT,
@@ -35,11 +35,11 @@ def test_bot_command_parts_and_group_key() -> None:
 
 
 def test_listen_message_id_is_int_or_the_sentinel_enum() -> None:
-    assert get_args(ListenMessageIdT) == (int, ListenMessageId)
+    assert get_args(ListenMessageIdT) == (int, ListenMessageId, EphemeralUpdates)
 
 
 def test_listener_message_id_alias_takes_an_id_or_ephemeral() -> None:
-    assert get_args(ListenerMessageIdT) == (int, Literal[ListenMessageId.EPHEMERAL])
+    assert get_args(ListenerMessageIdT) == (int, EphemeralUpdates)
 
 
 def test_typings_all() -> None:

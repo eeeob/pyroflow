@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from pyrogram.filters import Filter
 
-from .enums import ListenMessageId, WorkersBusyMode
+from .enums import EphemeralUpdates, WorkersBusyMode
 from .typings import ListenerMessageIdT
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ class ListenerKey:
 
     For a message this is the incoming message's own id; for a callback
     query it is the id of the message holding the pressed button. For an
-    ephemeral update it is `ListenMessageId.EPHEMERAL`, never an id.
+    ephemeral update it is `EphemeralUpdates.ANY`, never an id.
     """
 
     def to_tuple(self) -> tuple[int, int | None, ListenerMessageIdT | None]:
@@ -96,7 +96,7 @@ class ListenerKey:
 
         yield self
 
-        if message_id is ListenMessageId.EPHEMERAL:
+        if message_id is EphemeralUpdates.ANY:
             return
 
         if size == 3:

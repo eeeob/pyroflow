@@ -10,6 +10,7 @@ import pytest
 import pyroflow.enums
 from pyroflow.enums import (
     DuplicatePolicy,
+    EphemeralUpdates,
     ListenMessageId,
     MessageListenCancelPolicy,
     WorkersBusyMode,
@@ -45,7 +46,11 @@ def test_listener_scope_values() -> None:
 
 
 def test_listen_message_id_values() -> None:
-    assert [str(value) for value in ListenMessageId] == ["auto", "sent", "next", "ephemeral"]
+    assert [str(value) for value in ListenMessageId] == ["auto", "sent", "next"]
+
+
+def test_ephemeral_updates_values() -> None:
+    assert [str(value) for value in EphemeralUpdates] == ["any"]
 
 
 def test_workers_busy_mode_values() -> None:
@@ -58,6 +63,7 @@ def test_enums_all() -> None:
         "MessageListenCancelPolicy",
         "ListenerScope",
         "ListenMessageId",
+        "EphemeralUpdates",
         "WorkersBusyMode",
     )
 

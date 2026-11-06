@@ -14,7 +14,7 @@ from pyroflow import (
     CallbackQueryListener,
     MessageListener,
 )
-from pyroflow.enums import ListenMessageId, MessageListenCancelPolicy, ListenerScope
+from pyroflow.enums import EphemeralUpdates, MessageListenCancelPolicy, ListenerScope
 from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerContext, ListenerKey
 from pyroflow.types import Message
@@ -270,7 +270,7 @@ def _ephemeral_press(mlis: MessageListener) -> Any:
 
 @pytest.mark.parametrize(
     "key",
-    [(100,), (100, 7), (100, 7, ListenMessageId.EPHEMERAL)],
+    [(100,), (100, 7), (100, 7, EphemeralUpdates.ANY)],
     ids=["chat", "user", "ephemeral"],
 )
 async def test_cancel_message_listen_on_an_ephemeral_message_cancels_ephemeral_waits(

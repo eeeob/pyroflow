@@ -21,7 +21,7 @@ from pyrogram.types import Message
 
 from pyroflow import MessageListener
 from pyroflow.dispatcher import _HANDLER_WORKER
-from pyroflow.enums import DuplicatePolicy, ListenMessageId, ListenerScope
+from pyroflow.enums import DuplicatePolicy, EphemeralUpdates, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -882,7 +882,7 @@ async def test_listen_refuses_ephemeral_without_a_user() -> None:
     lis = MessageListener()
 
     with pytest.raises(ValueError, match="needs a user_id"):
-        await lis.listen(100, message_id=ListenMessageId.EPHEMERAL)
+        await lis.listen(100, message_id=EphemeralUpdates.ANY)
 
     assert lis.listeners == {}
 
@@ -896,7 +896,7 @@ async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
         asyncio.create_task(lis.listen(100, 7, 0)),
         asyncio.create_task(lis.listen(100, 7, 4)),
     ]
-    wait = asyncio.create_task(lis.listen(100, 7, ListenMessageId.EPHEMERAL))
+    wait = asyncio.create_task(lis.listen(100, 7, EphemeralUpdates.ANY))
     await asyncio.sleep(0)
 
     assert await lis.resolve(ephemeral) is True
@@ -909,7 +909,7 @@ async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
 
 async def test_a_regular_update_never_reaches_a_wait_on_ephemeral() -> None:
     lis = MessageListener()
-    wait = asyncio.create_task(lis.listen(100, 7, ListenMessageId.EPHEMERAL))
+    wait = asyncio.create_task(lis.listen(100, 7, EphemeralUpdates.ANY))
     await asyncio.sleep(0)
 
     assert await lis.resolve(make_message()) is False

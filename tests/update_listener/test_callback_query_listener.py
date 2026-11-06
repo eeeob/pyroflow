@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 
 from pyroflow import CallbackQueryListener
-from pyroflow.enums import ListenMessageId
+from pyroflow.enums import EphemeralUpdates
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_callback_query
@@ -58,4 +58,4 @@ async def test_extract_key_holds_ephemeral_instead_of_an_ephemeral_messages_id()
 
     key = await CallbackQueryListener()._extract_key(update)
 
-    assert key == ListenerKey(100, 7, ListenMessageId.EPHEMERAL)
+    assert key == ListenerKey(100, 7, EphemeralUpdates.ANY)

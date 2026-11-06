@@ -3,7 +3,6 @@
 from __future__ import annotations as _annotations
 
 from typing import (
-    Literal,
     TypeVar,
     TypeAlias,
 )
@@ -11,7 +10,7 @@ from typing import (
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 from pytrove.typings import MaybeList
 
-from .enums import ListenMessageId
+from .enums import EphemeralUpdates, ListenMessageId
 
 
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
@@ -30,11 +29,11 @@ BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeLis
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 """The key a collected command group is filed under by `BotCommandsMixin`."""
 
-ListenMessageIdT: TypeAlias = int | ListenMessageId
-"""A message id, or `ListenMessageId.SENT` for the message `ask` sent or edited."""
+ListenMessageIdT: TypeAlias = int | ListenMessageId | EphemeralUpdates
+"""A message id, a `ListenMessageId` for the message `ask` sent or edited, or `EphemeralUpdates`."""
 
-ListenerMessageIdT: TypeAlias = int | Literal[ListenMessageId.EPHEMERAL]
-"""What a listener key holds for a message: its id, or `EPHEMERAL` for ephemeral updates."""
+ListenerMessageIdT: TypeAlias = int | EphemeralUpdates
+"""What a listener key holds for a message: its id, or `EphemeralUpdates` for ephemeral updates."""
 
 
 __all__ = (

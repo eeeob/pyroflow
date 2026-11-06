@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import TYPE_CHECKING
 
-from ..enums import ListenMessageId
+from ..enums import EphemeralUpdates
 from ..models import ListenerKey
 from ..types import CallbackQuery
 from .update_listener import UpdateListener
@@ -55,7 +55,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
 
         Returns:
             The key `(message chat id, sender id, message id)`, with
-            `ListenMessageId.EPHEMERAL` for the id of an ephemeral message, or
+            `EphemeralUpdates.ANY` for the id of an ephemeral message, or
             `None` if the callback has no message or its message has no chat.
         """
         m = update.message
@@ -66,7 +66,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         return ListenerKey(
             m.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             update.from_user.id,
-            m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL,
+            m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY,
         )
 
 

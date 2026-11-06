@@ -19,7 +19,7 @@ from ..errors import (
     ListenerReplaced,
     ListenerTimeout,
 )
-from ..enums import DuplicatePolicy, ListenMessageId, ListenerScope
+from ..enums import DuplicatePolicy, EphemeralUpdates, ListenerScope
 from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
@@ -256,7 +256,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             chat_id: The chat to listen in.
             user_id: The user to wait for; `None` matches any user.
             message_id: The message to wait on; `None` matches any regular
-                message. `ListenMessageId.EPHEMERAL` waits on ephemeral
+                message. `EphemeralUpdates.ANY` waits on ephemeral
                 updates, the only wait they reach; it needs `user_id`.
             context: Values attached to the listener model; `None` attaches none
                 empty `ListenerContext`.
@@ -271,7 +271,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             The matching Pyrogram update.
 
         Raises:
-            ValueError: If `message_id` is `ListenMessageId.EPHEMERAL` without a
+            ValueError: If `message_id` is `EphemeralUpdates.ANY` without a
                 `user_id`.
             ListenerAlreadyExists: If a listener already waits on the key and
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
@@ -317,7 +317,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             ListenerKey(chat_id=1, user_id=None, message_id=None)
         """
-        if message_id is ListenMessageId.EPHEMERAL and user_id is None:
+        if message_id is EphemeralUpdates.ANY and user_id is None:
             msg = "Waiting on ephemeral updates needs a user_id"
             raise ValueError(msg)
 

@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
-from ..enums import ListenMessageId, MessageListenCancelPolicy, ListenerScope
+from ..enums import EphemeralUpdates, MessageListenCancelPolicy, ListenerScope
 from ..models import ListenerKey
 from ..types import Message
 from .callback_query_listener import CallbackQueryListener
@@ -133,7 +133,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         chat_id, user_id = m.chat.id, update.from_user.id
         keys = (
             (
-                ListenerKey(chat_id, user_id, ListenMessageId.EPHEMERAL),  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
+                ListenerKey(chat_id, user_id, EphemeralUpdates.ANY),  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
                 ListenerKey(chat_id, user_id),  # ty: ignore[invalid-argument-type]  # as above
                 ListenerKey(chat_id),  # ty: ignore[invalid-argument-type]  # as above
             )

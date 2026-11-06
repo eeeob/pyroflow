@@ -12,7 +12,7 @@ from pyrogram.enums import ChatType
 from pyrogram.types import Chat
 
 from pyroflow import types as pf_types
-from pyroflow.enums import ListenMessageId
+from pyroflow.enums import EphemeralUpdates, ListenMessageId
 from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message, User
 
@@ -369,7 +369,7 @@ async def test_ask_waits_on_the_buttons_of_an_ephemeral_reply(method: str, conte
     m = make_ephemeral_msg()
     await getattr(m, method)(content, listen_update_type=CallbackQuery)
 
-    assert listened(m)["message_id"] is ListenMessageId.EPHEMERAL
+    assert listened(m)["message_id"] is EphemeralUpdates.ANY
 
 
 @pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
@@ -379,7 +379,7 @@ async def test_ask_refuses_ephemeral_without_a_user_before_sending(
     m = make_ask_msg()
 
     with pytest.raises(ValueError, match="needs listen_user_id"):
-        await getattr(m, method)(content, listen_message_id=ListenMessageId.EPHEMERAL)
+        await getattr(m, method)(content, listen_message_id=EphemeralUpdates.ANY)
 
     m.reply.assert_not_awaited()
     m.reply_rich.assert_not_awaited()

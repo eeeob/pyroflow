@@ -20,7 +20,7 @@ from pyrogram.types import (
 )
 
 import pyroflow.client.client as client_module
-from pyroflow.enums import ListenMessageId, WorkersBusyMode
+from pyroflow.enums import EphemeralUpdates, ListenMessageId, WorkersBusyMode
 from pyroflow.models import ListenerContext, WorkersPolicy
 from pyroflow.types import CallbackQuery, Message
 
@@ -550,10 +550,10 @@ def _ephemeral_sent() -> Message:
 @pytest.mark.parametrize("method", ["ask", "ask_rich"])
 @pytest.mark.parametrize(
     ("given", "listened"),
-    [(ListenMessageId.SENT, ListenMessageId.EPHEMERAL), (ListenMessageId.NEXT, None), (3, 3)],
+    [(ListenMessageId.SENT, EphemeralUpdates.ANY), (ListenMessageId.NEXT, None), (3, 3)],
 )
 async def test_ask_never_waits_on_an_ephemeral_messages_id(
-    method: str, given: ListenMessageId | int, listened: ListenMessageId | int | None
+    method: str, given: ListenMessageId | int, listened: EphemeralUpdates | int | None
 ) -> None:
     c, listener, _, _ = _ask_client(_ephemeral_sent())
 
@@ -569,7 +569,7 @@ async def test_ask_never_waits_on_an_ephemeral_messages_id(
     "kw",
     [
         {"ephemeral_message_parameters": object()},
-        {"listen_message_id": ListenMessageId.EPHEMERAL},
+        {"listen_message_id": EphemeralUpdates.ANY},
     ],
     ids=["parameters", "message_id"],
 )

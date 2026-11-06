@@ -18,7 +18,7 @@ from pyrogram.types import (
     Update as PyroUpdate,
 )
 
-from .enums import ListenMessageId
+from .enums import EphemeralUpdates, ListenMessageId
 from .models import ListenerContext
 from .utils import patch_cls
 
@@ -206,10 +206,7 @@ class Message(PyroMessage):
             if self.ephemeral_message_id is not None and not edits:
                 # A reply to an ephemeral message goes to its sender alone.
                 listen_user_id = self.from_user.id  # ty: ignore[unresolved-attribute]  # `reply` needs the sender too, and raises the same way without one
-            elif (
-                self.ephemeral_message_id is not None
-                or listen_message_id is ListenMessageId.EPHEMERAL
-            ):
+            elif self.ephemeral_message_id is not None or listen_message_id is EphemeralUpdates.ANY:
                 msg = "Waiting on an ephemeral message needs listen_user_id"
                 raise ValueError(msg)
 
@@ -229,9 +226,7 @@ class Message(PyroMessage):
 
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = (
-                m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL
-            )
+            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
         elif listen_message_id is ListenMessageId.NEXT:
             listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
 
@@ -378,10 +373,7 @@ class Message(PyroMessage):
             if self.ephemeral_message_id is not None and not edits:
                 # A reply to an ephemeral message goes to its sender alone.
                 listen_user_id = self.from_user.id  # ty: ignore[unresolved-attribute]  # `reply` needs the sender too, and raises the same way without one
-            elif (
-                self.ephemeral_message_id is not None
-                or listen_message_id is ListenMessageId.EPHEMERAL
-            ):
+            elif self.ephemeral_message_id is not None or listen_message_id is EphemeralUpdates.ANY:
                 msg = "Waiting on an ephemeral message needs listen_user_id"
                 raise ValueError(msg)
 
@@ -405,9 +397,7 @@ class Message(PyroMessage):
 
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = (
-                m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL
-            )
+            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
         elif listen_message_id is ListenMessageId.NEXT:
             listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
 

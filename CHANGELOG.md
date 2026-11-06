@@ -23,11 +23,11 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `setup_pyroflow()` removes one.
 - `Client.setup_pyroflow(ask_context_message=False)`: `ask` and `ask_rich` leave
   `listen_context` as it is, instead of putting the message in it.
-- `ListenMessageId.EPHEMERAL`: waits on ephemeral updates, in `listen` and in
+- `pyroflow.enums.EphemeralUpdates.ANY`: waits on ephemeral updates, in `listen` and in
   `listen_message_id` of `ask`. It needs a user. Ephemeral ids do not follow
   each other and can be reused, so no key holds one, an ephemeral update reaches
   only such a wait, and a regular update never does. After an ephemeral `ask`,
-  `SENT` is `EPHEMERAL` and `NEXT` waits for that user's next regular message.
+  `SENT` is `EphemeralUpdates.ANY` and `NEXT` waits for that user's next regular message.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that

@@ -11,7 +11,7 @@ from pyrogram import (
     utils as pyro_ut,
 )
 
-from ..enums import ListenMessageId
+from ..enums import EphemeralUpdates, ListenMessageId
 from ..models import ListenerContext
 from ..utils import patch_cls
 from ..types import Message, CallbackQuery
@@ -243,8 +243,9 @@ class Client(PyroClient):
                 `CallbackQuery` and no filter otherwise.
                 In a group, `NEXT` can be taken by another member's message;
                 pass `None` there. After an ephemeral message `SENT` is
-                `EPHEMERAL` and `NEXT` is `None`, since ephemeral ids do not
-                follow each other; pass `EPHEMERAL` for an ephemeral answer.
+                `EphemeralUpdates.ANY` and `NEXT` is `None`, since ephemeral
+                ids do not follow each other; pass `EphemeralUpdates.ANY` for
+                an ephemeral answer.
             listen_context: Values attached to the listener. It gets the sent
                 or edited message as `message`, on a copy, unless it holds one
                 or `setup_pyroflow` turned `ask_context_message` off. So
@@ -268,7 +269,7 @@ class Client(PyroClient):
         Raises:
             RuntimeError: If no listener is registered for `listen_update_type`.
             ValueError: If `ephemeral_message_parameters` or
-                `ListenMessageId.EPHEMERAL` comes without `listen_user_id`.
+                `EphemeralUpdates.ANY` comes without `listen_user_id`.
                 Nothing is sent by then.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
@@ -290,7 +291,7 @@ class Client(PyroClient):
 
         if listen_user_id is None and (
             kw.get("ephemeral_message_parameters") is not None
-            or listen_message_id is ListenMessageId.EPHEMERAL
+            or listen_message_id is EphemeralUpdates.ANY
         ):
             msg = "Waiting on an ephemeral message needs listen_user_id"
             raise ValueError(msg)
@@ -321,9 +322,7 @@ class Client(PyroClient):
 
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = (
-                m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL
-            )
+            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
         elif listen_message_id is ListenMessageId.NEXT:
             listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
 
@@ -476,7 +475,7 @@ class Client(PyroClient):
 
         if listen_user_id is None and (
             kw.get("ephemeral_message_parameters") is not None
-            or listen_message_id is ListenMessageId.EPHEMERAL
+            or listen_message_id is EphemeralUpdates.ANY
         ):
             msg = "Waiting on an ephemeral message needs listen_user_id"
             raise ValueError(msg)
@@ -505,9 +504,7 @@ class Client(PyroClient):
 
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = (
-                m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL
-            )
+            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
         elif listen_message_id is ListenMessageId.NEXT:
             listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
 

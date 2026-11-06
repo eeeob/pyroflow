@@ -5,7 +5,7 @@ from __future__ import annotations as _annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..enums import ListenMessageId
+from ..enums import EphemeralUpdates
 from ..models import ListenerKey
 from ..types import Message
 from .update_listener import UpdateListener
@@ -80,7 +80,7 @@ class MessageListener(UpdateListener[Message]):
 
         Returns:
             The key `(chat id, sender id or None, message id)`, with
-            `ListenMessageId.EPHEMERAL` for the id of an ephemeral message, or
+            `EphemeralUpdates.ANY` for the id of an ephemeral message, or
             `None` for outgoing, service, empty or edited messages, messages
             sent by this account, and messages without a chat.
         """
@@ -99,7 +99,7 @@ class MessageListener(UpdateListener[Message]):
         return ListenerKey(
             update.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             getattr(update.from_user, "id", None),
-            update.id if update.ephemeral_message_id is None else ListenMessageId.EPHEMERAL,
+            update.id if update.ephemeral_message_id is None else EphemeralUpdates.ANY,
         )
 
 

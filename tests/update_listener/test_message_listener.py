@@ -11,7 +11,7 @@ from pyrogram import filters
 
 import pyroflow.update_listener.message_listener as message_listener_module
 from pyroflow import MessageListener
-from pyroflow.enums import ListenMessageId
+from pyroflow.enums import EphemeralUpdates
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_message
@@ -118,7 +118,7 @@ async def test_extract_key_holds_ephemeral_instead_of_an_ephemeral_messages_id()
 
     key = await MessageListener()._extract_key(update)
 
-    assert key == ListenerKey(100, 7, ListenMessageId.EPHEMERAL)
+    assert key == ListenerKey(100, 7, EphemeralUpdates.ANY)
 
 
 def test_warn_single_update_filter_stays_quiet_for_ephemeral(
@@ -129,7 +129,7 @@ def test_warn_single_update_filter_stays_quiet_for_ephemeral(
             {
                 "chat_id": 1,
                 "user_id": 2,
-                "message_id": ListenMessageId.EPHEMERAL,
+                "message_id": EphemeralUpdates.ANY,
                 "filters": filters.text,
                 "strict": False,
             }
