@@ -3,14 +3,14 @@
 Each factory returns a `pyrogram.filters.Filter`, so it composes with `&`, `|`
 and `~` and registers like any Pyrogram filter. The text of a `Message` is its
 `text`, falling back to its `caption`; the text of a `CallbackQuery` is its
-`data`.
+`data`. A `str` pattern matches a `str` text only, and a `bytes` pattern `bytes`
+data only; Pyrogram leaves `data` as `bytes` only when it is not valid UTF-8.
 """
 
 from __future__ import annotations as _annotations
 
 import re
 from typing import Protocol, AnyStr, TYPE_CHECKING
-from contextlib import suppress
 from enum import Enum, EnumMeta as EnumType
 
 from pyrogram.filters import Filter, create
@@ -85,10 +85,8 @@ def _text_filter(
 ) -> Filter:
     """Create a filter that matches the update's text against `texts` with `match`.
 
-    Both `str` and `bytes` patterns are accepted, and match both a `str` text
-    and `bytes` callback data; when the kinds differ they are compared in
-    UTF-8. Empty values and other types are ignored, and an empty text never
-    matches.
+    Each pattern matches a text of its own kind only. Empty values and other
+    types are ignored, and an empty text never matches.
 
     Args:
         name: The name of the filter's class.
@@ -108,11 +106,8 @@ def _text_filter(
 
         if isinstance(text, str):
             str_view.add(text)
-            bytes_view.add(text.encode())
         elif isinstance(text, bytes):
             bytes_view.add(text)
-            with suppress(UnicodeDecodeError):
-                str_view.add(text.decode())
 
     str_texts, bytes_texts = tuple(str_view), tuple(bytes_view)
 
@@ -143,7 +138,7 @@ def endswith(*texts: NestedContainer[str | bytes]) -> Filter:
         >>> asyncio.run(endswith("world", ["!"])(None, Message(id=1, text="hello world")))
         True
         >>> asyncio.run(endswith(b"world")(None, Message(id=1, text="hello world")))
-        True
+        False
     """
     return _text_filter("EndsWith", texts, lambda text, patterns: text.endswith(patterns))
 
@@ -164,6 +159,8 @@ def startswith(*texts: NestedContainer[str | bytes]) -> Filter:
         True
         >>> query = CallbackQuery(id="1", from_user=None, chat_instance="", data=b"cb:\xff")
         >>> asyncio.run(startswith("cb:")(None, query))
+        False
+        >>> asyncio.run(startswith(b"cb:")(None, query))
         True
     """
     return _text_filter("StartsWith", texts, lambda text, patterns: text.startswith(patterns))
@@ -184,7 +181,7 @@ def equal(*texts: NestedContainer[str | bytes]) -> Filter:
         >>> asyncio.run(equal("hi", "hello")(None, Message(id=1, text="hello world")))
         False
         >>> asyncio.run(equal(b"hello")(None, Message(id=1, text="hello")))
-        True
+        False
     """
     return _text_filter("Equal", texts, lambda text, patterns: text in patterns)
 

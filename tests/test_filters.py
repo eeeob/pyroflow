@@ -161,10 +161,10 @@ async def test_equal_is_case_sensitive() -> None:
     assert await matches(filters.equal("Hello"), make_message(text="hello")) is False
 
 
-async def test_equal_callback_query_with_bytes_data_matches_its_utf8_text() -> None:
+async def test_equal_callback_query_with_bytes_data_matches_bytes_only() -> None:
     cbq = make_callback_query(data=b"confirm")
-    assert await matches(filters.equal("confirm"), cbq) is True
-    assert await matches(filters.equal("cancel"), cbq) is False
+    assert await matches(filters.equal(b"confirm"), cbq) is True
+    assert await matches(filters.equal("confirm"), cbq) is False
 
 
 # --- endswith / startswith / equal: str and bytes ---------------------------
@@ -182,14 +182,14 @@ async def test_str_pattern_matches_str_text(factory: Any, text: str, pattern: st
 
 
 @pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
-async def test_bytes_pattern_matches_str_text(factory: Any, text: str, pattern: str) -> None:
-    assert await matches(factory(pattern.encode()), make_message(text=text)) is True
+async def test_bytes_pattern_never_matches_str_text(factory: Any, text: str, pattern: str) -> None:
+    assert await matches(factory(pattern.encode()), make_message(text=text)) is False
 
 
 @pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
-async def test_str_pattern_matches_bytes_data(factory: Any, text: str, pattern: str) -> None:
+async def test_str_pattern_never_matches_bytes_data(factory: Any, text: str, pattern: str) -> None:
     cbq = make_callback_query(data=text.encode())
-    assert await matches(factory(pattern), cbq) is True
+    assert await matches(factory(pattern), cbq) is False
 
 
 @pytest.mark.parametrize(("factory", "text", "pattern"), TEXT_FILTERS)
@@ -198,17 +198,12 @@ async def test_bytes_pattern_matches_bytes_data(factory: Any, text: str, pattern
     assert await matches(factory(pattern.encode()), cbq) is True
 
 
-async def test_str_pattern_matches_non_utf8_bytes_data() -> None:
+async def test_only_bytes_patterns_match_non_utf8_bytes_data() -> None:
     cbq = make_callback_query(data=b"cb:\xff")
-    assert await matches(filters.startswith("cb:"), cbq) is True
+    assert await matches(filters.startswith("cb:"), cbq) is False
+    assert await matches(filters.startswith(b"cb:"), cbq) is True
     assert await matches(filters.endswith(b"\xff"), cbq) is True
     assert await matches(filters.equal(b"cb:\xff"), cbq) is True
-
-
-@pytest.mark.parametrize("factory", [filters.endswith, filters.startswith, filters.equal])
-async def test_non_utf8_bytes_pattern_never_matches_str_text(factory: Any) -> None:
-    # `b"\xff"` does not decode as UTF-8, so it never joins the `str` patterns.
-    assert await matches(factory(b"\xff"), make_message(text="\xff")) is False
 
 
 @pytest.mark.parametrize("factory", [filters.endswith, filters.startswith, filters.equal])
@@ -217,14 +212,12 @@ async def test_empty_text_never_matches(factory: Any, update: Message | Callback
     assert await matches(factory("x", b"x", "", b""), update) is False
 
 
-@pytest.mark.parametrize(
-    ("factory", "text"),
-    [(filters.endswith, "b"), (filters.startswith, "b"), (filters.equal, "b")],
-)
-async def test_mixed_nested_containers_match_both_kinds(factory: Any, text: str) -> None:
+@pytest.mark.parametrize("factory", [filters.endswith, filters.startswith, filters.equal])
+async def test_mixed_nested_containers_keep_each_kind(factory: Any) -> None:
     flt = factory(["a", (b"b", [None, 1])], b"")
-    assert await matches(flt, make_message(text=text)) is True
+    assert await matches(flt, make_message(text="a")) is True
     assert await matches(flt, make_callback_query(data=b"b")) is True
+    assert await matches(flt, make_message(text="b")) is False
     assert await matches(flt, make_message(text="c")) is False
 
 
