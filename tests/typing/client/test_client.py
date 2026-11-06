@@ -27,6 +27,12 @@ if TYPE_CHECKING:
         assert_type(await client.ask(1, "hi", 5), Message)
         assert_type(await client.ask(1, "hi", 5, listen_update_type=CallbackQuery), CallbackQuery)
 
+    async def _check_ask_pyrogram_arguments(client: Client) -> None:
+        await client.ask(1, "hi", disable_notification=True, listen_timeout=5)
+        await client.ask(1, "hi", ephemeral_message_parameters=None, reply_to_message_id=3)
+        await client.ask(1, "hi", 5, parse_mode=None, business_connection_id="bc")
+        await client.ask(1, "hi", disable_notification="yes")  # ty: ignore[invalid-argument-type]
+
     async def _check_ask_rejects(client: Client) -> None:
         await client.ask(1, "hi", listen_update_type=int)  # ty: ignore[no-matching-overload]
         await client.ask(1, "hi", "5")  # ty: ignore[invalid-argument-type]

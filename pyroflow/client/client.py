@@ -7,7 +7,6 @@ from typing import Any, cast, overload, TYPE_CHECKING
 
 from pyrogram import (
     Client as PyroClient,
-    enums as pyro_enums,
     types as pyro_types,
     utils as pyro_ut,
 )
@@ -19,12 +18,11 @@ from ..types import Message, CallbackQuery
 
 if TYPE_CHECKING:
     import sys
-    from datetime import datetime
 
     if sys.version_info >= (3, 11):
-        from typing import Self
+        from typing import Self, Unpack
     else:
-        from typing_extensions import Self
+        from typing_extensions import Self, Unpack
 
     from pyrogram.filters import Filter
     from pyrogram.types import InputRichMessage
@@ -33,6 +31,7 @@ if TYPE_CHECKING:
         StrInt,
     )
 
+    from .._internal import AskEditKw, AskRichEditKw, AskRichSendKw, AskSendKw
     from ..dispatcher import Dispatcher
     from ..models import WorkersPolicy
     from ..typings import (
@@ -133,27 +132,6 @@ class Client(PyroClient):
         chat_id: StrInt,
         text: str,
         *,
-        parse_mode: pyro_enums.ParseMode | None = None,
-        entities: list[pyro_types.MessageEntity] | None = None,
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
-        reply_parameters: pyro_types.ReplyParameters | None = None,
-        disable_notification: bool | None = None,
-        message_thread_id: int | None = None,
-        direct_messages_topic_id: int | None = None,
-        effect_id: int | None = None,
-        schedule_date: datetime | None = None,
-        repeat_period: int | None = None,
-        protect_content: bool | None = None,
-        business_connection_id: str | None = None,
-        allow_paid_broadcast: bool | None = None,
-        paid_message_star_count: int | None = None,
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup
-        | pyro_types.ReplyKeyboardMarkup
-        | pyro_types.ReplyKeyboardRemove
-        | pyro_types.ForceReply
-        | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -161,7 +139,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[UpdateType],
-        **kw: Any,
+        **kw: Unpack[AskSendKw],
     ) -> UpdateType: ...
 
     @overload
@@ -170,27 +148,6 @@ class Client(PyroClient):
         chat_id: StrInt,
         text: str,
         *,
-        parse_mode: pyro_enums.ParseMode | None = None,
-        entities: list[pyro_types.MessageEntity] | None = None,
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
-        reply_parameters: pyro_types.ReplyParameters | None = None,
-        disable_notification: bool | None = None,
-        message_thread_id: int | None = None,
-        direct_messages_topic_id: int | None = None,
-        effect_id: int | None = None,
-        schedule_date: datetime | None = None,
-        repeat_period: int | None = None,
-        protect_content: bool | None = None,
-        business_connection_id: str | None = None,
-        allow_paid_broadcast: bool | None = None,
-        paid_message_star_count: int | None = None,
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup
-        | pyro_types.ReplyKeyboardMarkup
-        | pyro_types.ReplyKeyboardRemove
-        | pyro_types.ForceReply
-        | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -198,7 +155,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[Message] = Message,
-        **kw: Any,
+        **kw: Unpack[AskSendKw],
     ) -> Message: ...
 
     @overload
@@ -208,13 +165,6 @@ class Client(PyroClient):
         text: str,
         message_id: int,
         *,
-        parse_mode: pyro_enums.ParseMode | None = None,
-        entities: list[pyro_types.MessageEntity] | None = None,
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
-        schedule_date: datetime | None = None,
-        business_connection_id: str | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -222,7 +172,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[UpdateType],
-        **kw: Any,
+        **kw: Unpack[AskEditKw],
     ) -> UpdateType: ...
 
     @overload
@@ -232,13 +182,6 @@ class Client(PyroClient):
         text: str,
         message_id: int,
         *,
-        parse_mode: pyro_enums.ParseMode | None = None,
-        entities: list[pyro_types.MessageEntity] | None = None,
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
-        schedule_date: datetime | None = None,
-        business_connection_id: str | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -246,7 +189,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[Message] = Message,
-        **kw: Any,
+        **kw: Unpack[AskEditKw],
     ) -> Message: ...
 
     async def ask(
@@ -255,28 +198,6 @@ class Client(PyroClient):
         text: str,
         message_id: int | None = None,
         *,
-        parse_mode: pyro_enums.ParseMode | None = None,
-        entities: list[pyro_types.MessageEntity] | None = None,
-        link_preview_options: pyro_types.LinkPreviewOptions | None = None,
-        schedule_date: datetime | None = None,
-        business_connection_id: str | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup
-        | pyro_types.ReplyKeyboardMarkup
-        | pyro_types.ReplyKeyboardRemove
-        | pyro_types.ForceReply
-        | None = None,
-        # `send_message` only params
-        disable_notification: bool | None = None,
-        message_thread_id: int | None = None,
-        direct_messages_topic_id: int | None = None,
-        effect_id: int | None = None,
-        reply_parameters: pyro_types.ReplyParameters | None = None,
-        repeat_period: int | None = None,
-        protect_content: bool | None = None,
-        allow_paid_broadcast: bool | None = None,
-        paid_message_star_count: int | None = None,
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -289,31 +210,14 @@ class Client(PyroClient):
         """Send or edit a message, then wait for the next matching update.
 
         With `message_id` the message is edited with `edit_message_text`,
-        otherwise a new one is sent with `send_message`. The arguments from
-        `disable_notification` to `suggested_post_parameters` apply to sending
-        only and are ignored when editing. The update is then awaited in the
-        chat of that message, filtered by `listen_user_id` and `listen_message_id`.
+        otherwise a new one is sent with `send_message`. The update is then
+        awaited in the chat of that message, filtered by `listen_user_id` and
+        `listen_message_id`.
 
         Args:
             chat_id: Chat to send to, or that holds the message to edit.
             text: The text to send or edit.
             message_id: If provided, edit this message instead of sending a new one.
-            parse_mode: How `text` is parsed; `None` uses the client default.
-            entities: Entities to use instead of `parse_mode`.
-            link_preview_options: Link preview options for the message.
-            schedule_date: Date to send the message at.
-            business_connection_id: Business connection to send or edit through.
-            reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
-            disable_notification: Send the message silently.
-            message_thread_id: Target topic.
-            direct_messages_topic_id: Target direct messages topic.
-            effect_id: Message effect to apply.
-            reply_parameters: Reply options.
-            repeat_period: Interval in seconds to repeat the message at.
-            protect_content: Protect the message from forwarding and saving.
-            allow_paid_broadcast: Allow a paid broadcast.
-            paid_message_star_count: Telegram Stars paid to send the message.
-            suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: Filter the awaited update by user.
             listen_message_id: Filter the awaited update by message: an id,
                 `None` for no filter, or a `ListenMessageId`: `SENT` for the
@@ -346,8 +250,6 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `listen_update_type`.
-            ValueError: If `message_id` is given with a `reply_markup` other
-                than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -367,53 +269,18 @@ class Client(PyroClient):
             raise RuntimeError(msg)
 
         if message_id is not None:
-            if reply_markup is not None and not isinstance(
-                reply_markup, pyro_types.InlineKeyboardMarkup
-            ):
-                msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
-                raise ValueError(msg)
-
             # `patch_cls` makes pyrogram's `Message` the same class as pyroflow's at runtime.
             m = cast(
                 "Message",
                 await self.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=text,
-                    parse_mode=parse_mode,
-                    entities=entities,
-                    link_preview_options=link_preview_options,
-                    schedule_date=schedule_date,
-                    business_connection_id=business_connection_id,
-                    reply_markup=reply_markup,
-                    **kw,
+                    chat_id=chat_id, message_id=message_id, text=text, **kw
                 ),
             )
         else:
             # `send_message` may return `None` in theory; the behavior (`AttributeError` on `m.chat`) is unchanged.
             m = cast(
                 "Message",
-                await self.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    parse_mode=parse_mode,
-                    entities=entities,
-                    link_preview_options=link_preview_options,
-                    disable_notification=disable_notification,
-                    message_thread_id=message_thread_id,
-                    direct_messages_topic_id=direct_messages_topic_id,
-                    effect_id=effect_id,
-                    reply_parameters=reply_parameters,
-                    schedule_date=schedule_date,
-                    repeat_period=repeat_period,
-                    protect_content=protect_content,
-                    business_connection_id=business_connection_id,
-                    allow_paid_broadcast=allow_paid_broadcast,
-                    paid_message_star_count=paid_message_star_count,
-                    suggested_post_parameters=suggested_post_parameters,
-                    reply_markup=reply_markup,
-                    **kw,
-                ),
+                await self.send_message(chat_id=chat_id, text=text, **kw),
             )
 
         return await self._listen_after_ask(
@@ -435,20 +302,6 @@ class Client(PyroClient):
         chat_id: StrInt,
         rich_message: InputRichMessage,
         *,
-        reply_parameters: pyro_types.ReplyParameters | None = None,
-        disable_notification: bool | None = None,
-        message_thread_id: int | None = None,
-        direct_messages_topic_id: int | None = None,
-        effect_id: int | None = None,
-        protect_content: bool | None = None,
-        allow_paid_broadcast: bool | None = None,
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup
-        | pyro_types.ReplyKeyboardMarkup
-        | pyro_types.ReplyKeyboardRemove
-        | pyro_types.ForceReply
-        | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -456,7 +309,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[UpdateType],
-        **kw: Any,
+        **kw: Unpack[AskRichSendKw],
     ) -> UpdateType: ...
 
     @overload
@@ -465,20 +318,6 @@ class Client(PyroClient):
         chat_id: StrInt,
         rich_message: InputRichMessage,
         *,
-        reply_parameters: pyro_types.ReplyParameters | None = None,
-        disable_notification: bool | None = None,
-        message_thread_id: int | None = None,
-        direct_messages_topic_id: int | None = None,
-        effect_id: int | None = None,
-        protect_content: bool | None = None,
-        allow_paid_broadcast: bool | None = None,
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup
-        | pyro_types.ReplyKeyboardMarkup
-        | pyro_types.ReplyKeyboardRemove
-        | pyro_types.ForceReply
-        | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -486,7 +325,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[Message] = Message,
-        **kw: Any,
+        **kw: Unpack[AskRichSendKw],
     ) -> Message: ...
 
     @overload
@@ -496,10 +335,6 @@ class Client(PyroClient):
         rich_message: InputRichMessage,
         message_id: int,
         *,
-        schedule_date: datetime | None = None,
-        business_connection_id: str | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -507,7 +342,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[UpdateType],
-        **kw: Any,
+        **kw: Unpack[AskRichEditKw],
     ) -> UpdateType: ...
 
     @overload
@@ -517,10 +352,6 @@ class Client(PyroClient):
         rich_message: InputRichMessage,
         message_id: int,
         *,
-        schedule_date: datetime | None = None,
-        business_connection_id: str | None = None,
-        reply_markup: pyro_types.InlineKeyboardMarkup | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -528,7 +359,7 @@ class Client(PyroClient):
         listen_strict: bool = False,
         listen_timeout: Number | None = None,
         listen_update_type: type[Message] = Message,
-        **kw: Any,
+        **kw: Unpack[AskRichEditKw],
     ) -> Message: ...
 
     async def ask_rich(
@@ -537,24 +368,6 @@ class Client(PyroClient):
         rich_message: InputRichMessage,
         message_id: int | None = None,
         *,
-        reply_markup: pyro_types.InlineKeyboardMarkup
-        | pyro_types.ReplyKeyboardMarkup
-        | pyro_types.ReplyKeyboardRemove
-        | pyro_types.ForceReply
-        | None = None,
-        # `edit_message_text` only params (`send_rich_message` takes neither)
-        schedule_date: datetime | None = None,
-        business_connection_id: str | None = None,
-        # `send_rich_message` only params
-        disable_notification: bool | None = None,
-        message_thread_id: int | None = None,
-        direct_messages_topic_id: int | None = None,
-        effect_id: int | None = None,
-        reply_parameters: pyro_types.ReplyParameters | None = None,
-        protect_content: bool | None = None,
-        allow_paid_broadcast: bool | None = None,
-        suggested_post_parameters: pyro_types.SuggestedPostParameters | None = None,
-        # listen params
         listen_user_id: int | None = None,
         listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
         listen_context: ListenerContext | None = None,
@@ -567,26 +380,12 @@ class Client(PyroClient):
         """Send or edit a rich message, then wait for the next matching update.
 
         Like `ask`, but sends with `send_rich_message`, or edits `message_id`
-        with `edit_message_text(rich_message=...)`. `schedule_date` and
-        `business_connection_id` apply to editing only, and the arguments from
-        `disable_notification` to `suggested_post_parameters` to sending only;
-        each is ignored in the other mode.
+        with `edit_message_text(rich_message=...)`.
 
         Args:
             chat_id: Chat to send to, or that holds the message to edit.
             rich_message: The rich message to send or edit.
             message_id: If provided, edit this message instead of sending a new one.
-            reply_markup: Keyboard to attach; only `InlineKeyboardMarkup` when editing.
-            schedule_date: Date to send the edited message at.
-            business_connection_id: Business connection to edit through.
-            disable_notification: Send the message silently.
-            message_thread_id: Target topic.
-            direct_messages_topic_id: Target direct messages topic.
-            effect_id: Message effect to apply.
-            reply_parameters: Reply options.
-            protect_content: Protect the message from forwarding and saving.
-            allow_paid_broadcast: Allow a paid broadcast.
-            suggested_post_parameters: Parameters of a suggested channel post.
             listen_user_id: As in `ask`.
             listen_message_id: As in `ask`.
             listen_context: As in `ask`.
@@ -601,8 +400,6 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `listen_update_type`.
-            ValueError: If `message_id` is given with a `reply_markup` other
-                than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -620,41 +417,16 @@ class Client(PyroClient):
             raise RuntimeError(msg)
 
         if message_id is not None:
-            if reply_markup is not None and not isinstance(
-                reply_markup, pyro_types.InlineKeyboardMarkup
-            ):
-                msg = "Edit mode only supports InlineKeyboardMarkup for reply_markup"
-                raise ValueError(msg)
-
             m = cast(
                 "Message",
                 await self.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    rich_message=rich_message,
-                    schedule_date=schedule_date,
-                    business_connection_id=business_connection_id,
-                    reply_markup=reply_markup,
-                    **kw,
+                    chat_id=chat_id, message_id=message_id, rich_message=rich_message, **kw
                 ),
             )
         else:
             m = cast(
                 "Message",
-                await self.send_rich_message(
-                    chat_id=chat_id,
-                    rich_message=rich_message,
-                    disable_notification=disable_notification,
-                    message_thread_id=message_thread_id,
-                    direct_messages_topic_id=direct_messages_topic_id,
-                    effect_id=effect_id,
-                    reply_parameters=reply_parameters,
-                    protect_content=protect_content,
-                    allow_paid_broadcast=allow_paid_broadcast,
-                    suggested_post_parameters=suggested_post_parameters,
-                    reply_markup=reply_markup,
-                    **kw,
-                ),
+                await self.send_rich_message(chat_id=chat_id, rich_message=rich_message, **kw),
             )
 
         return await self._listen_after_ask(

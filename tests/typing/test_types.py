@@ -27,6 +27,11 @@ if TYPE_CHECKING:
         # A plain `bool` expands over the `Literal[False]` and `Literal[True]` overloads.
         await message.ask("hi", force_send=flag)
 
+    async def _check_ask_pyrogram_arguments(message: Message) -> None:
+        await message.ask("hi", True, disable_notification=True, listen_timeout=5)
+        await message.ask("hi", parse_mode=None)
+        await message.ask("hi", True, disable_notification="yes")  # ty: ignore[no-matching-overload]
+
     async def _check_ask_rejects(message: Message) -> None:
         await message.ask("hi", listen_update_type=int)  # ty: ignore[no-matching-overload]
         await message.ask(1)  # ty: ignore[invalid-argument-type]

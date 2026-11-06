@@ -27,6 +27,7 @@ Branch from `main`, one cohesive change per branch, ending in its own pull reque
 | Support for a new update type | a listener in `pyroflow.update_listener` | 2.3 |
 | An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` (created with the first one) | 1.4, 2.4 |
 | A helper | `pyroflow.utils` when sections share it, the section's `_internal.py` when one section uses it; `pytrove` first | 1.5 |
+| Type hints of the Pyrogram arguments `ask` takes | `pyroflow._internal`, never exported | 1.7–1.9 |
 | A dependency | an extra, unless every feature needs it | 3.1–3.3 |
 | A test | the `tests/` path that mirrors the module; static type tests in `tests/typing/` | 0.1 |
 

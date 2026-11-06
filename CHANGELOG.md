@@ -76,6 +76,14 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** `ask` and `ask_rich` hand the Pyrogram arguments to Pyrogram as
+  they are. `Client.ask` no longer ignores arguments the chosen mode does not
+  take, and neither `Client` nor `Message` raises `ValueError` for a
+  `reply_markup` other than `InlineKeyboardMarkup` when editing, or for send
+  arguments on an edit. Affects code that relied on those. Migration: pass only
+  what the mode takes; the type hints show it, and Pyrogram raises `TypeError`
+  for anything else. `ask` and `ask_rich` now accept every argument of every
+  supported kurigram, each marked by version.
 - Faster dispatch: `UpdateListener.resolve` returns at once when no wait is
   open, and listener filters, `extract_key_func`, `on_error_func`, handler
   callbacks and `split_text` rules that are coroutine functions are awaited

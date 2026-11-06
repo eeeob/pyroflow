@@ -27,6 +27,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MODULES = [
     "pyroflow",
+    "pyroflow._internal",
+    "pyroflow._internal.client_ask_params",
+    "pyroflow._internal.message_ask_params",
     "pyroflow.client",
     "pyroflow.client.client",
     "pyroflow.client.bot_commands_mixin",

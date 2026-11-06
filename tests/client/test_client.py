@@ -223,13 +223,14 @@ async def test_ask_with_message_id_edits_instead_of_sending() -> None:
     assert len(listener.calls) == 1
 
 
-async def test_ask_edit_mode_rejects_a_non_inline_reply_markup() -> None:
-    c, listener, send, edit = _ask_client()
+async def test_ask_edit_mode_leaves_the_arguments_to_pyrogram() -> None:
+    c, _, _, edit = _ask_client()
+    markup = ReplyKeyboardRemove()
 
-    with pytest.raises(ValueError, match="InlineKeyboardMarkup"):
-        await c.ask(100, "hi", 5, reply_markup=ReplyKeyboardRemove())
+    await c.ask(100, "hi", 5, reply_markup=markup, disable_notification=True)
 
-    assert send.calls == edit.calls == listener.calls == []
+    assert edit.calls[0]["reply_markup"] is markup
+    assert edit.calls[0]["disable_notification"] is True
 
 
 async def test_ask_send_mode_accepts_a_non_inline_reply_markup() -> None:
@@ -393,9 +394,7 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
         100,
         rich,
         disable_notification=True,
-        business_connection_id="bc",
         reply_markup=markup,
-        schedule_date=datetime(2026, 1, 1),
         extra="kw",
         listen_timeout=3,
     )
@@ -407,9 +406,6 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
     assert call["disable_notification"] is True
     assert call["reply_markup"] is markup
     assert call["extra"] == "kw"
-    # `send_rich_message` takes neither (kurigram 2.2.26 dropped `business_connection_id`)
-    assert "schedule_date" not in call
-    assert "business_connection_id" not in call
     assert listener.calls == [
         {
             "chat_id": 100,
@@ -461,13 +457,13 @@ async def test_ask_rich_forwards_only_arguments_kurigram_accepts() -> None:
     inspect.signature(pyroflow.Client.edit_message_text).bind(c, **edit.calls[0])
 
 
-async def test_ask_rich_edit_mode_rejects_a_non_inline_reply_markup() -> None:
-    c, listener, _, edit = _ask_client()
+async def test_ask_rich_edit_mode_leaves_the_arguments_to_pyrogram() -> None:
+    c, _, _, edit = _ask_client()
+    markup = ReplyKeyboardRemove()
 
-    with pytest.raises(ValueError, match="InlineKeyboardMarkup"):
-        await c.ask_rich(100, object(), 5, reply_markup=ReplyKeyboardRemove())
+    await c.ask_rich(100, object(), 5, reply_markup=markup)
 
-    assert edit.calls == c.send_rich_message.calls == listener.calls == []
+    assert edit.calls[0]["reply_markup"] is markup
 
 
 async def test_ask_rich_listens_on_the_sent_message_for_listen_message_id_sent() -> None:
