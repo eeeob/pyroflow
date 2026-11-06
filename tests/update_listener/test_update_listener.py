@@ -20,7 +20,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
-from pyroflow.enums import DuplicatePolicy, ListenerScope
+from pyroflow.enums import DuplicatePolicy, ListenerScope, WorkersBusyMode
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -302,27 +302,32 @@ async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
 
 
 class _Holder:
-    """Stands in for the dispatcher of a worker: records the waits `listen` enters."""
+    """Stands in for the dispatcher of a worker: records what `listen` does with it."""
 
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(
+        self, error: Exception | None = None, mode: WorkersBusyMode = WorkersBusyMode.REJECT
+    ) -> None:
         self.error = error
-        self.waits: list[SimpleNamespace] = []
+        self.workers_policy = SimpleNamespace(mode=mode)
+        self.handler_waits: dict[asyncio.Future, tuple[object, ListenerModel]] = {}
+        self.entered: list[ListenerKey] = []
+        self.ended: list[tuple[object, ListenerModel]] = []
 
-    async def enter_handler_wait(self, listener: object, key: ListenerKey) -> SimpleNamespace:
+    async def enter_handler_wait(self, key: ListenerKey) -> None:
         if self.error is not None:
             raise self.error
-        wait = SimpleNamespace(key=key, model=None, releases=0)
-        wait.release = lambda: setattr(wait, "releases", wait.releases + 1)
-        self.waits.append(wait)
-        return wait
+        self.entered.append(key)
+
+    def end_handler_wait(self, future: asyncio.Future) -> None:
+        self.ended.append(self.handler_waits.pop(future))
 
 
 def _as_worker(holder: _Holder) -> object:
-    """Mark the running task as a worker of `holder`, as `Dispatcher.serve_updates` does."""
+    """Mark the running task as a worker of `holder`, as `Dispatcher.handler_worker` does."""
     return handler_worker_var.set((holder, asyncio.current_task()))
 
 
-async def test_listen_in_a_worker_task_enters_the_wait_and_releases_it_at_the_end() -> None:
+async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
     holder = _Holder()
     token = _as_worker(holder)
     try:
@@ -332,11 +337,11 @@ async def test_listen_in_a_worker_task_enters_the_wait_and_releases_it_at_the_en
     finally:
         handler_worker_var.reset(token)
 
-    (wait,) = holder.waits
-    assert wait.key == ListenerKey(100)
-    assert wait.model is not None
-    assert wait.model.key == ListenerKey(100)
-    assert wait.releases == 1
+    assert holder.entered == [ListenerKey(100)]
+    ((listener, model),) = holder.ended
+    assert listener is lis
+    assert model.key == ListenerKey(100)
+    assert holder.handler_waits == {}
 
 
 async def test_listen_in_a_task_the_handler_spawned_holds_no_worker() -> None:
@@ -349,7 +354,20 @@ async def test_listen_in_a_task_the_handler_spawned_holds_no_worker() -> None:
     finally:
         handler_worker_var.reset(token)
 
-    assert holder.waits == []
+    assert holder.entered == []
+
+
+async def test_listen_with_policy_none_leaves_the_dispatcher_alone() -> None:
+    holder = _Holder(mode=WorkersBusyMode.NONE)
+    token = _as_worker(holder)
+    try:
+        with pytest.raises(ListenerTimeout):
+            await _make().listen(100, timeout=0.01)
+    finally:
+        handler_worker_var.reset(token)
+
+    assert holder.entered == []
+    assert holder.ended == []
 
 
 async def test_listen_refused_by_the_policy_registers_nothing() -> None:
@@ -364,7 +382,7 @@ async def test_listen_refused_by_the_policy_registers_nothing() -> None:
     assert lis.listeners == {}
 
 
-async def test_listen_releases_the_wait_of_a_rejected_duplicate() -> None:
+async def test_listen_does_not_track_a_rejected_duplicate() -> None:
     lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
     first = await _pending(lis, 100)
     holder = _Holder()
@@ -376,7 +394,8 @@ async def test_listen_releases_the_wait_of_a_rejected_duplicate() -> None:
         handler_worker_var.reset(token)
         await _drain(first)
 
-    assert holder.waits[0].releases == 1
+    assert holder.handler_waits == {}
+    assert holder.ended == []
 
 
 async def test_listen_without_context_attaches_none() -> None:

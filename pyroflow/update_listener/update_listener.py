@@ -17,7 +17,7 @@ from ..errors import (
     ListenerRejected,
     ListenerTimeout,
 )
-from ..enums import DuplicatePolicy, ListenerScope
+from ..enums import DuplicatePolicy, ListenerScope, WorkersBusyMode
 from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
@@ -332,20 +332,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         holder = handler_worker_var.get()
         # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
-        worker_wait = (
-            await holder[0].enter_handler_wait(self, key)
-            if holder is not None and asyncio.current_task() is holder[1]
+        dispatcher = (
+            holder[0]
+            if holder is not None
+            and holder[0].workers_policy.mode is not WorkersBusyMode.NONE
+            and asyncio.current_task() is holder[1]
             else None
         )
+
+        if dispatcher is not None:
+            await dispatcher.enter_handler_wait(key)
 
         current = self.listeners.get(key)
 
         # A finished listener whose `listen` has not returned yet is no longer waiting.
         if current is not None and not current.done():
             if self.duplicate_policy is DuplicatePolicy.REJECT:
-                if worker_wait is not None:
-                    worker_wait.release()
-
                 raise ListenerAlreadyExists(key)
 
             self.cancel(key, is_duplicate=True)
@@ -359,8 +361,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             strict=strict,
         )
 
-        if worker_wait is not None:
-            worker_wait.model = listener
+        if dispatcher is not None:
+            dispatcher.handler_waits[future] = (self, listener)
 
         if timeout is None:
             timeout = self.timeout
@@ -383,8 +385,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if self.listeners.get(key) is listener:
                 del self.listeners[key]
 
-            if worker_wait is not None:
-                worker_wait.release()
+            if dispatcher is not None:
+                dispatcher.end_handler_wait(future)
 
             if error is not None and (on_error := self.on_error_func) is not None:
                 try:
@@ -398,7 +400,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             # The error's traceback keeps this frame: drop what links back to it, so the
             # wait, its message and the client are freed without waiting for the cyclic GC.
-            del future, listener, worker_wait, error
+            del future, listener, error
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
