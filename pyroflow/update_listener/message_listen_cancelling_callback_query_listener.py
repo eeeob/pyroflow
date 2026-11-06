@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from typing import Any, TYPE_CHECKING
 
-from ..enums import MessageListenCancelPolicy, ListenerScope
+from ..enums import ListenMessageId, MessageListenCancelPolicy, ListenerScope
 from ..models import ListenerKey
 from ..types import Message
 from .callback_query_listener import CallbackQueryListener
@@ -107,15 +107,22 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         most specific first, so a press only ends waits aimed at the presser
         or at anyone in the chat. Those whose `context.message` is the
         pressed message are cancelled: every one, or with
-        `ListenerScope.FIRST` only the first. Nothing is cancelled when the callback carries no message,
-        chat or message id, or the client has no message listener.
+        `ListenerScope.FIRST` only the first. Ephemeral message ids can be reused, so a press on
+        an ephemeral message goes by the keys of the presser and the chat instead, and
+        cancels the waits tied to any ephemeral message. Nothing is cancelled when the callback
+        carries no message, chat or message id, or the client has no message listener.
 
         Args:
             update: The incoming callback query.
         """
         m = update.message
 
-        if m is None or m.chat is None or not getattr(m, "id", None):
+        if m is None or m.chat is None:
+            return
+
+        ephemeral = m.ephemeral_message_id is not None
+
+        if not ephemeral and not getattr(m, "id", None):
             return
 
         m_listen = update._client.listeners.get(Message)
@@ -123,14 +130,27 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         if m_listen is None or not m_listen.listeners:
             return
 
-        for sub in ListenerKey(m.chat.id, update.from_user.id, m.id).sub_keys():  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
+        chat_id, user_id = m.chat.id, update.from_user.id
+        keys = (
+            (
+                ListenerKey(chat_id, user_id, ListenMessageId.EPHEMERAL),  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
+                ListenerKey(chat_id, user_id),  # ty: ignore[invalid-argument-type]  # as above
+                ListenerKey(chat_id),  # ty: ignore[invalid-argument-type]  # as above
+            )
+            if ephemeral
+            else ListenerKey(chat_id, user_id, m.id).sub_keys()  # ty: ignore[invalid-argument-type]  # as above
+        )
+
+        for sub in keys:
             listener = m_listen.listeners.get(sub)
 
-            if (
-                listener is not None
-                and listener.context is not None
-                and listener.context.message is not None
-                and listener.context.message.id == m.id
+            if listener is None or listener.context is None:
+                continue
+
+            tied = listener.context.message
+
+            if tied is not None and (
+                tied.ephemeral_message_id is not None if ephemeral else tied.id == m.id
             ):
                 m_listen.cancel(sub)
 

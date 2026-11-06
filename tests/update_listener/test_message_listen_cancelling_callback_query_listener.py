@@ -14,7 +14,7 @@ from pyroflow import (
     CallbackQueryListener,
     MessageListener,
 )
-from pyroflow.enums import MessageListenCancelPolicy, ListenerScope
+from pyroflow.enums import ListenMessageId, MessageListenCancelPolicy, ListenerScope
 from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerContext, ListenerKey
 from pyroflow.types import Message
@@ -257,3 +257,43 @@ async def test_resolve_cancels_the_message_listen_as_cancel_policy_says(
             await message_waiter
     await _stop(clis, callback_waiter)
     await _stop(mlis, message_waiter)
+
+
+# --- ephemeral messages -----------------------------------------------------------
+
+
+def _ephemeral_press(mlis: MessageListener) -> Any:
+    cbq = make_callback_query(message_id=0, _client=_FakeClient(mlis))
+    cbq.message.ephemeral_message_id = 4
+    return cbq
+
+
+@pytest.mark.parametrize(
+    "key",
+    [(100,), (100, 7), (100, 7, ListenMessageId.EPHEMERAL)],
+    ids=["chat", "user", "ephemeral"],
+)
+async def test_cancel_message_listen_on_an_ephemeral_message_cancels_ephemeral_waits(
+    key: tuple[Any, ...],
+) -> None:
+    mlis = MessageListener()
+    context = ListenerContext(message=SimpleNamespace(id=0, ephemeral_message_id=9))
+    task = asyncio.create_task(mlis.listen(*key, context=context))
+    await asyncio.sleep(0)
+
+    MessageListenCancellingCallbackQueryListener()._cancel_message_listen(_ephemeral_press(mlis))
+
+    with pytest.raises(ListenerCancelled):
+        await task
+
+
+async def test_cancel_message_listen_on_an_ephemeral_message_leaves_regular_waits() -> None:
+    mlis = MessageListener()
+    context = ListenerContext(message=SimpleNamespace(id=4, ephemeral_message_id=None))
+    task = asyncio.create_task(mlis.listen(100, 7, context=context))
+    await asyncio.sleep(0)
+
+    MessageListenCancellingCallbackQueryListener()._cancel_message_listen(_ephemeral_press(mlis))
+
+    assert list(mlis.listeners) == [ListenerKey(100, 7)]
+    await _stop(mlis, task)

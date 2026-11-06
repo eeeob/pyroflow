@@ -306,6 +306,8 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 
 و`Message.ask_rich()` تقابل `Message.ask()`. وكلتاهما تستدعي `edit` و`reply` و`reply_rich` من الرسالة نفسها، فتقبلان ما تقبله هذه الدوال. ولمعاملات مثل `reply_parameters` استعمل `client.ask()`.
 
+معرّفات الرسائل المؤقتة لا تتسلسل وقد يُعاد استعمالها، فلا يطابقها الاستماع بالرقم. مرّر `ListenMessageId.EPHEMERAL` في `listen_message_id`، أو في `message_id` عند `listen()`، مع مستخدم: فهذا الانتظار وحده يستقبل التحديثات المؤقتة، ولا يصله تحديث عادي. وبعد `ask()` مؤقت تعني `SENT` القيمة `EPHEMERAL`، وتنتظر `NEXT` الرسالة العادية التالية من المستخدم. ويشترط `client.ask()` مع `ephemeral_message_parameters` تمرير `listen_user_id`، أما `Message.ask()` عند الرد على رسالة مؤقتة فيأخذه من مرسلها. ورسالتان مؤقتتان للمستخدم نفسه تشتركان في المفتاح، ففرّق بينهما بـ `listen_filters`.
+
 ```python
 from pyrogram.types import InputRichMessage
 

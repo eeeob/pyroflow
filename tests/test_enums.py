@@ -45,7 +45,7 @@ def test_listener_scope_values() -> None:
 
 
 def test_listen_message_id_values() -> None:
-    assert [str(value) for value in ListenMessageId] == ["auto", "sent", "next"]
+    assert [str(value) for value in ListenMessageId] == ["auto", "sent", "next", "ephemeral"]
 
 
 def test_workers_busy_mode_values() -> None:

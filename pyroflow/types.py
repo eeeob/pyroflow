@@ -178,7 +178,9 @@ class Message(PyroMessage):
 
         Raises:
             RuntimeError: If no listener is registered for `listen_update_type`.
-            ValueError: If this is a service or empty message.
+            ValueError: If this is a service or empty message, or a wait on an
+                ephemeral message lacks `listen_user_id`; a reply to an
+                ephemeral message takes it from this message's sender.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -198,13 +200,22 @@ class Message(PyroMessage):
             )
             raise RuntimeError(msg)
 
+        edits = not force_send and self.editable
+
+        if listen_user_id is None:
+            if self.ephemeral_message_id is not None and not edits:
+                # A reply to an ephemeral message goes to its sender alone.
+                listen_user_id = self.from_user.id  # ty: ignore[unresolved-attribute]  # `reply` needs the sender too, and raises the same way without one
+            elif (
+                self.ephemeral_message_id is not None
+                or listen_message_id is ListenMessageId.EPHEMERAL
+            ):
+                msg = "Waiting on an ephemeral message needs listen_user_id"
+                raise ValueError(msg)
+
         m = cast(
             "Message",
-            await (
-                self.edit(text, **kw)
-                if not force_send and self.editable
-                else self.reply(text, **kw)
-            ),
+            await (self.edit(text, **kw) if edits else self.reply(text, **kw)),
         )
 
         if listen_message_id is ListenMessageId.AUTO:
@@ -216,10 +227,13 @@ class Message(PyroMessage):
                 else None
             )
 
+        # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = m.id
+            listen_message_id = (
+                m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL
+            )
         elif listen_message_id is ListenMessageId.NEXT:
-            listen_message_id = m.id + 1
+            listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
 
         context = listen_context
 
@@ -336,7 +350,9 @@ class Message(PyroMessage):
 
         Raises:
             RuntimeError: If no listener is registered for `listen_update_type`.
-            ValueError: If this is a service or empty message.
+            ValueError: If this is a service or empty message, or a wait on an
+                ephemeral message lacks `listen_user_id`; a reply to an
+                ephemeral message takes it from this message's sender.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -356,11 +372,24 @@ class Message(PyroMessage):
             )
             raise RuntimeError(msg)
 
+        edits = not force_send and self.editable
+
+        if listen_user_id is None:
+            if self.ephemeral_message_id is not None and not edits:
+                # A reply to an ephemeral message goes to its sender alone.
+                listen_user_id = self.from_user.id  # ty: ignore[unresolved-attribute]  # `reply` needs the sender too, and raises the same way without one
+            elif (
+                self.ephemeral_message_id is not None
+                or listen_message_id is ListenMessageId.EPHEMERAL
+            ):
+                msg = "Waiting on an ephemeral message needs listen_user_id"
+                raise ValueError(msg)
+
         m = cast(
             "Message",
             await (
                 self.edit(rich_message=rich_message, **kw)
-                if not force_send and self.editable
+                if edits
                 else self.reply_rich(rich_message, **kw)
             ),
         )
@@ -374,10 +403,13 @@ class Message(PyroMessage):
                 else None
             )
 
+        # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = m.id
+            listen_message_id = (
+                m.id if m.ephemeral_message_id is None else ListenMessageId.EPHEMERAL
+            )
         elif listen_message_id is ListenMessageId.NEXT:
-            listen_message_id = m.id + 1
+            listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
 
         context = listen_context
 

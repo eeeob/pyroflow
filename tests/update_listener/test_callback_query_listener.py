@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 
 from pyroflow import CallbackQueryListener
+from pyroflow.enums import ListenMessageId
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_callback_query
@@ -49,3 +50,12 @@ async def test_extract_key_is_none_for_a_message_without_chat() -> None:
     cbq = make_callback_query()
     cbq.message.chat = None
     assert await CallbackQueryListener()._extract_key(cbq) is None
+
+
+async def test_extract_key_holds_ephemeral_instead_of_an_ephemeral_messages_id() -> None:
+    update = make_callback_query(message_id=0)
+    update.message.ephemeral_message_id = 4
+
+    key = await CallbackQueryListener()._extract_key(update)
+
+    assert key == ListenerKey(100, 7, ListenMessageId.EPHEMERAL)

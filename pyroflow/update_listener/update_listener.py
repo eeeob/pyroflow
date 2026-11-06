@@ -7,7 +7,7 @@ import logging
 from abc import ABC
 from typing import TYPE_CHECKING
 
-from ..typings import UpdateType
+from ..typings import ListenerMessageIdT, UpdateType
 from ..dispatcher import _HANDLER_WORKER
 from ..utils import UpdateBound, call_maybe_async, get_update_executor
 from ..errors import (
@@ -19,7 +19,7 @@ from ..errors import (
     ListenerReplaced,
     ListenerTimeout,
 )
-from ..enums import DuplicatePolicy, ListenerScope
+from ..enums import DuplicatePolicy, ListenMessageId, ListenerScope
 from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
@@ -234,7 +234,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self,
         chat_id: int,
         user_id: int | None = None,
-        message_id: int | None = None,
+        message_id: ListenerMessageIdT | None = None,
         *,
         context: ListenerContext | None = None,
         filters: Filter | None = None,
@@ -255,7 +255,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Args:
             chat_id: The chat to listen in.
             user_id: The user to wait for; `None` matches any user.
-            message_id: The message to wait on; `None` matches any message.
+            message_id: The message to wait on; `None` matches any regular
+                message. `ListenMessageId.EPHEMERAL` waits on ephemeral
+                updates, the only wait they reach; it needs `user_id`.
             context: Values attached to the listener model; `None` attaches none
                 empty `ListenerContext`.
             filters: A Pyrogram filter the update must pass besides its key.
@@ -269,6 +271,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             The matching Pyrogram update.
 
         Raises:
+            ValueError: If `message_id` is `ListenMessageId.EPHEMERAL` without a
+                `user_id`.
             ListenerAlreadyExists: If a listener already waits on the key and
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
@@ -313,6 +317,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             ListenerKey(chat_id=1, user_id=None, message_id=None)
         """
+        if message_id is ListenMessageId.EPHEMERAL and user_id is None:
+            msg = "Waiting on ephemeral updates needs a user_id"
+            raise ValueError(msg)
+
         key = ListenerKey(chat_id, user_id, message_id)
 
         if self.is_closed:

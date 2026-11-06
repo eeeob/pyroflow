@@ -19,7 +19,8 @@ from pyroflow.types import CallbackQuery, Message, User
 
 ME_ID = 42
 SENTINEL = object()
-SENT = SimpleNamespace(id=9)
+SENT = SimpleNamespace(id=9, ephemeral_message_id=None)
+EPHEMERAL_SENT = SimpleNamespace(id=0, ephemeral_message_id=4)
 CONTEXT = ListenerContext(step=1)
 
 
@@ -324,3 +325,73 @@ async def test_ask_rich_without_ask_context_message_passes_the_context_as_it_is(
     await m.ask_rich(RICH, listen_context=context)
 
     assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is context
+
+
+# --- ephemeral messages ---------------------------------------------------
+
+
+def make_ephemeral_msg(*, is_self: bool = False) -> Any:
+    m = make_ask_msg(is_self=is_self, ephemeral_message_id=3)
+    m.id = 0
+    m.reply.return_value = EPHEMERAL_SENT
+    m.edit.return_value = EPHEMERAL_SENT
+    m.reply_rich.return_value = EPHEMERAL_SENT
+    return m
+
+
+def listened(m: Any) -> dict[str, Any]:
+    return m._client.listeners[pyrogram.types.Message].await_args.kwargs
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+async def test_ask_replying_to_an_ephemeral_message_waits_on_its_sender(
+    method: str, content: object
+) -> None:
+    m = make_ephemeral_msg()
+    await getattr(m, method)(content)
+
+    assert listened(m)["user_id"] == 7
+    assert listened(m)["message_id"] is None
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+async def test_ask_keeps_the_given_user_on_an_ephemeral_message(
+    method: str, content: object
+) -> None:
+    m = make_ephemeral_msg()
+    await getattr(m, method)(content, listen_user_id=8)
+
+    assert listened(m)["user_id"] == 8
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+async def test_ask_waits_on_the_buttons_of_an_ephemeral_reply(method: str, content: object) -> None:
+    m = make_ephemeral_msg()
+    await getattr(m, method)(content, listen_update_type=CallbackQuery)
+
+    assert listened(m)["message_id"] is ListenMessageId.EPHEMERAL
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+async def test_ask_refuses_ephemeral_without_a_user_before_sending(
+    method: str, content: object
+) -> None:
+    m = make_ask_msg()
+
+    with pytest.raises(ValueError, match="needs listen_user_id"):
+        await getattr(m, method)(content, listen_message_id=ListenMessageId.EPHEMERAL)
+
+    m.reply.assert_not_awaited()
+    m.reply_rich.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+async def test_ask_editing_an_ephemeral_message_needs_a_user_before_sending(
+    method: str, content: object
+) -> None:
+    m = make_ephemeral_msg(is_self=True)
+
+    with pytest.raises(ValueError, match="needs listen_user_id"):
+        await getattr(m, method)(content)
+
+    m.edit.assert_not_awaited()

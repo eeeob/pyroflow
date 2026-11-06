@@ -11,6 +11,7 @@ from pyrogram import filters
 
 import pyroflow.update_listener.message_listener as message_listener_module
 from pyroflow import MessageListener
+from pyroflow.enums import ListenMessageId
 from pyroflow.models import ListenerKey
 
 from ..conftest import make_message
@@ -110,3 +111,28 @@ async def test_extract_key_is_none_for_own_messages() -> None:
     msg = make_message()
     msg.from_user.is_self = True
     assert await MessageListener()._extract_key(msg) is None
+
+
+async def test_extract_key_holds_ephemeral_instead_of_an_ephemeral_messages_id() -> None:
+    update = make_message(message_id=0, ephemeral_message_id=4)
+
+    key = await MessageListener()._extract_key(update)
+
+    assert key == ListenerKey(100, 7, ListenMessageId.EPHEMERAL)
+
+
+def test_warn_single_update_filter_stays_quiet_for_ephemeral(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        MessageListener()._warn_single_update_filter(
+            {
+                "chat_id": 1,
+                "user_id": 2,
+                "message_id": ListenMessageId.EPHEMERAL,
+                "filters": filters.text,
+                "strict": False,
+            }
+        )
+
+    assert caplog.records == []

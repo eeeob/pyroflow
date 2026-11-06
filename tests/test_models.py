@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 import pyroflow.models
-from pyroflow.enums import WorkersBusyMode
+from pyroflow.enums import ListenMessageId, WorkersBusyMode
 from pyroflow.models import ListenerContext, ListenerKey, ListenerModel, WorkersPolicy
 
 
@@ -24,6 +24,11 @@ def test_listener_key_to_dict() -> None:
         ("user_id", None),
         ("message_id", None),
     ]
+
+
+def test_listener_key_sub_keys_of_an_ephemeral_key_yield_only_itself() -> None:
+    key = ListenerKey(1, 2, ListenMessageId.EPHEMERAL)
+    assert list(key.sub_keys()) == [key]
 
 
 def test_listener_key_sub_keys_most_to_least_specific() -> None:

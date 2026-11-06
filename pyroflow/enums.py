@@ -83,7 +83,7 @@ class ListenerScope(StrEnum):
 
 
 class ListenMessageId(StrEnum):
-    """A `listen_message_id` of `ask` that stands for a message only known once it is sent.
+    """A `listen_message_id` of `ask` that stands for a message rather than naming its id.
 
     Example:
         >>> ListenMessageId.NEXT == "next"
@@ -99,6 +99,15 @@ class ListenMessageId(StrEnum):
 
     In a group another member's message can take that id, and the real answer
     then never matches; pass `listen_message_id=None` there.
+    """
+    EPHEMERAL = auto()
+    """Ephemeral updates: ephemeral messages, and presses on an ephemeral message's buttons.
+
+    Their ids do not follow each other and can be reused, so no key holds one:
+    this value takes the id's place, also in `UpdateListener.listen`, and
+    needs a user. An ephemeral update reaches only such a wait, and a regular
+    update never does. Two ephemeral messages to one user share the key; tell
+    them apart with filters.
     """
 
 

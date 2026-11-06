@@ -5,6 +5,7 @@ from __future__ import annotations as _annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ..enums import ListenMessageId
 from ..models import ListenerKey
 from ..types import Message
 from .update_listener import UpdateListener
@@ -64,7 +65,7 @@ class MessageListener(UpdateListener[Message]):
         """
         kw = listen_kwargs
 
-        if kw["message_id"] is not None and kw["filters"] is not None and not kw["strict"]:
+        if isinstance(kw["message_id"], int) and kw["filters"] is not None and not kw["strict"]:
             log.warning(
                 "Listener for %s waits for a single update with a non-strict filter; "
                 "if the filter rejects it, the wait stays open until its timeout",
@@ -78,9 +79,10 @@ class MessageListener(UpdateListener[Message]):
             update: The incoming message.
 
         Returns:
-            The key `(chat id, sender id or None, message id)`, or `None` for
-            outgoing, service, empty or edited messages, messages sent by this
-            account, and messages without a chat.
+            The key `(chat id, sender id or None, message id)`, with
+            `ListenMessageId.EPHEMERAL` for the id of an ephemeral message, or
+            `None` for outgoing, service, empty or edited messages, messages
+            sent by this account, and messages without a chat.
         """
         if (
             update.outgoing
@@ -97,7 +99,7 @@ class MessageListener(UpdateListener[Message]):
         return ListenerKey(
             update.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
             getattr(update.from_user, "id", None),
-            update.id,
+            update.id if update.ephemeral_message_id is None else ListenMessageId.EPHEMERAL,
         )
 
 

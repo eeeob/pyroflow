@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 from typing import (
+    Literal,
     TypeVar,
     TypeAlias,
 )
@@ -32,6 +33,9 @@ BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 ListenMessageIdT: TypeAlias = int | ListenMessageId
 """A message id, or `ListenMessageId.SENT` for the message `ask` sent or edited."""
 
+ListenerMessageIdT: TypeAlias = int | Literal[ListenMessageId.EPHEMERAL]
+"""What a listener key holds for a message: its id, or `EPHEMERAL` for ephemeral updates."""
+
 
 __all__ = (
     "UpdateType",
@@ -39,4 +43,5 @@ __all__ = (
     "BotCommandPartsT",
     "BotCommandGroupKeyT",
     "ListenMessageIdT",
+    "ListenerMessageIdT",
 )

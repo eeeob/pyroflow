@@ -312,7 +312,7 @@ async def test_ask_listens_in_the_chat_of_the_sent_message() -> None:
 
 
 async def test_ask_falls_back_to_the_given_chat_id_without_a_chat() -> None:
-    c, listener, _, _ = _ask_client(SimpleNamespace(id=5, chat=None))
+    c, listener, _, _ = _ask_client(SimpleNamespace(id=5, chat=None, ephemeral_message_id=None))
 
     await c.ask(100, "hi")
 
@@ -320,7 +320,9 @@ async def test_ask_falls_back_to_the_given_chat_id_without_a_chat() -> None:
 
 
 async def test_ask_falls_back_to_the_given_chat_id_when_the_chat_has_no_id() -> None:
-    c, listener, _, _ = _ask_client(SimpleNamespace(id=5, chat=SimpleNamespace(id=None)))
+    c, listener, _, _ = _ask_client(
+        SimpleNamespace(id=5, chat=SimpleNamespace(id=None), ephemeral_message_id=None)
+    )
 
     await c.ask(100, "hi")
 
@@ -328,7 +330,7 @@ async def test_ask_falls_back_to_the_given_chat_id_when_the_chat_has_no_id() -> 
 
 
 async def test_ask_resolves_a_str_chat_id_to_a_peer_id() -> None:
-    c, listener, _, _ = _ask_client(SimpleNamespace(id=5, chat=None))
+    c, listener, _, _ = _ask_client(SimpleNamespace(id=5, chat=None, ephemeral_message_id=None))
     resolved = []
 
     async def fake_resolve_peer(peer_id: str) -> PeerUser:
@@ -536,3 +538,47 @@ def test_client_init_runs_pyrograms_own_init() -> None:
     c = make_client()
     assert c.name == "probe"
     assert c.api_id == 1
+
+
+# --- ephemeral messages ---------------------------------------------------------
+
+
+def _ephemeral_sent() -> Message:
+    return make_message(chat_id=100, message_id=0, ephemeral_message_id=4)
+
+
+@pytest.mark.parametrize("method", ["ask", "ask_rich"])
+@pytest.mark.parametrize(
+    ("given", "listened"),
+    [(ListenMessageId.SENT, ListenMessageId.EPHEMERAL), (ListenMessageId.NEXT, None), (3, 3)],
+)
+async def test_ask_never_waits_on_an_ephemeral_messages_id(
+    method: str, given: ListenMessageId | int, listened: ListenMessageId | int | None
+) -> None:
+    c, listener, _, _ = _ask_client(_ephemeral_sent())
+
+    await getattr(c, method)(100, "hi", listen_user_id=7, listen_message_id=given)
+
+    assert listener.calls[0]["message_id"] == listened
+
+
+@pytest.mark.parametrize(
+    ("method", "sender"), [("ask", "send_message"), ("ask_rich", "send_rich_message")]
+)
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"ephemeral_message_parameters": object()},
+        {"listen_message_id": ListenMessageId.EPHEMERAL},
+    ],
+    ids=["parameters", "message_id"],
+)
+async def test_ask_refuses_an_ephemeral_wait_without_a_user_before_sending(
+    method: str, sender: str, kw: dict[str, object]
+) -> None:
+    c, _, _, _ = _ask_client(_ephemeral_sent())
+
+    with pytest.raises(ValueError, match="needs listen_user_id"):
+        await getattr(c, method)(100, "hi", **kw)
+
+    assert getattr(c, sender).calls == []

@@ -21,7 +21,7 @@ from pyrogram.types import Message
 
 from pyroflow import MessageListener
 from pyroflow.dispatcher import _HANDLER_WORKER
-from pyroflow.enums import DuplicatePolicy, ListenerScope
+from pyroflow.enums import DuplicatePolicy, ListenMessageId, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -873,3 +873,47 @@ async def test_extract_key_runs_a_sync_func_on_the_client_executor() -> None:
         assert (await lis.extract_key(update)).startswith("pyroflow-extract")
     finally:
         executor.shutdown()
+
+
+# --- ephemeral updates --------------------------------------------------------
+
+
+async def test_listen_refuses_ephemeral_without_a_user() -> None:
+    lis = MessageListener()
+
+    with pytest.raises(ValueError, match="needs a user_id"):
+        await lis.listen(100, message_id=ListenMessageId.EPHEMERAL)
+
+    assert lis.listeners == {}
+
+
+async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
+    lis = MessageListener()
+    ephemeral = make_message(message_id=0, ephemeral_message_id=4)
+    regular_waits = [
+        asyncio.create_task(lis.listen(100)),
+        asyncio.create_task(lis.listen(100, 7)),
+        asyncio.create_task(lis.listen(100, 7, 0)),
+        asyncio.create_task(lis.listen(100, 7, 4)),
+    ]
+    wait = asyncio.create_task(lis.listen(100, 7, ListenMessageId.EPHEMERAL))
+    await asyncio.sleep(0)
+
+    assert await lis.resolve(ephemeral) is True
+
+    assert await wait is ephemeral
+    assert not any(task.done() for task in regular_waits)
+    await lis.stop()
+    await asyncio.gather(*regular_waits, return_exceptions=True)
+
+
+async def test_a_regular_update_never_reaches_a_wait_on_ephemeral() -> None:
+    lis = MessageListener()
+    wait = asyncio.create_task(lis.listen(100, 7, ListenMessageId.EPHEMERAL))
+    await asyncio.sleep(0)
+
+    assert await lis.resolve(make_message()) is False
+
+    assert not wait.done()
+    await lis.stop()
+    await asyncio.gather(wait, return_exceptions=True)

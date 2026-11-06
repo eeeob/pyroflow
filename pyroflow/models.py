@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 
 from pyrogram.filters import Filter
 
-from .enums import WorkersBusyMode
+from .enums import ListenMessageId, WorkersBusyMode
+from .typings import ListenerMessageIdT
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -30,14 +31,15 @@ class ListenerKey:
     """The chat the listener waits in."""
     user_id: int | None = None
     """The user the listener waits for, or `None` for any user."""
-    message_id: int | None = None
-    """The message id the update must carry, or `None` for any message.
+    message_id: ListenerMessageIdT | None = None
+    """The message id the update must carry, or `None` for any regular message.
 
     For a message this is the incoming message's own id; for a callback
-    query it is the id of the message holding the pressed button.
+    query it is the id of the message holding the pressed button. For an
+    ephemeral update it is `ListenMessageId.EPHEMERAL`, never an id.
     """
 
-    def to_tuple(self) -> tuple[int, int | None, int | None]:
+    def to_tuple(self) -> tuple[int, int | None, ListenerMessageIdT | None]:
         """Return the key's components, in field order.
 
         Example:
@@ -46,7 +48,7 @@ class ListenerKey:
         """
         return (self.chat_id, self.user_id, self.message_id)
 
-    def to_dict(self) -> dict[str, int | None]:
+    def to_dict(self) -> dict[str, ListenerMessageIdT | None]:
         """Return the key's components keyed by field name, in field order.
 
         Example:
@@ -61,7 +63,8 @@ class ListenerKey:
         `chat_id` is always kept; the other components this key carries are
         combined in every way, so `(chat, None, message)` is reached too. A
         component this key lacks is never added, and no key is yielded twice.
-        Between keys of equal size, `user_id` outranks `message_id`.
+        Between keys of equal size, `user_id` outranks `message_id`. A key of
+        an ephemeral update yields only itself: it reaches no other wait.
 
         Args:
             min_dep: Fewest components to yield down to, counting `chat_id`.
@@ -92,6 +95,9 @@ class ListenerKey:
             return
 
         yield self
+
+        if message_id is ListenMessageId.EPHEMERAL:
+            return
 
         if size == 3:
             if min_dep > 2:
