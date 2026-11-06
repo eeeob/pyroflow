@@ -3,19 +3,25 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import dataclass
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from pyrogram.filters import Filter
 
-from .enums import EphemeralUpdates, WorkersBusyMode
+from .enums import EphemeralUpdates
 from .typings import ListenerMessageIdT
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from .types import Message
+
+
+log = logging.getLogger(__name__)
+"""Logger for errors of the done callbacks of a listener."""
 
 
 @dataclass(frozen=True, slots=True, eq=True, unsafe_hash=True)
@@ -133,9 +139,15 @@ class ListenerContext(SimpleNamespace):
     """The message `ask` sent or edited for the wait."""
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True, eq=False)
 class ListenerModel:
     """A registered listener: its key, the future its update resolves, its context and filter.
+
+    `done_callbacks` run inside `resolve` and `set_exc`, right after the future
+    is set, with the model as their one argument: at once, not on the next loop
+    iteration as `asyncio.Future.add_done_callback` does. They run once, as a
+    future is set only once. A failing callback is logged, and the next one
+    still runs.
 
     Example:
         >>> async def main():
@@ -157,68 +169,57 @@ class ListenerModel:
     """Pyrogram filter an update must pass besides the key, or `None` for none."""
     strict: bool = False
     """Whether an update that matches the key but fails `filters` ends the wait."""
+    done_callbacks: list[Callable[[ListenerModel], object]] = field(default_factory=list)
+    """Called with the model, in order, as soon as it is marked done."""
+
+    def add_done_callback(self, fn: Callable[[ListenerModel], object]) -> None:
+        """Call `fn(self)` as soon as the listener is done; at once if it already is.
+
+        Args:
+            fn: The callback; its result is ignored.
+
+        Example:
+            >>> async def main():
+            ...     listener = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+            ...     seen = []
+            ...     listener.add_done_callback(lambda model: seen.append(model.key))
+            ...     listener.resolve("update")
+            ...     return seen
+            >>> asyncio.run(main())
+            [ListenerKey(chat_id=1, user_id=None, message_id=None)]
+        """
+        if self.done():
+            fn(self)
+        else:
+            self.done_callbacks.append(fn)
 
     def resolve(self, update: object) -> None:
-        """Complete the listener's future with `update`."""
+        """Complete the listener's future with `update`, then run `done_callbacks`."""
         self.future.set_result(update)
+        self.run_done_callbacks()
 
     def set_exc(self, exc: Exception) -> None:
-        """Fail the listener's future with `exc`."""
+        """Fail the listener's future with `exc`, then run `done_callbacks`."""
         self.future.set_exception(exc)
+        self.run_done_callbacks()
+
+    def run_done_callbacks(self) -> None:
+        """Call every callback in `done_callbacks` with the model, in order, and drop them."""
+        callbacks, self.done_callbacks = self.done_callbacks, []
+
+        for fn in callbacks:
+            try:
+                fn(self)
+            except Exception:
+                log.exception("Error in a done callback of the listener for %s", self.key)
 
     def done(self) -> bool:
         """Return whether the listener's future is done."""
         return self.future.done()
 
 
-@dataclass(frozen=True, slots=True)
-class WorkersPolicy:
-    """What a wait inside a handler does when the workers run short.
-
-    A handler that waits in `ask` or `listen` holds the worker running it;
-    when too many do, no worker is left to read the replies and the bot
-    freezes. Once a wait would leave fewer than `free_workers` workers free,
-    `mode` steps in, after up to `busy_timeout` seconds for one to free. Set
-    it with `Client.setup_pyroflow`; without one, nothing steps in. With
-    `free_workers` equal to the client's `workers`, every wait inside a
-    handler is refused.
-
-    Raises:
-        ValueError: If `free_workers` is below `1`, `busy_timeout` is negative,
-            or `evict_timeout` is not above `0`.
-
-    Example:
-        >>> WorkersPolicy(WorkersBusyMode.REJECT).free_workers
-        1
-    """
-
-    mode: WorkersBusyMode
-    """What steps in."""
-    free_workers: int = 1
-    """Fewest workers a wait may leave free before `mode` steps in."""
-    busy_timeout: float = 5
-    """Seconds to wait first for a worker to free; `0` steps in at once."""
-    evict_timeout: float = 5
-    """Seconds `CANCEL_OLDEST` waits for a worker to free after ending the oldest wait."""
-
-    def __post_init__(self) -> None:
-        """Check the values; see the class docstring."""
-        if self.free_workers < 1:
-            msg = f"free_workers must be at least 1, got {self.free_workers}"
-            raise ValueError(msg)
-
-        if self.busy_timeout < 0:
-            msg = f"busy_timeout must not be negative, got {self.busy_timeout}"
-            raise ValueError(msg)
-
-        if self.evict_timeout <= 0:
-            msg = f"evict_timeout must be above 0, got {self.evict_timeout}"
-            raise ValueError(msg)
-
-
 __all__ = (
     "ListenerKey",
     "ListenerContext",
     "ListenerModel",
-    "WorkersPolicy",
 )
