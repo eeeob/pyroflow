@@ -80,6 +80,13 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- Faster dispatch: `UpdateListener.resolve` returns at once when no wait is
+  open, and listener filters, `extract_key_func`, `on_error_func`, handler
+  callbacks and `split_text` rules that are coroutine functions are awaited
+  directly (the new `pyroflow.utils.call_maybe_async`). A listener filter
+  no longer captures the caller's stack on every call. An error in a
+  listener filter or in `on_error_func` is now logged by the
+  `pyroflow.update_listener.update_listener` logger instead of `pytrove`'s.
 - **BREAKING:** `Dispatcher.handle_listen` returns whether the listener took
   the update instead of raising `StopPropagation`, and the worker calls it
   before taking its lock; `handle_update` only runs the handlers. A

@@ -3,13 +3,12 @@
 from __future__ import annotations as _annotations
 
 import asyncio
+import logging
 from abc import ABC
 from typing import TYPE_CHECKING
 
-from pytrove import maybe_awaitable, is_exception
-
 from ..typings import UpdateType
-from ..utils import UpdateBound, get_update_executor, handler_worker_var
+from ..utils import UpdateBound, call_maybe_async, get_update_executor, handler_worker_var
 from ..errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -26,6 +25,10 @@ if TYPE_CHECKING:
 
     from pyrogram.filters import Filter
     from pytrove.typings import MaybeCoroutineCallable, Number
+
+
+log = logging.getLogger(__name__)
+"""Logger for errors of listener filters and `on_error_func`."""
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -381,7 +384,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 worker_wait.release()
 
             if error is not None and (on_error := self.on_error_func) is not None:
-                await maybe_awaitable(on_error, error, listener, return_exc=True, log_exc=True)
+                try:
+                    await call_maybe_async(on_error, error, listener)
+                except Exception:
+                    log.exception("Error in on_error_func of the listener for %s", key)
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
@@ -407,6 +413,12 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Raises:
             TypeError: If `update` is not an instance of `__update_type__`.
         """
+        self.validate_update(update)
+
+        # Most updates have no wait in their chat: skip extracting their key.
+        if not self.listeners:
+            return False
+
         key = await self.extract_key(update)
 
         if key is None:
@@ -421,20 +433,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 continue
 
             if listener.filters is not None:
-                passed = await maybe_awaitable(
-                    listener.filters.__call__,
-                    update._client,  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
-                    update,
-                    executor=get_update_executor(update),
-                    return_exc=True,
-                    log_exc=True,
-                )
+                try:
+                    passed = await call_maybe_async(
+                        listener.filters.__call__,
+                        update._client,  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
+                        update,
+                        executor=get_update_executor(update),
+                    )
+                except Exception:
+                    log.exception("Error in the filter of the listener for %s", sub)
+                    passed = False
 
                 # The filter may yield; another update or a newer `listen` may have taken the slot.
                 if self.listeners.get(sub) is not listener or listener.done():
                     continue
 
-                if is_exception(passed) or not passed:
+                if not passed:
                     if listener.strict:
                         self.reject(sub, update)
 
@@ -480,11 +494,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         self.validate_update(update)
 
-        return await maybe_awaitable(  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
-            self.extract_key_func,
-            update,
-            executor=get_update_executor(update),
-            log_exc=False,
+        return await call_maybe_async(
+            self.extract_key_func, update, executor=get_update_executor(update)
         )
 
 

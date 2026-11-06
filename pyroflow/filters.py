@@ -17,9 +17,10 @@ from pyrogram.filters import Filter, create
 from pytrove import (
     iter_flat_cont,
     is_container,
-    maybe_awaitable,
     extract_pyro_update_text,
 )
+
+from .utils import call_maybe_async
 
 if TYPE_CHECKING:
     from pytrove.typings import MaybeCoroutineCallable, NestedContainer
@@ -270,7 +271,7 @@ def split_text(
             elif isinstance(rule, re.Pattern):
                 if rule.fullmatch(part) is None:
                     return False
-            elif not await maybe_awaitable(rule, part, executor=client.executor, log_exc=False):
+            elif not await call_maybe_async(rule, part, executor=client.executor):
                 return False
 
         return True

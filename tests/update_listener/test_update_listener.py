@@ -588,6 +588,19 @@ def test_call_is_listen() -> None:
 # --- resolve ----------------------------------------------------------------------
 
 
+async def test_resolve_with_no_waits_skips_extracting_the_key() -> None:
+    calls: list[Message] = []
+    lis = _make(extract_key_func=calls.append)
+
+    assert await lis.resolve(make_message(100, 7, 5)) is False
+    assert calls == []
+
+
+async def test_resolve_with_no_waits_still_rejects_the_wrong_update_type() -> None:
+    with pytest.raises(TypeError):
+        await _make().resolve("not a message")  # ty: ignore[invalid-argument-type]
+
+
 async def test_resolve_without_key_is_false_and_skips_listeners() -> None:
     lis = _make(extract_key_func=lambda update: None)
     task = await _pending(lis, 100)

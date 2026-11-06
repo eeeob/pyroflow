@@ -10,12 +10,12 @@ from typing import Any, TYPE_CHECKING
 from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
-from pytrove import maybe_awaitable, gather_helper
+from pytrove import gather_helper
 
 from .enums import WorkersBusyMode
 from .errors import ListenerWorkersBusy
 from .models import WorkersPolicy
-from .utils import handler_worker_var, patch_cls
+from .utils import call_maybe_async, handler_worker_var, patch_cls
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -308,12 +308,8 @@ class Dispatcher(PyroDispatcher):
                     continue
 
                 try:
-                    await maybe_awaitable(
-                        handler.callback,
-                        self.client,
-                        *args,
-                        executor=self.client.executor,
-                        log_exc=False,
+                    await call_maybe_async(
+                        handler.callback, self.client, *args, executor=self.client.executor
                     )
                 except StopPropagation as e:
                     raise e

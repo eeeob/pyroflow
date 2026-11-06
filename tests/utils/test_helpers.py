@@ -1,7 +1,9 @@
-"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor` and `subsets_largest_first`."""
+"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor`, `call_maybe_async` and `subsets_largest_first`."""
 
 from __future__ import annotations as _annotations
 
+import functools
+import threading
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -11,6 +13,7 @@ import pytest
 
 from pyroflow.utils import (
     UpdateBound,
+    call_maybe_async,
     get_update_executor,
     helpers,
     subsets_largest_first,
@@ -168,6 +171,52 @@ def test_get_update_executor_client_without_executor() -> None:
     assert get_update_executor(SimpleNamespace(_client=SimpleNamespace())) is None
 
 
+# --- call_maybe_async -----------------------------------------------------------
+
+
+async def test_call_maybe_async_awaits_a_coroutine_function() -> None:
+    async def add(a: int, b: int) -> int:
+        return a + b
+
+    assert await call_maybe_async(add, 1, 2) == 3
+
+
+async def test_call_maybe_async_awaits_a_partial_around_a_coroutine_function() -> None:
+    async def add(a: int, b: int) -> int:
+        return a + b
+
+    assert await call_maybe_async(functools.partial(add, 1), 2) == 3
+
+
+async def test_call_maybe_async_runs_a_sync_callable_on_the_executor() -> None:
+    executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-call")
+    try:
+        name = await call_maybe_async(lambda: threading.current_thread().name, executor=executor)
+    finally:
+        executor.shutdown()
+
+    assert name.startswith("pyroflow-call")
+
+
+async def test_call_maybe_async_raises_what_the_callable_raises() -> None:
+    async def fail() -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    def fail_sync() -> None:
+        msg = "sync"
+        raise KeyError(msg)
+
+    with pytest.raises(ValueError, match="boom"):
+        await call_maybe_async(fail)
+
+    with pytest.raises(KeyError, match="sync"):
+        await call_maybe_async(fail_sync)
+
+
+# --- subsets_largest_first --------------------------------------------------------
+
+
 def test_subsets_largest_first_goes_from_all_items_to_none_in_item_order() -> None:
     assert list(subsets_largest_first("abc")) == [
         ("a", "b", "c"),
@@ -194,5 +243,6 @@ def test_module_all_lists_public_names() -> None:
         "handler_worker_var",
         "UpdateBound",
         "get_update_executor",
+        "call_maybe_async",
         "subsets_largest_first",
     )

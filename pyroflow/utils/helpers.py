@@ -1,13 +1,15 @@
-"""Internal helpers: the `UpdateBound` base, the update executor lookup and subsets."""
+"""Internal helpers: the `UpdateBound` base, the update executor lookup and `call_maybe_async`."""
 
 from __future__ import annotations as _annotations
 
+import inspect
 from abc import ABC
 from contextvars import ContextVar
 from itertools import combinations
 from typing import Generic, TypeVar, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
+from pytrove import maybe_awaitable
 
 from ..typings import UpdateType
 
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
     import asyncio
     from collections.abc import Iterator, Sequence
     from concurrent.futures import ThreadPoolExecutor
+
+    from pytrove.typings import MaybeCoroutineCallable
 
     from ..dispatcher import Dispatcher
 
@@ -123,6 +127,45 @@ def get_update_executor(update: object) -> ThreadPoolExecutor | None:
     return getattr(getattr(update, "_client", None), "executor", None)
 
 
+_ResultT = TypeVar("_ResultT")
+"""The result type of the callable `call_maybe_async` calls."""
+
+
+async def call_maybe_async(
+    func: MaybeCoroutineCallable[..., _ResultT],
+    *args: object,
+    executor: ThreadPoolExecutor | None = None,
+) -> _ResultT:
+    """Call `func` with `args` and return its result, awaiting it when it is a coroutine function.
+
+    A plain coroutine function or bound coroutine method is awaited directly,
+    as Pyrogram's `Handler.check` does. Anything else goes through
+    `pytrove.maybe_awaitable`: a wrapper or partial around a coroutine
+    function is awaited, and a sync callable runs in a thread on `executor`.
+    An error `func` raises propagates unchanged, and nothing is logged, so
+    no stack is captured on each call.
+
+    Args:
+        func: The callable, sync or async.
+        *args: Passed to `func`.
+        executor: The executor a sync `func` runs on; `None` for the loop's default.
+
+    Returns:
+        What `func` returned, awaited when it is a coroutine.
+
+    Example:
+        >>> import asyncio
+        >>> async def double(x):
+        ...     return x * 2
+        >>> asyncio.run(call_maybe_async(double, 3)), asyncio.run(call_maybe_async(len, "abcd"))
+        (6, 4)
+    """
+    if inspect.iscoroutinefunction(func):
+        return await func(*args)
+
+    return await maybe_awaitable(func, *args, executor=executor, log_exc=False)  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
+
+
 _ItemT = TypeVar("_ItemT")
 """The item type of the sequence `subsets_largest_first` takes apart."""
 
@@ -151,5 +194,6 @@ __all__ = (
     "handler_worker_var",
     "UpdateBound",
     "get_update_executor",
+    "call_maybe_async",
     "subsets_largest_first",
 )
