@@ -105,17 +105,8 @@ class ListenMessageId(StrEnum):
 class WorkersBusyMode(StrEnum):
     """What a wait inside a handler does when it would leave too few workers free.
 
-    A handler that waits in `ask` or `listen` holds the worker running it, so
-    enough such waits leave no worker to read the replies and the bot
-    freezes. Each mode steps in once a wait would leave fewer than
-    `WorkersPolicy.free_workers` workers free (see `WorkersPolicy`). No mode
-    starts another worker, so every handler keeps running under its worker's
-    lock, which `add_handler` and `remove_handler` rely on.
-
-    Without a policy, the default, nothing steps in and the bot can freeze.
-    That suits a bot that manages it itself, such as with far more `workers`
-    than conversations can ever be open at once, or with no `ask` inside
-    handlers.
+    A waiting handler holds its worker, so enough waits leave none to read the
+    replies and the bot freezes. Without a `WorkersPolicy`, nothing steps in.
 
     Example:
         >>> WorkersBusyMode.REJECT == "reject"
@@ -123,23 +114,13 @@ class WorkersBusyMode(StrEnum):
     """
 
     REJECT = auto()
-    """The wait does not start and raises `ListenerWorkersBusy`.
-
-    For bounded resources or a deliberate cap on conversations, such as a
-    support bot with fixed capacity: the handler catches the error and
-    answers "busy, try again later". A `busy_timeout` suits short
-    conversations that free their worker soon.
-    """
+    """The wait raises `ListenerWorkersBusy`; suits a deliberate cap on conversations."""
     CANCEL_OLDEST = auto()
-    """The oldest wait holding a worker ends with `ListenerEvicted`, and the new one waits for a worker.
+    """The oldest wait ends with `ListenerEvicted`, and the new one starts once a worker frees.
 
-    For bots where the newest interaction matters more, such as menus and
-    questions users often leave unanswered: the oldest wait is most likely
-    abandoned, so ending it beats refusing a user who is there now. Its
-    handler may go on working, so the new wait starts only once a worker
-    really frees, and raises `ListenerEvictionTimeout` if none does within
-    `WorkersPolicy.evict_timeout` seconds. With no wait to end, it raises
-    `ListenerWorkersBusy`.
+    It raises `ListenerEvictionTimeout` if none frees in time, or
+    `ListenerWorkersBusy` with no wait to end. Suits menus and questions users
+    often leave unanswered.
     """
 
 
