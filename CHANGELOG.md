@@ -19,7 +19,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   the new `UpdateListener.evict`), then waits up to `evict_timeout` seconds
   (`5` by default) for a worker to free, since the evicted handler may go on
   working, or raises the new `ListenerEvictionTimeout` (a
-  `ListenerWorkersBusy`). Without a policy, the default, nothing steps in.
+  `ListenerWorkersBusy`). Without a policy, the default, nothing steps in;
+  `with_workers_policy(None)` removes one.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that

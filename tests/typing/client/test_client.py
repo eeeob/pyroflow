@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     def _check_with_workers_policy(client: Client) -> None:
         policy = WorkersPolicy(WorkersBusyMode.REJECT)
         assert_type(client.with_workers_policy(policy), Client)
+        assert_type(client.with_workers_policy(None), Client)
 
     async def _check_ask_send(client: Client) -> None:
         assert_type(await client.ask(1, "hi"), Message)

@@ -80,7 +80,7 @@ class Client(PyroClient):
         """
         return self.listeners[CallbackQuery]
 
-    def with_workers_policy(self, policy: WorkersPolicy) -> Self:
+    def with_workers_policy(self, policy: WorkersPolicy | None) -> Self:
         """Set the `WorkersPolicy` waits inside handlers follow, and return the client.
 
         Without a call there is no policy: waits hold their workers, and the
@@ -92,7 +92,8 @@ class Client(PyroClient):
         `Client("bot", workers=12).with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))`.
 
         Args:
-            policy: The policy; see `WorkersPolicy` and `WorkersBusyMode`.
+            policy: The policy, see `WorkersPolicy` and `WorkersBusyMode`, or
+                `None` to remove the current one.
 
         Returns:
             The client itself.
@@ -100,7 +101,7 @@ class Client(PyroClient):
         Raises:
             ValueError: If `policy.free_workers` is above the client's `workers`.
         """
-        if policy.free_workers > self.workers:
+        if policy is not None and policy.free_workers > self.workers:
             msg = (
                 f"free_workers must not exceed workers ({self.workers}), got {policy.free_workers}"
             )

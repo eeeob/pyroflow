@@ -49,6 +49,14 @@ def test_with_workers_policy_sets_the_dispatchers_policy_and_returns_the_client(
     assert c.dispatcher.workers_policy is policy
 
 
+def test_with_workers_policy_none_removes_the_policy() -> None:
+    c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
+    c.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))
+
+    assert c.with_workers_policy(None) is c
+    assert c.dispatcher.workers_policy is None
+
+
 def test_with_workers_policy_rejects_more_free_workers_than_workers() -> None:
     c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
 
