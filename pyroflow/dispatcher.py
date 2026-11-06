@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast, TYPE_CHECKING
 
 from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
@@ -12,7 +12,7 @@ from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHan
 from pytrove import gather_helper
 
 from .enums import WorkersBusyMode
-from .errors import ListenerWorkersBusy
+from .errors import ListenerEvictionTimeout, ListenerWorkersBusy
 from .utils import call_maybe_async, handler_worker_var, patch_cls
 
 if TYPE_CHECKING:
@@ -63,10 +63,14 @@ class Dispatcher(PyroDispatcher):
 
         self.workers_policy: WorkersPolicy | None = None
         """What a wait inside a handler does when the workers run short; `None` does nothing."""
-        self.handler_waits: dict[asyncio.Future, tuple[UpdateListener[Any], ListenerModel]] = {}
+        self.handler_waits: dict[
+            asyncio.Future, tuple[UpdateListener[Any], ListenerModel, asyncio.Task[None]]
+        ] = {}
         """The waits inside handlers that hold their worker, by future, oldest first."""
+        self.evicted_workers: set[asyncio.Task[None]] = set()
+        """Workers whose wait was evicted, until their handler ends or waits again."""
         self.worker_freed: asyncio.Event | None = None
-        """Pulsed when a wait inside a handler ends; made by the first wait held by a `busy_timeout`."""
+        """Pulsed when a worker frees; made by the first wait timing for one."""
 
     async def start(self, *args: object, **kw: object) -> None:
         """Start all registered listeners, then the dispatcher.
@@ -116,8 +120,8 @@ class Dispatcher(PyroDispatcher):
         Args:
             policy: The policy that sets how many must stay free.
         """
-        workers = self.client.workers
-        return workers - len(self.handler_waits) - 1 < policy.min_free_workers(workers)
+        held = len(self.handler_waits) + len(self.evicted_workers)
+        return self.client.workers - held - 1 < policy.free_workers
 
     async def enter_handler_wait(self, policy: WorkersPolicy, key: ListenerKey) -> None:
         """Make room for a wait about to start inside a handler, as `policy` says.
@@ -127,9 +131,11 @@ class Dispatcher(PyroDispatcher):
         `handler_waits` before anything else can run. The wait holds its
         worker unless that would leave fewer than
         `WorkersPolicy.free_workers` free; then, after up to its
-        `busy_timeout` seconds for one to free, its `mode` steps in. With a
-        `busy_timeout` above zero this yields, so an update can arrive before
-        the wait is registered.
+        `busy_timeout` seconds for one to free, its `mode` steps in.
+        `CANCEL_OLDEST` ends the oldest wait, then waits up to `evict_timeout`
+        seconds for a worker to free, since the evicted handler may go on
+        working. Waiting yields, so an update can arrive before the wait is
+        registered.
 
         Args:
             policy: The dispatcher's `workers_policy`.
@@ -138,43 +144,67 @@ class Dispatcher(PyroDispatcher):
         Raises:
             ListenerWorkersBusy: With `WorkersBusyMode.REJECT`, or with
                 `WorkersBusyMode.CANCEL_OLDEST` when no wait holds a worker.
+            ListenerEvictionTimeout: With `WorkersBusyMode.CANCEL_OLDEST` when
+                no worker frees within `evict_timeout` seconds.
         """
         if not self.lacks_free_workers(policy):
             return
 
         if policy.busy_timeout > 0:
-            await self.wait_for_free_worker(policy)
+            await self.wait_for_free_worker(policy, policy.busy_timeout)
 
             if not self.lacks_free_workers(policy):
                 return
 
-        if policy.mode is WorkersBusyMode.CANCEL_OLDEST and self.handler_waits:
-            listener, model = self.handler_waits.pop(next(iter(self.handler_waits)))
-            listener.evict(model.key, model=model)
-            return
+        if policy.mode is not WorkersBusyMode.CANCEL_OLDEST or not self.handler_waits:
+            raise ListenerWorkersBusy(key)
 
-        raise ListenerWorkersBusy(key)
+        listener, model, worker = self.handler_waits.pop(next(iter(self.handler_waits)))
+        self.evicted_workers.add(worker)
+        listener.evict(model.key, model=model)
+
+        await self.wait_for_free_worker(policy, policy.evict_timeout)
+
+        if self.lacks_free_workers(policy):
+            raise ListenerEvictionTimeout(key)
 
     def end_handler_wait(self, future: asyncio.Future) -> None:
         """Free the worker of a wait inside a handler that ended, and wake the waits timing for one.
 
-        An evicted wait already gave its place to a newer one, so it frees nothing.
+        An evicted wait left `handler_waits` already, and its worker frees
+        through `release_evicted_worker`, so it frees nothing here.
 
         Args:
             future: The future of the wait.
         """
-        if self.handler_waits.pop(future, None) is not None and self.worker_freed is not None:
+        if self.handler_waits.pop(future, None) is not None:
+            self.pulse_worker_freed()
+
+    def release_evicted_worker(self, worker: asyncio.Task[None]) -> None:
+        """Stop counting a worker whose evicted handler ended or starts a new wait.
+
+        Args:
+            worker: The worker task; does nothing unless its wait was evicted.
+        """
+        if worker in self.evicted_workers:
+            self.evicted_workers.discard(worker)
+            self.pulse_worker_freed()
+
+    def pulse_worker_freed(self) -> None:
+        """Wake the waits timing for a free worker, if any."""
+        if self.worker_freed is not None:
             self.worker_freed.set()
             self.worker_freed.clear()
 
-    async def wait_for_free_worker(self, policy: WorkersPolicy) -> None:
-        """Wait up to `WorkersPolicy.busy_timeout` seconds until a wait may hold its worker again.
+    async def wait_for_free_worker(self, policy: WorkersPolicy, timeout: float) -> None:
+        """Wait up to `timeout` seconds until a wait may hold its worker again.
 
         Args:
-            policy: The policy that sets the timeout and how many must stay free.
+            policy: The policy that sets how many must stay free.
+            timeout: The seconds to wait at most.
         """
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + policy.busy_timeout
+        deadline = loop.time() + timeout
 
         if self.worker_freed is None:
             self.worker_freed = asyncio.Event()
@@ -316,7 +346,9 @@ class Dispatcher(PyroDispatcher):
             lock: This worker's own lock; each update the listener does not
                 take is handled while holding it.
         """
-        token = handler_worker_var.set((self, asyncio.current_task()))  # ty: ignore[invalid-argument-type]  # always called from a task
+        # Always called from a task.
+        worker = cast("asyncio.Task[None]", asyncio.current_task())
+        token = handler_worker_var.set((self, worker))
 
         try:
             while True:
@@ -342,6 +374,9 @@ class Dispatcher(PyroDispatcher):
                     pass
                 except Exception:
                     log.exception("Unexpected error in handler_worker")
+
+                if self.evicted_workers:
+                    self.release_evicted_worker(worker)
         finally:
             handler_worker_var.reset(token)
 

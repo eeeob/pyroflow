@@ -250,8 +250,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Inside a handler, the wait holds the worker running it, so the
         dispatcher's `WorkersPolicy` applies first (see
-        `Client.with_workers_policy`). With a `busy_timeout` above zero that
-        can yield before the wait is registered.
+        `Client.with_workers_policy`). That can yield before the wait is
+        registered.
 
         Args:
             chat_id: The chat to listen in.
@@ -282,6 +282,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerWorkersBusy: If the wait would start inside a handler
                 with too few workers free, under `WorkersBusyMode.REJECT`, or
                 under `WorkersBusyMode.CANCEL_OLDEST` with no wait to end.
+            ListenerEvictionTimeout: If `WorkersBusyMode.CANCEL_OLDEST` ended
+                the oldest wait but no worker freed in time.
 
         Warning:
             A wait that is not `strict` can stay open for good, until
@@ -331,7 +333,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 }
             )
 
-        dispatcher = None
+        dispatcher = worker = None
         holder = handler_worker_var.get()
 
         # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
@@ -340,7 +342,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             and (policy := holder[0].workers_policy) is not None
             and asyncio.current_task() is holder[1]
         ):
-            dispatcher = holder[0]
+            dispatcher, worker = holder
+            # An evicted handler that waits again holds its worker through the new wait.
+            dispatcher.release_evicted_worker(worker)
             waiting = self.listeners.get(key)
 
             if waiting is not None and waiting.done():
@@ -354,7 +358,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             if waiting is None or waiting.future not in dispatcher.handler_waits:
                 await dispatcher.enter_handler_wait(policy, key)
 
-                # `stop` may have run during a `busy_timeout`, and it ends only registered waits.
+                # `stop` may have run while this waited for room, and it ends only registered waits.
                 if self.is_closed:
                     raise ListenerCancelled(key)
 
@@ -376,8 +380,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             strict=strict,
         )
 
-        if dispatcher is not None:
-            dispatcher.handler_waits[future] = (self, listener)
+        if dispatcher is not None and worker is not None:
+            dispatcher.handler_waits[future] = (self, listener, worker)
 
         if timeout is None:
             timeout = self.timeout

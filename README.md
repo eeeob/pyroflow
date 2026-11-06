@@ -137,9 +137,9 @@ client = Client("bot", workers=12).with_workers_policy(
 | `mode` | What happens | Fits |
 |---|---|---|
 | `REJECT` | The wait raises `ListenerWorkersBusy` | A deliberate cap, such as a support bot with fixed capacity |
-| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one takes its worker; with none to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
+| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one waits for a worker: its handler may go on working, so the new wait starts only once a worker really frees, and raises `ListenerEvictionTimeout` (a `ListenerWorkersBusy`) if none does within `evict_timeout` seconds; with no wait to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
 
-Without `with_workers_policy` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. Every mode keeps each handler under its worker's lock. `free_workers` defaults to a third of `workers`. `busy_timeout` (default `0`) first waits that many seconds for a worker to free; meanwhile that worker reads no update. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
+Without `with_workers_policy` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. Every mode keeps each handler under its worker's lock. `free_workers` defaults to `1`. `busy_timeout` (default `5`) first waits that many seconds for a worker to free, and `evict_timeout` (default `5`) is how long `CANCEL_OLDEST` then waits; meanwhile that worker reads no update, and a reply that arrives before the wait is registered goes to the handlers. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
 
 ---
 

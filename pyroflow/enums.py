@@ -131,12 +131,15 @@ class WorkersBusyMode(StrEnum):
     conversations that free their worker soon.
     """
     CANCEL_OLDEST = auto()
-    """The oldest wait holding a worker ends with `ListenerEvicted`, and the new one takes its place.
+    """The oldest wait holding a worker ends with `ListenerEvicted`, and the new one waits for a worker.
 
     For bots where the newest interaction matters more, such as menus and
     questions users often leave unanswered: the oldest wait is most likely
-    abandoned, so ending it beats refusing a user who is there now. With no
-    such wait to end, the new one raises `ListenerWorkersBusy`.
+    abandoned, so ending it beats refusing a user who is there now. Its
+    handler may go on working, so the new wait starts only once a worker
+    really frees, and raises `ListenerEvictionTimeout` if none does within
+    `WorkersPolicy.evict_timeout` seconds. With no wait to end, it raises
+    `ListenerWorkersBusy`.
     """
 
 

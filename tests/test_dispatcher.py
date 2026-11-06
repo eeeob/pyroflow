@@ -30,6 +30,7 @@ from pyroflow.enums import WorkersBusyMode
 from pyroflow.errors import (
     ListenerCancelled,
     ListenerEvicted,
+    ListenerEvictionTimeout,
     ListenerTimeout,
     ListenerWorkersBusy,
 )
@@ -726,7 +727,7 @@ async def test_no_policy_lets_waits_take_every_worker() -> None:
 
 async def test_policy_reject_refuses_the_wait_that_would_take_the_last_worker() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=0))
     await _start_waits(client, 2)
     try:
         await _until(lambda: "ping" in results)
@@ -769,7 +770,7 @@ async def test_stop_ends_a_wait_held_by_a_busy_timeout() -> None:
 
 async def test_policy_cancel_oldest_evicts_the_oldest_wait() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST))
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0))
     await _start_waits(client, 2)
     try:
         await _until(
@@ -777,14 +778,122 @@ async def test_policy_cancel_oldest_evicts_the_oldest_wait() -> None:
         )
 
         waits = client.dispatcher.handler_waits.values()
-        assert [model.key for _, model in waits] == [ListenerKey(2)]
+        assert [model.key for _, model, _ in waits] == [ListenerKey(2)]
+    finally:
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+def _stubborn_bot(
+    workers: int, evict_timeout: float
+) -> tuple[pyroflow.Client, MessageListener, list[object], asyncio.Event]:
+    """Like `_waiting_bot`, but an evicted handler goes on working until the event is set."""
+    client = pyroflow.Client(
+        "probe", api_id=1, api_hash="x", in_memory=True, workers=workers, skip_updates=True
+    )
+    client.with_workers_policy(
+        WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0, evict_timeout=evict_timeout)
+    )
+    listener = MessageListener()
+    client.register_listener(listener)
+    results: list[object] = []
+    finish = asyncio.Event()
+    chats = iter(range(1, 100))
+
+    async def handler(client: object, update: object, users: object, chats_: object) -> None:
+        chat = next(chats)
+        try:
+            await listener.listen(chat, timeout=5)
+        except ListenerEvicted:
+            results.append((chat, "evicted"))
+            await finish.wait()
+        except Exception as e:  # noqa: BLE001  # the test records how each wait ended
+            results.append((chat, type(e)))
+
+    client.add_handler(RawUpdateHandler(handler))
+    return client, listener, results, finish
+
+
+async def test_policy_cancel_oldest_holds_the_new_wait_until_the_evicted_handler_ends() -> None:
+    client, listener, results, finish = _stubborn_bot(workers=2, evict_timeout=5)
+    await _start_waits(client, 2, ping=False)
+    try:
+        await _until(lambda: (1, "evicted") in results)
+        await asyncio.sleep(0.02)
+
+        assert listener.listeners == {}
+        assert len(client.dispatcher.evicted_workers) == 1
+
+        finish.set()
+        await _until(lambda: ListenerKey(2) in listener.listeners)
+
+        assert client.dispatcher.evicted_workers == set()
+    finally:
+        finish.set()
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_policy_cancel_oldest_raises_when_no_worker_frees_in_time() -> None:
+    client, listener, results, finish = _stubborn_bot(workers=2, evict_timeout=0.02)
+    await _start_waits(client, 2, ping=False)
+    try:
+        await _until(lambda: (2, ListenerEvictionTimeout) in results)
+
+        assert listener.listeners == {}
+        assert len(client.dispatcher.evicted_workers) == 1
+    finally:
+        finish.set()
+        await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+
+async def test_stop_ends_a_wait_held_by_an_evict_timeout() -> None:
+    client, _, results, finish = _stubborn_bot(workers=2, evict_timeout=30)
+    await _start_waits(client, 2, ping=False)
+    await _until(lambda: (1, "evicted") in results)
+
+    stopping = asyncio.ensure_future(client.dispatcher.stop())
+    await asyncio.sleep(0.02)
+    finish.set()
+    await asyncio.wait_for(stopping, 2)
+
+    assert (2, ListenerCancelled) in results
+
+
+async def test_an_evicted_handler_that_waits_again_is_counted_once() -> None:
+    client = pyroflow.Client(
+        "probe", api_id=1, api_hash="x", in_memory=True, workers=3, skip_updates=True
+    )
+    client.with_workers_policy(
+        WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0, evict_timeout=0.05)
+    )
+    listener = MessageListener()
+    client.register_listener(listener)
+    results: list[object] = []
+    chats = iter(range(1, 100))
+
+    async def handler(client: object, update: object, users: object, chats_: object) -> None:
+        chat = next(chats)
+        try:
+            try:
+                await listener.listen(chat, timeout=5)
+            except ListenerEvicted:
+                await listener.listen(chat + 10, timeout=5)
+        except Exception as e:  # noqa: BLE001  # the test records how each wait ended
+            results.append((chat, type(e)))
+
+    client.add_handler(RawUpdateHandler(handler))
+    await _start_waits(client, 3, ping=False)
+    try:
+        await _until(lambda: (3, ListenerEvictionTimeout) in results)
+
+        assert client.dispatcher.evicted_workers == set()
+        assert len(client.dispatcher.handler_waits) == 2
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
 
 async def test_policy_cancel_oldest_without_a_wait_to_evict_refuses() -> None:
     client, _, results = _waiting_bot(workers=1)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST))
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0))
     await _start_waits(client, 1)
     try:
         await _until(lambda: "ping" in results)
@@ -799,6 +908,7 @@ async def test_init_starts_with_no_policy_and_no_waits() -> None:
 
     assert dispatcher.workers_policy is None
     assert dispatcher.handler_waits == {}
+    assert dispatcher.evicted_workers == set()
     assert dispatcher.worker_freed is None
 
 
@@ -808,7 +918,7 @@ def _hold_a_worker(dispatcher: Dispatcher, chat_id: int = 1) -> asyncio.Future:
     future = asyncio.get_running_loop().create_future()
     model = ListenerModel(ListenerKey(chat_id), future)
     listener.listeners[model.key] = model
-    dispatcher.handler_waits[future] = (listener, model)
+    dispatcher.handler_waits[future] = (listener, model, asyncio.current_task())
     return future
 
 
@@ -818,6 +928,15 @@ async def test_lacks_free_workers_counts_the_holding_waits() -> None:
 
     assert dispatcher.lacks_free_workers(policy) is False
     _hold_a_worker(dispatcher)
+    assert dispatcher.lacks_free_workers(policy) is True
+
+
+async def test_lacks_free_workers_counts_the_evicted_workers() -> None:
+    dispatcher = make_real_dispatcher(workers=2)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1)
+
+    dispatcher.evicted_workers.add(asyncio.current_task())
+
     assert dispatcher.lacks_free_workers(policy) is True
 
 
@@ -834,7 +953,7 @@ async def test_enter_handler_wait_with_workers_free_leaves_the_waits_alone() -> 
 
 async def test_enter_handler_wait_with_reject_raises_and_keeps_the_waits() -> None:
     dispatcher = make_real_dispatcher(workers=2)
-    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1, busy_timeout=0)
     future = _hold_a_worker(dispatcher)
 
     with pytest.raises(ListenerWorkersBusy):
@@ -854,23 +973,41 @@ async def test_enter_handler_wait_steps_in_once_the_busy_timeout_expires() -> No
 
 async def test_enter_handler_wait_with_cancel_oldest_evicts_only_the_oldest() -> None:
     dispatcher = make_real_dispatcher(workers=3)
-    policy = WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=1)
+    policy = WorkersPolicy(
+        WorkersBusyMode.CANCEL_OLDEST, free_workers=1, busy_timeout=0, evict_timeout=0.01
+    )
     oldest, newer = _hold_a_worker(dispatcher, 1), _hold_a_worker(dispatcher, 2)
 
-    await dispatcher.enter_handler_wait(policy, ListenerKey(3))
+    with pytest.raises(ListenerEvictionTimeout):
+        await dispatcher.enter_handler_wait(policy, ListenerKey(3))
 
     assert isinstance(oldest.exception(), ListenerEvicted)
     assert list(dispatcher.handler_waits) == [newer]
     assert not newer.done()
+    assert dispatcher.evicted_workers == {asyncio.current_task()}
+
+
+async def test_enter_handler_wait_with_cancel_oldest_returns_once_the_worker_frees() -> None:
+    dispatcher = make_real_dispatcher(workers=2)
+    policy = WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=1, busy_timeout=0)
+    worker = asyncio.current_task()
+    _hold_a_worker(dispatcher)
+    entering = asyncio.ensure_future(dispatcher.enter_handler_wait(policy, ListenerKey(2)))
+    await asyncio.sleep(0.01)
+
+    assert not entering.done()
+    dispatcher.release_evicted_worker(worker)
+
+    await asyncio.wait_for(entering, 1)
 
 
 async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
     dispatcher = make_real_dispatcher(workers=1)
-    policy = WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=0.05)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT)
     loop = asyncio.get_running_loop()
     start = loop.time()
 
-    await asyncio.wait_for(dispatcher.wait_for_free_worker(policy), 1)
+    await asyncio.wait_for(dispatcher.wait_for_free_worker(policy, 0.05), 1)
 
     assert loop.time() - start >= 0.04
     assert isinstance(dispatcher.worker_freed, asyncio.Event)
@@ -878,9 +1015,9 @@ async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
 
 async def test_wait_for_free_worker_returns_once_a_wait_ends() -> None:
     dispatcher = make_real_dispatcher(workers=2)
-    policy = WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=5)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT)
     future = _hold_a_worker(dispatcher)
-    task = asyncio.ensure_future(dispatcher.wait_for_free_worker(policy))
+    task = asyncio.ensure_future(dispatcher.wait_for_free_worker(policy, 5))
     await asyncio.sleep(0.01)
 
     dispatcher.end_handler_wait(future)
@@ -921,6 +1058,64 @@ async def test_end_handler_wait_without_a_timed_wait_makes_no_event() -> None:
     dispatcher.end_handler_wait(_hold_a_worker(dispatcher))
 
     assert dispatcher.worker_freed is None
+
+
+async def test_release_evicted_worker_stops_counting_it_and_wakes_waiters() -> None:
+    dispatcher = make_real_dispatcher()
+    worker = asyncio.current_task()
+    dispatcher.evicted_workers.add(worker)
+    dispatcher.worker_freed = asyncio.Event()
+    woken = asyncio.ensure_future(dispatcher.worker_freed.wait())
+    await asyncio.sleep(0)
+
+    dispatcher.release_evicted_worker(worker)
+
+    assert dispatcher.evicted_workers == set()
+    assert await asyncio.wait_for(woken, 1) is True
+
+
+async def test_release_evicted_worker_of_another_worker_wakes_nobody() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.worker_freed = asyncio.Event()
+    woken = asyncio.ensure_future(dispatcher.worker_freed.wait())
+    await asyncio.sleep(0)
+
+    dispatcher.release_evicted_worker(asyncio.current_task())
+    await asyncio.sleep(0)
+
+    assert not woken.done()
+    woken.cancel()
+
+
+async def test_pulse_worker_freed_wakes_the_waiters_and_leaves_the_event_clear() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher.worker_freed = asyncio.Event()
+    woken = asyncio.ensure_future(dispatcher.worker_freed.wait())
+    await asyncio.sleep(0)
+
+    dispatcher.pulse_worker_freed()
+
+    assert await asyncio.wait_for(woken, 1) is True
+    assert dispatcher.worker_freed.is_set() is False
+
+
+async def test_handler_worker_releases_an_evicted_worker_after_its_handler() -> None:
+    dispatcher = make_real_dispatcher()
+    released: list[object] = []
+
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
+        dispatcher.evicted_workers.add(asyncio.current_task())
+
+    dispatcher.handle_update = handle_update
+    dispatcher.release_evicted_worker = released.append
+    dispatcher.update_parsers = {}
+    dispatcher.updates_queue.put_nowait(("raw", {}, {}))
+    dispatcher.updates_queue.put_nowait(None)
+
+    task = asyncio.ensure_future(dispatcher.handler_worker(asyncio.Lock()))
+    await asyncio.wait_for(task, 1)
+
+    assert released == [task]
 
 
 async def test_handler_worker_marks_the_worker_for_listen_and_clears_it_after() -> None:

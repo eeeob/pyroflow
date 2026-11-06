@@ -257,7 +257,7 @@ class Message(PyroMessage):
                 arguments are passed while the message is edited.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: If the wait would start inside a handler with
+            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
         """
@@ -470,7 +470,7 @@ class Message(PyroMessage):
                 arguments are passed while the message is edited.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: If the wait would start inside a handler with
+            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
         """

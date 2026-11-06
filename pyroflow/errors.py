@@ -86,6 +86,10 @@ class ListenerWorkersBusy(ListenerError):
     """No free worker for a wait on {value}"""  # noqa: D415  # the docstring is the runtime message template
 
 
+class ListenerEvictionTimeout(ListenerWorkersBusy):
+    """No worker freed in time after evicting a wait for {value}"""  # noqa: D415  # the docstring is the runtime message template
+
+
 class ListenerAlreadyExists(ListenerError):
     """A listener already exists for {value}"""  # noqa: D415  # the docstring is the runtime message template
 
@@ -101,5 +105,6 @@ __all__ = (
     "ListenerTimeout",
     "ListenerEvicted",
     "ListenerWorkersBusy",
+    "ListenerEvictionTimeout",
     "ListenerAlreadyExists",
 )

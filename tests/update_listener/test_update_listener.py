@@ -307,9 +307,10 @@ class _Holder:
     def __init__(self, error: Exception | None = None, *, has_policy: bool = True) -> None:
         self.error = error
         self.workers_policy = object() if has_policy else None
-        self.handler_waits: dict[asyncio.Future, tuple[object, ListenerModel]] = {}
+        self.handler_waits: dict[asyncio.Future, tuple[object, ListenerModel, object]] = {}
         self.entered: list[ListenerKey] = []
-        self.ended: list[tuple[object, ListenerModel]] = []
+        self.ended: list[tuple[object, ListenerModel, object]] = []
+        self.released: list[object] = []
 
     async def enter_handler_wait(self, policy: object, key: ListenerKey) -> None:
         if self.error is not None:
@@ -318,6 +319,9 @@ class _Holder:
 
     def end_handler_wait(self, future: asyncio.Future) -> None:
         self.ended.append(self.handler_waits.pop(future))
+
+    def release_evicted_worker(self, worker: object) -> None:
+        self.released.append(worker)
 
 
 def _as_worker(holder: _Holder) -> object:
@@ -336,9 +340,11 @@ async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
         handler_worker_var.reset(token)
 
     assert holder.entered == [ListenerKey(100)]
-    ((listener, model),) = holder.ended
+    ((listener, model, worker),) = holder.ended
     assert listener is lis
     assert model.key == ListenerKey(100)
+    assert worker is asyncio.current_task()
+    assert holder.released == [worker]
     assert holder.handler_waits == {}
 
 
@@ -402,7 +408,7 @@ async def test_listen_replacing_a_wait_that_holds_a_worker_needs_no_room() -> No
     first = await _pending(lis, 100)
     model = lis.listeners[ListenerKey(100)]
     holder = _Holder()
-    holder.handler_waits[model.future] = (lis, model)
+    holder.handler_waits[model.future] = (lis, model, asyncio.current_task())
     token = _as_worker(holder)
     try:
         with pytest.raises(ListenerTimeout):

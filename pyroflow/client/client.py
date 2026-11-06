@@ -101,7 +101,7 @@ class Client(PyroClient):
         Raises:
             ValueError: If `policy.free_workers` is above the client's `workers`.
         """
-        if policy.free_workers is not None and policy.free_workers > self.workers:
+        if policy.free_workers > self.workers:
             msg = (
                 f"free_workers must not exceed workers ({self.workers}), got {policy.free_workers}"
             )
@@ -350,7 +350,7 @@ class Client(PyroClient):
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: If the wait would start inside a handler with
+            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
             ListenerAlreadyExists: If the listener refuses a second wait on
@@ -605,7 +605,7 @@ class Client(PyroClient):
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: If the wait would start inside a handler with
+            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
             ListenerAlreadyExists: As in `ask`; the error's `message` is the

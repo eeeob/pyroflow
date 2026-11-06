@@ -174,31 +174,38 @@ class WorkersPolicy:
     it with `Client.with_workers_policy`; without one, nothing steps in.
 
     Raises:
-        ValueError: If `free_workers` is below `1`, or `busy_timeout` is negative.
+        ValueError: If `free_workers` is below `1`, `busy_timeout` is negative,
+            or `evict_timeout` is not above `0`.
 
     Example:
-        >>> WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=1).min_free_workers(12)
-        4
+        >>> WorkersPolicy(WorkersBusyMode.REJECT).free_workers
+        1
     """
 
     mode: WorkersBusyMode
     """What steps in; see `WorkersBusyMode` for each mode and when it fits."""
-    free_workers: int | None = None
-    """Fewest workers a wait may leave free before `mode` steps in; `None` is a third.
+    free_workers: int = 1
+    """Fewest workers a wait may leave free before `mode` steps in.
 
     Equal to the client's `workers`, `REJECT` and `CANCEL_OLDEST` refuse every
     wait inside a handler, since none ever holds a worker.
     """
-    busy_timeout: float = 0
+    busy_timeout: float = 5
     """Seconds to wait first for a worker to free; `0` steps in at once.
 
     While it waits, that worker reads no update, and the wait is registered
     only afterwards, so an update can slip past it.
     """
+    evict_timeout: float = 5
+    """Seconds `CANCEL_OLDEST` waits, after ending the oldest wait, for a worker to free.
+
+    An evicted handler may go on working, so its worker is free only once it
+    ends. As with `busy_timeout`, an update can slip past the wait meanwhile.
+    """
 
     def __post_init__(self) -> None:
         """Check the values; see the class docstring."""
-        if self.free_workers is not None and self.free_workers < 1:
+        if self.free_workers < 1:
             msg = f"free_workers must be at least 1, got {self.free_workers}"
             raise ValueError(msg)
 
@@ -206,19 +213,9 @@ class WorkersPolicy:
             msg = f"busy_timeout must not be negative, got {self.busy_timeout}"
             raise ValueError(msg)
 
-    def min_free_workers(self, workers: int) -> int:
-        """Return how many of `workers` a wait inside a handler must leave free.
-
-        Args:
-            workers: The client's number of workers.
-
-        Returns:
-            `free_workers`, or a third of `workers` (at least one) when it is `None`.
-        """
-        if self.free_workers is not None:
-            return self.free_workers
-
-        return max(1, workers // 3)
+        if self.evict_timeout <= 0:
+            msg = f"evict_timeout must be above 0, got {self.evict_timeout}"
+            raise ValueError(msg)
 
 
 __all__ = (
