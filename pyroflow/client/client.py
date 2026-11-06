@@ -13,7 +13,6 @@ from pyrogram import (
 )
 
 from ..enums import ListenMessageId
-from ..errors import ListenerAlreadyExists
 from ..models import ListenerContext
 from ..utils import patch_cls
 from ..types import Message, CallbackQuery
@@ -355,7 +354,7 @@ class Client(PyroClient):
                 already sent or edited by then.
             ListenerAlreadyExists: If the listener refuses a second wait on
                 the key (`DuplicatePolicy.REJECT`). The message is already
-                sent or edited by then; it is the error's `message`.
+                sent or edited by then.
         """
         listener = self.listeners.get(listen_update_type)
 
@@ -608,8 +607,7 @@ class Client(PyroClient):
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
-            ListenerAlreadyExists: As in `ask`; the error's `message` is the
-                rich message already sent or edited.
+            ListenerAlreadyExists: As in `ask`.
         """
         listener = self.listeners.get(listen_update_type)
 
@@ -701,9 +699,6 @@ class Client(PyroClient):
 
         Returns:
             The matching update of type `listen_update_type`.
-
-        Raises:
-            ListenerAlreadyExists: With `m` as its `message`.
         """
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
@@ -734,20 +729,15 @@ class Client(PyroClient):
         if context.message is None:
             context.message = m
 
-        try:
-            return await listener(
-                chat_id=final_chat_id,
-                user_id=listen_user_id,
-                message_id=listen_message_id,
-                context=context,
-                filters=listen_filters,
-                strict=listen_strict,
-                timeout=listen_timeout,
-            )
-        except ListenerAlreadyExists as exc:
-            # The message is already out; hand it to the caller, who decides what to do with it.
-            exc.message = m
-            raise
+        return await listener(
+            chat_id=final_chat_id,
+            user_id=listen_user_id,
+            message_id=listen_message_id,
+            context=context,
+            filters=listen_filters,
+            strict=listen_strict,
+            timeout=listen_timeout,
+        )
 
 
 __all__ = ("Client",)

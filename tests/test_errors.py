@@ -106,10 +106,6 @@ def test_error_subclass_messages(
     assert err.value == 5
 
 
-def test_listener_already_exists_message_defaults_to_none() -> None:
-    assert ListenerAlreadyExists(5).message is None
-
-
 def test_errors_all() -> None:
     assert pyroflow.errors.__all__ == (
         "PyroflowError",

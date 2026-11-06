@@ -20,9 +20,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   (`5` by default) for a worker to free, since the evicted handler may go on
   working, or raises the new `ListenerEvictionTimeout` (a
   `ListenerWorkersBusy`). Without a policy, the default, nothing steps in.
-- `ListenerAlreadyExists.message`: when `ask` or `ask_rich` is refused a
-  duplicate wait, the error carries the message it already sent or edited,
-  so the caller can delete or edit it.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `pyroflow.constants`, the home of public constants (`BOT_COMMANDS_ATTR`).
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
