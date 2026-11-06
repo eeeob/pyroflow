@@ -231,6 +231,30 @@ while True:
 
 ولفلترة كل انتظار لا يمرر `listen_filters`، أعطِ الـ listener قيمة `strict_filter`، مثل `MessageListener(strict_filter=~filters.command("cancel"))`. والـ update الذي يفشل فيه ينهي الانتظار بـ `ListenerRejected`.
 
+**الأوامر المسجلة.** يمرر `pyroflow.filters.registered_command()` الرسالة التي نصها أو `caption` فيها أمر مسجل لهذا الـ bot، بوسائط أو بدونها. فالأمر `/cmd@this_bot` يمر، أما `/cmd@other_bot` والأمر المجهول والنص العادي فلا. وتأتي الأوامر من `client.get_bot_commands()` لكل نطاق في `scopes` (الافتراضي `registered_command.DEFAULT_SCOPES`، أي النطاقات الأربعة التي لا تحتاج شاتاً ولا مستخدماً) بكل لغة في `language_codes` (الافتراضي `""`)، تُجلب معاً عند أول استعمال ويحتفظ بها الفلتر مع usernames الـ bot حتى يُشغَّل الـ client من جديد، فتظهر الأوامر المضافة بعد إعادة التشغيل. والجلب الفاشل، كما في حساب مستخدم، يرفع خطأه كما هو ويلغي بقية الطلبات، ويُعاد الجلب مع الأمر التالي. وكل فلتر `registered_command()` يجلب لنفسه. و`registered_command(ephemeral=False)` يستثني الأوامر المعلّمة بـ `is_ephemeral`، و`username_policy` (قيمة `CommandUsernamePolicy` من `pyroflow.enums`) يحدد أي `@username` يمر: `OPTIONAL` (الافتراضي) بلا username أو username الـ bot، و`REQUIRED` username الـ bot فقط، و`None` بلا username أو أي username، و`ANY_REQUIRED` أي username لا بدونه، و`FORBIDDEN` بلا username فقط.
+
+ومعكوسًا في `strict_filter`، يتيح للأمر المسجل إنهاء السؤال الذي لا يمرر `listen_filters` والوصول إلى الـ handler الخاص به، وأي رسالة أخرى تجيب عن السؤال:
+
+```python
+from pyroflow import MessageListener, filters
+
+client.register_listener(MessageListener(strict_filter=~filters.registered_command()))
+```
+
+أما السؤال الذي يمرر `listen_filters` فلا يطبَّق عليه `strict_filter`، فيضيف الفلتر بنفسه، وعندها تنهيه أيضًا أي رسالة أخرى تفشل فيها الفلاتر، مثل صورة:
+
+```python
+from pyrogram import filters as pyrogram_filters
+
+name = await message.ask(
+    "Your name?",
+    listen_filters=pyrogram_filters.text & ~filters.registered_command(),
+    listen_strict=True,
+)
+```
+
+وفي الحالتين يُعرض الأمر على أي انتظار آخر يطابقه، مثل انتظار للمحادثة كلها، ولا يصل إلى الـ handler إلا إن لم يأخذه أي منها.
+
 للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`context` وفلتره) قبل أن يرفع `listen` الخطأ:
 
 ```python

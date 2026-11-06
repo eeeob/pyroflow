@@ -129,6 +129,24 @@ class WorkersPolicy(StrEnum):
     """End the oldest wait and take its place."""
 
 
+class CommandUsernamePolicy(StrEnum):
+    """Which `@username` after a command name `filters.registered_command` accepts.
+
+    Example:
+        >>> CommandUsernamePolicy.REQUIRED == "required"
+        True
+    """
+
+    OPTIONAL = auto()
+    """None, or one of the bot's usernames."""
+    REQUIRED = auto()
+    """One of the bot's usernames, never none."""
+    ANY_REQUIRED = auto()
+    """Any username, the bot's or not, never none."""
+    FORBIDDEN = auto()
+    """None: a command with a username does not match."""
+
+
 __all__ = (
     "DuplicatePolicy",
     "MessageListenCancelPolicy",
@@ -136,4 +154,5 @@ __all__ = (
     "ListenMessageId",
     "EphemeralUpdates",
     "WorkersPolicy",
+    "CommandUsernamePolicy",
 )

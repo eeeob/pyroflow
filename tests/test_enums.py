@@ -9,6 +9,7 @@ import pytest
 
 import pyroflow.enums
 from pyroflow.enums import (
+    CommandUsernamePolicy,
     DuplicatePolicy,
     EphemeralUpdates,
     ListenMessageId,
@@ -57,6 +58,15 @@ def test_workers_busy_mode_values() -> None:
     assert [str(mode) for mode in WorkersPolicy] == ["reject", "cancel_oldest"]
 
 
+def test_command_username_policy_values() -> None:
+    assert [str(policy) for policy in CommandUsernamePolicy] == [
+        "optional",
+        "required",
+        "any_required",
+        "forbidden",
+    ]
+
+
 def test_enums_all() -> None:
     assert pyroflow.enums.__all__ == (
         "DuplicatePolicy",
@@ -65,6 +75,7 @@ def test_enums_all() -> None:
         "ListenMessageId",
         "EphemeralUpdates",
         "WorkersPolicy",
+        "CommandUsernamePolicy",
     )
 
 

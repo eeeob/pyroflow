@@ -10,6 +10,14 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
+- `pyroflow.filters.registered_command()`: passes a message whose text or
+  caption is a command registered for this bot, with or without arguments,
+  from `get_bot_commands()` in the given `scopes` and `language_codes`.
+  `ephemeral=False` leaves
+  out commands marked `is_ephemeral`, and `username_policy`, a new
+  `pyroflow.enums.CommandUsernamePolicy`, sets which `@username` passes.
+  `MessageListener(strict_filter=~registered_command())` lets such a command
+  end a wait that passes no `listen_filters` and reach its handler.
 - `Client.setup_pyroflow(workers_policy=...)` and `pyroflow.enums.WorkersPolicy`:
   what a wait inside a handler does once it would take the last worker, which
   stays out to read the replies: `REJECT` raises the new

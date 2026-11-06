@@ -1,4 +1,4 @@
-"""pyroflow.filters: endswith / startswith / equal / split_text.
+"""pyroflow.filters: endswith / startswith / equal / split_text / registered_command.
 
 Each filter is exercised through Filter.__call__(client, update) — the exact
 path pyrogram.handlers.Handler.check() uses — rather than by reaching into
@@ -8,9 +8,12 @@ relies on.
 
 from __future__ import annotations as _annotations
 
+import asyncio
+import gc
 import inspect
 import re
 import threading
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from types import SimpleNamespace
@@ -18,11 +21,26 @@ from typing import Any, TYPE_CHECKING
 
 import pytest
 
+from pyrogram import filters as pyrogram_filters
+from pyrogram.handlers import MessageHandler
+from pyrogram.types import (
+    BotCommand,
+    BotCommandScopeAllChatAdministrators,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeDefault,
+    Message,
+)
+
 from pyroflow import filters
+from pyroflow.dispatcher import Dispatcher
+from pyroflow.enums import CommandUsernamePolicy
+from pyroflow.errors import ListenerRejected
+from pyroflow.update_listener import MessageListener
 
 if TYPE_CHECKING:
     from pyrogram.filters import Filter
-    from pyrogram.types import CallbackQuery, Message
+    from pyrogram.types import BotCommandScope, CallbackQuery
 
 from .conftest import make_callback_query, make_message
 
@@ -397,8 +415,543 @@ async def test_split_text_regex_rule_must_fullmatch_the_part() -> None:
     assert await matches(flt, make_message(text="/ban 42a")) is False
 
 
+# --- _COMMAND_RE ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "groups"),
+    [
+        ("/start", ("start", None)),
+        ("/Start_2 now", ("Start_2", None)),
+        ("/start\nnow", ("start", None)),
+        ("/start@my_bot now", ("start", "my_bot")),
+        ("/start@bot2 now", ("start", "bot2")),
+        ("/2fa now", ("2fa", None)),
+        ("/_debug", ("_debug", None)),
+        (f"/{'a' * 32}", ("a" * 32, None)),
+    ],
+)
+def test_command_re_captures_the_name_and_the_username(
+    text: str, groups: tuple[str, str | None]
+) -> None:
+    match = filters._COMMAND_RE.match(text)
+    assert match is not None
+    assert match.groups() == groups
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["start", " /start", "/", "/usr/bin", "/start@", "/start.", f"/{'a' * 33}"],
+)
+def test_command_re_refuses_what_is_not_a_command(text: str) -> None:
+    assert filters._COMMAND_RE.match(text) is None
+
+
+# --- registered_command ---------------------------------------------------------
+
+
+class FakeMe:
+    """A `client.me` stand-in that, like a Pyrogram `User`, holds its client."""
+
+    def __init__(self, client: object, username: str | None, usernames: tuple[str, ...]) -> None:
+        self._client = client
+        self.username = username
+        self.usernames = [SimpleNamespace(username=name) for name in usernames] or None
+
+
+class FakeBot:
+    """A client stand-in, hashable unlike `SimpleNamespace`, that records its fetches.
+
+    `commands` are those of the default scope with no language; `scoped` gives
+    other scopes and languages theirs, keyed by scope class name and language.
+    `fetches` counts the fetches of the default scope with no language, one per
+    round of a filter with the default `scopes` and `language_codes`.
+    """
+
+    def __init__(
+        self,
+        *commands: str,
+        username: str | None = "this_bot",
+        usernames: tuple[str, ...] = (),
+        error: Exception | None = None,
+        ephemeral: tuple[str, ...] = (),
+        scoped: dict[tuple[str, str], tuple[str, ...]] | None = None,
+    ) -> None:
+        self.commands = commands
+        self.ephemeral = ephemeral
+        self.scoped = scoped or {}
+        self.me: FakeMe | None = FakeMe(self, username, usernames)
+        self.error = error
+        self.fetches = 0
+        self.calls: list[tuple[str, str]] = []
+
+    async def get_bot_commands(
+        self, scope: BotCommandScope | None = None, language_code: str = ""
+    ) -> list[BotCommand]:
+        key = (type(scope).__name__, language_code)
+        self.calls.append(key)
+        default = key == ("BotCommandScopeDefault", "")
+        self.fetches += default
+        if self.error is not None:
+            raise self.error
+        names = self.scoped.get(key, self.commands if default else ())
+        return [BotCommand(name, f"{name} description", name in self.ephemeral) for name in names]
+
+    def restart(self, username: str | None = None) -> None:
+        """Give the bot a new `me`, as Pyrogram's `start` does."""
+        assert self.me is not None
+        self.me = FakeMe(self, username or self.me.username, ())
+
+
+@pytest.mark.parametrize("text", ["/start", "/start now", "/start\nnow", "/START"])
+async def test_registered_command_matches_with_or_without_arguments(text: str) -> None:
+    flt = filters.registered_command()
+    assert await flt(FakeBot("start"), make_message(text=text)) is True
+
+
+async def test_registered_command_lowercases_the_fetched_names() -> None:
+    flt = filters.registered_command()
+    assert await flt(FakeBot("Start"), make_message(text="/start")) is True
+
+
+async def test_registered_command_reads_the_caption() -> None:
+    flt = filters.registered_command()
+    assert await flt(FakeBot("start"), make_message(text=None, caption="/start now")) is True
+
+
+async def test_registered_command_prefers_the_text_over_the_caption() -> None:
+    flt = filters.registered_command()
+    msg = make_message(text="hello", caption="/start")
+    assert await flt(FakeBot("start"), msg) is False
+
+
+@pytest.mark.parametrize(
+    "text", ["/start@this_bot", "/start@this_bot now", "/start@THIS_BOT", "/start@alias_bot"]
+)
+async def test_registered_command_matches_a_command_aimed_at_this_bot(text: str) -> None:
+    bot = FakeBot("start", username="This_Bot", usernames=("Alias_Bot",))
+    assert await filters.registered_command()(bot, make_message(text=text)) is True
+
+
+async def test_registered_command_matches_the_username_of_a_bot_with_no_aliases() -> None:
+    bot = FakeBot("start")
+    assert await filters.registered_command()(bot, make_message(text="/start@this_bot")) is True
+
+
+async def test_registered_command_matches_an_alias_of_a_bot_with_no_username() -> None:
+    bot = FakeBot("start", username=None, usernames=("alias_bot",))
+    assert await filters.registered_command()(bot, make_message(text="/start@alias_bot")) is True
+
+
+async def test_registered_command_refuses_a_command_aimed_at_another_bot() -> None:
+    bot = FakeBot("start")
+    assert await filters.registered_command()(bot, make_message(text="/start@other_bot")) is False
+
+
+async def test_registered_command_refuses_a_username_while_the_client_has_no_me() -> None:
+    bot = FakeBot("start")
+    bot.me = None
+    assert await filters.registered_command()(bot, make_message(text="/start@this_bot")) is False
+
+
+async def test_registered_command_refuses_an_unknown_command() -> None:
+    assert await filters.registered_command()(FakeBot("start"), make_message(text="/help")) is False
+
+
+@pytest.mark.parametrize("text", ["hello", "/usr/bin", None])
+async def test_registered_command_fetches_nothing_for_text_that_is_no_command(
+    text: str | None,
+) -> None:
+    bot = FakeBot("start")
+    assert await filters.registered_command()(bot, make_message(text=text)) is False
+    assert bot.fetches == 0
+
+
+@pytest.mark.parametrize("data", ["/start", b"/start"])
+async def test_registered_command_raises_type_error_for_a_callback_query(data: str | bytes) -> None:
+    bot = FakeBot("start")
+    with pytest.raises(TypeError, match="Message updates only, not CallbackQuery"):
+        await filters.registered_command()(bot, make_callback_query(data=data))
+    assert bot.fetches == 0
+
+
+async def test_registered_command_raises_what_fetching_the_commands_raises() -> None:
+    error = RuntimeError("bots only")
+    with pytest.raises(RuntimeError) as info:
+        await filters.registered_command()(FakeBot(error=error), make_message(text="/start"))
+    assert info.value is error
+
+
+async def test_registered_command_keeps_the_clients_sharing_a_filter_apart() -> None:
+    flt = filters.registered_command()
+    first, second = FakeBot("start"), FakeBot("help")
+
+    assert await flt(first, make_message(text="/start")) is True
+    assert await flt(second, make_message(text="/start")) is False
+    assert await flt(second, make_message(text="/help")) is True
+    assert await flt(first, make_message(text="/help")) is False
+    assert (first.fetches, second.fetches) == (1, 1)
+
+
+async def test_registered_command_get_commands_returns_the_usernames_and_both_kinds_of_names() -> (
+    None
+):
+    bot = FakeBot("Start", "note", ephemeral=("note",))
+    commands = await filters.registered_command()._get_commands(bot)
+    assert commands._replace(user_client=None) == filters._BotCommands(
+        user_client=None,
+        usernames=frozenset({"this_bot"}),
+        regular=frozenset({"start"}),
+        ephemeral=frozenset({"note"}),
+    )
+
+
+async def test_registered_command_get_commands_keeps_them_on_the_filter_for_this_start() -> None:
+    flt, bot = filters.registered_command(), FakeBot("start")
+    commands = await flt._get_commands(bot)
+
+    assert commands.user_client is not None
+    assert commands.user_client() is bot.me
+    assert flt.fetched[bot] is commands
+    assert await flt._get_commands(bot) is commands
+    assert bot.fetches == 1
+
+
+async def test_registered_command_get_commands_fetches_again_after_a_restart() -> None:
+    flt, bot = filters.registered_command(), FakeBot("start")
+    await flt._get_commands(bot)
+    bot.commands = ("help",)
+    bot.restart()
+
+    assert (await flt._get_commands(bot)).regular == frozenset({"help"})
+    assert flt.fetched[bot][0]() is bot.me
+    assert bot.fetches == 2
+
+
+async def test_registered_command_get_commands_fetches_on_every_call_while_the_client_has_no_me() -> (
+    None
+):
+    flt, bot = filters.registered_command(), FakeBot("start")
+    bot.me = None
+    await flt._get_commands(bot)
+    await flt._get_commands(bot)
+
+    assert bot.fetches == 2
+
+
+async def test_registered_command_get_commands_of_each_filter_fetches_apart() -> None:
+    bot = FakeBot("start")
+    await filters.registered_command()._get_commands(bot)
+    await filters.registered_command()._get_commands(bot)
+    assert bot.fetches == 2
+
+
+async def test_registered_command_get_commands_raises_unchanged_and_keeps_nothing() -> None:
+    flt, error = filters.registered_command(), RuntimeError("bots only")
+    bot = FakeBot("start", error=error)
+
+    with pytest.raises(RuntimeError) as info:
+        await flt._get_commands(bot)
+
+    assert info.value is error
+    assert bot not in flt.fetched
+    bot.error = None
+    assert (await flt._get_commands(bot)).regular == frozenset({"start"})
+
+
+async def test_registered_command_get_commands_cancels_the_other_fetches_when_one_fails() -> None:
+    error, cancelled = RuntimeError("flood"), []
+
+    class FailingBot(FakeBot):
+        async def get_bot_commands(
+            self, scope: BotCommandScope | None = None, language_code: str = ""
+        ) -> list[BotCommand]:
+            if isinstance(scope, BotCommandScopeAllChatAdministrators):
+                await asyncio.sleep(0)
+                raise error
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(type(scope).__name__)
+                raise
+            return []
+
+    with pytest.raises(RuntimeError) as info:
+        await asyncio.wait_for(filters.registered_command()._get_commands(FailingBot()), 1)
+    await asyncio.sleep(0)  # the cancelled fetches finish on the next loop step
+
+    assert info.value is error
+    assert sorted(cancelled) == [
+        "BotCommandScopeAllGroupChats",
+        "BotCommandScopeAllPrivateChats",
+        "BotCommandScopeDefault",
+    ]
+
+
+async def test_registered_command_get_commands_raises_after_a_restart_instead_of_the_old_ones() -> (
+    None
+):
+    flt, bot = filters.registered_command(), FakeBot("start")
+    await flt._get_commands(bot)
+    bot.error = RuntimeError("flood")
+    bot.restart()
+
+    with pytest.raises(RuntimeError):
+        await flt._get_commands(bot)
+
+
+async def test_registered_command_get_commands_does_not_keep_a_client_alive() -> None:
+    bot = FakeBot("start")
+    ref, flt = weakref.ref(bot), filters.registered_command()
+    await flt._get_commands(bot)
+
+    del bot
+    gc.collect()
+
+    assert ref() is None
+
+
+def test_registered_command_is_a_filter_that_counts_ephemeral_commands_and_has_fetched_nothing() -> (
+    None
+):
+    flt = filters.registered_command()
+    assert isinstance(flt, pyrogram_filters.Filter)
+    assert flt.ephemeral is True
+    assert flt.username_policy is CommandUsernamePolicy.OPTIONAL
+    assert flt.scopes == filters.registered_command.DEFAULT_SCOPES
+    assert flt.language_codes == ("",)
+    assert dict(flt.fetched) == {}
+
+
+async def test_registered_command_counts_an_ephemeral_command_by_default() -> None:
+    bot = FakeBot("note", ephemeral=("note",))
+    assert await filters.registered_command()(bot, make_message(text="/note")) is True
+
+
+async def test_registered_command_without_ephemeral_leaves_out_an_ephemeral_command() -> None:
+    flt, bot = (
+        filters.registered_command(ephemeral=False),
+        FakeBot("start", "note", ephemeral=("note",)),
+    )
+    assert await flt(bot, make_message(text="/note")) is False
+    assert await flt(bot, make_message(text="/start")) is True
+
+
+async def test_registered_command_reads_ephemeral_on_every_call() -> None:
+    flt, bot = filters.registered_command(), FakeBot("note", ephemeral=("note",))
+    assert await flt(bot, make_message(text="/note")) is True
+    flt.ephemeral = False
+    assert await flt(bot, make_message(text="/note")) is False
+    assert bot.fetches == 1
+
+
+async def test_registered_command_get_commands_keeps_the_lowercased_usernames_and_aliases() -> None:
+    bot = FakeBot("start", username="This_Bot", usernames=("Alias_Bot",))
+    commands = await filters.registered_command()._get_commands(bot)
+    assert commands.usernames == frozenset({"this_bot", "alias_bot"})
+
+
+async def test_registered_command_get_commands_has_no_usernames_while_the_client_has_no_me() -> (
+    None
+):
+    bot = FakeBot("start")
+    bot.me = None
+    assert (await filters.registered_command()._get_commands(bot)).usernames == frozenset()
+
+
+async def test_registered_command_get_commands_takes_the_new_usernames_after_a_restart() -> None:
+    flt, bot = filters.registered_command(), FakeBot("start")
+    await flt._get_commands(bot)
+    bot.restart(username="renamed_bot")
+    assert (await flt._get_commands(bot)).usernames == frozenset({"renamed_bot"})
+
+
+def test_bot_commands_holds_me_then_the_usernames_then_the_regular_then_the_ephemeral_names() -> (
+    None
+):
+    assert filters._BotCommands._fields == ("user_client", "usernames", "regular", "ephemeral")
+
+
+@pytest.mark.parametrize(
+    ("policy", "text", "passes"),
+    [
+        (CommandUsernamePolicy.REQUIRED, "/start", False),
+        (CommandUsernamePolicy.REQUIRED, "/start@this_bot", True),
+        (CommandUsernamePolicy.REQUIRED, "/start@other_bot", False),
+        (None, "/start", True),
+        (None, "/start@this_bot", True),
+        (None, "/start@other_bot", True),
+        (CommandUsernamePolicy.ANY_REQUIRED, "/start", False),
+        (CommandUsernamePolicy.ANY_REQUIRED, "/start@this_bot", True),
+        (CommandUsernamePolicy.ANY_REQUIRED, "/start@other_bot", True),
+        (CommandUsernamePolicy.FORBIDDEN, "/start", True),
+        (CommandUsernamePolicy.FORBIDDEN, "/start@this_bot", False),
+        (CommandUsernamePolicy.FORBIDDEN, "/start@other_bot", False),
+    ],
+)
+async def test_registered_command_username_policy_decides_which_username_passes(
+    policy: CommandUsernamePolicy | None, text: str, passes: bool
+) -> None:
+    flt = filters.registered_command(username_policy=policy)
+    assert await flt(FakeBot("start"), make_message(text=text)) is passes
+
+
+@pytest.mark.parametrize(
+    ("policy", "text"),
+    [
+        (CommandUsernamePolicy.REQUIRED, "/start"),
+        (CommandUsernamePolicy.ANY_REQUIRED, "/start"),
+        (CommandUsernamePolicy.FORBIDDEN, "/start@this_bot"),
+    ],
+)
+async def test_registered_command_refuses_what_the_username_policy_forbids_without_fetching(
+    policy: CommandUsernamePolicy, text: str
+) -> None:
+    bot = FakeBot("start")
+    assert (
+        await filters.registered_command(username_policy=policy)(bot, make_message(text=text))
+        is False
+    )
+    assert bot.fetches == 0
+
+
+def test_registered_command_default_scopes_are_the_four_that_need_no_chat_or_user() -> None:
+    assert [type(scope) for scope in filters.registered_command.DEFAULT_SCOPES] == [
+        BotCommandScopeDefault,
+        BotCommandScopeAllPrivateChats,
+        BotCommandScopeAllGroupChats,
+        BotCommandScopeAllChatAdministrators,
+    ]
+
+
+async def test_registered_command_get_commands_fetches_every_scope_in_every_language() -> None:
+    flt = filters.registered_command(
+        scopes=(BotCommandScopeDefault(), BotCommandScopeAllGroupChats()),
+        language_codes=("", "ar"),
+    )
+    bot = FakeBot("start")
+    await flt._get_commands(bot)
+    assert bot.calls == [
+        ("BotCommandScopeDefault", ""),
+        ("BotCommandScopeDefault", "ar"),
+        ("BotCommandScopeAllGroupChats", ""),
+        ("BotCommandScopeAllGroupChats", "ar"),
+    ]
+
+
+async def test_registered_command_counts_the_commands_of_every_scope_and_language() -> None:
+    bot = FakeBot(
+        scoped={
+            ("BotCommandScopeAllGroupChats", ""): ("stats",),
+            ("BotCommandScopeDefault", "ar"): ("ayuda",),
+        }
+    )
+    assert await filters.registered_command()(bot, make_message(text="/stats")) is True
+    assert await filters.registered_command()(bot, make_message(text="/ayuda")) is False
+    flt = filters.registered_command(language_codes=("", "ar"))
+    assert await flt(bot, make_message(text="/ayuda")) is True
+
+
+async def test_registered_command_leaves_out_the_scopes_it_is_not_given() -> None:
+    bot = FakeBot(scoped={("BotCommandScopeAllGroupChats", ""): ("stats",)})
+    flt = filters.registered_command(scopes=(BotCommandScopeDefault(),))
+    assert await flt(bot, make_message(text="/stats")) is False
+
+
+# --- registered_command: a whole wait through the dispatcher ---------------------
+
+
+class FakeRawUpdate:
+    pass
+
+
+async def dispatch(listener: MessageListener, msg: Message) -> list[Message]:
+    """Run `msg` through a real `handler_worker` and return what the handlers received."""
+    handled: list[Message] = []
+
+    async def on_message(_: object, update: Message) -> None:
+        handled.append(update)
+
+    async def parser(*_: object) -> tuple[Message, type[MessageHandler]]:
+        return msg, MessageHandler
+
+    dispatcher = Dispatcher(
+        SimpleNamespace(
+            loop=asyncio.get_running_loop(),
+            workers=0,
+            executor=None,
+            start_handler=None,
+            stop_handler=None,
+            no_updates=True,
+            skip_updates=True,
+        )
+    )
+    dispatcher.listeners[Message] = listener
+    dispatcher.groups[0] = [MessageHandler(on_message)]
+    dispatcher.update_parsers = {FakeRawUpdate: parser}
+    dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
+    dispatcher.updates_queue.put_nowait(None)
+
+    await asyncio.wait_for(dispatcher.handler_worker(asyncio.Lock()), 1)
+
+    return handled
+
+
+async def test_inverted_strict_filter_ends_the_wait_and_reaches_the_handlers() -> None:
+    listener = MessageListener(strict_filter=~filters.registered_command())
+    waiter = asyncio.ensure_future(listener.listen(100, 7))
+    await asyncio.sleep(0)
+    msg = make_message(text="/start now", _client=FakeBot("start"))
+
+    assert await dispatch(listener, msg) == [msg]
+    with pytest.raises(ListenerRejected):
+        await waiter
+
+
+@pytest.mark.parametrize("text", ["my answer", "/help"])
+async def test_inverted_strict_filter_gives_anything_else_to_the_wait(text: str) -> None:
+    listener = MessageListener(strict_filter=~filters.registered_command())
+    waiter = asyncio.ensure_future(listener.listen(100, 7))
+    await asyncio.sleep(0)
+    msg = make_message(text=text, _client=FakeBot("start"))
+
+    assert await dispatch(listener, msg) == []
+    assert await waiter is msg
+
+
+async def test_inverted_filter_in_the_filters_of_a_strict_wait_ends_it() -> None:
+    listener = MessageListener()
+    flt = pyrogram_filters.text & ~filters.registered_command()
+    waiter = asyncio.ensure_future(listener.listen(100, 7, filters=flt, strict=True))
+    await asyncio.sleep(0)
+    msg = make_message(text="/start", _client=FakeBot("start"))
+
+    assert await dispatch(listener, msg) == [msg]
+    with pytest.raises(ListenerRejected):
+        await waiter
+
+
+async def test_a_wider_wait_with_filters_takes_a_command_a_strict_wait_rejected() -> None:
+    listener = MessageListener(strict_filter=~filters.registered_command())
+    rejected = asyncio.ensure_future(listener.listen(100, 7))
+    wider = asyncio.ensure_future(listener.listen(100, filters=pyrogram_filters.text))
+    await asyncio.sleep(0)
+    msg = make_message(text="/start", _client=FakeBot("start"))
+
+    assert await dispatch(listener, msg) == []
+    with pytest.raises(ListenerRejected):
+        await rejected
+    assert await wider is msg
+
+
 # --- module surface -------------------------------------------------------------
 
 
 def test_all_lists_the_public_factories() -> None:
-    assert filters.__all__ == ("endswith", "startswith", "equal", "split_text")
+    assert filters.__all__ == (
+        "endswith",
+        "startswith",
+        "equal",
+        "split_text",
+        "registered_command",
+    )

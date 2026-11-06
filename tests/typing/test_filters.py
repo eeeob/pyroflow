@@ -9,9 +9,11 @@ if TYPE_CHECKING:
     from enum import Enum
 
     from pyrogram.filters import Filter
+    from pyrogram.types import BotCommandScope, BotCommandScopeChat
     from typing_extensions import assert_type
 
     from pyroflow import filters
+    from pyroflow.enums import CommandUsernamePolicy
 
     class _Action(Enum):
         BAN = "ban"
@@ -21,6 +23,22 @@ if TYPE_CHECKING:
 
     async def _is_digit_async(part: str) -> bool:
         return part.isdigit()
+
+    def _check_registered_command() -> None:
+        flt = filters.registered_command(ephemeral=False)
+        assert_type(filters.registered_command(), filters.registered_command)
+        assert_type(flt.ephemeral, bool)
+        assert_type(flt.username_policy, CommandUsernamePolicy | None)
+        assert_type(flt.scopes, tuple[BotCommandScope, ...])
+        assert_type(filters.registered_command.DEFAULT_SCOPES, tuple[BotCommandScope, ...])
+        assert_type(flt.language_codes, tuple[str, ...])
+        filters.registered_command(scopes=[BotCommandScopeChat(1)], language_codes={"ar"})
+        _as_filter: Filter = flt
+        filters.registered_command(False)  # ty: ignore[too-many-positional-arguments]
+        filters.registered_command(ephemeral="no")  # ty: ignore[invalid-argument-type]
+        filters.registered_command(username_policy="any")  # ty: ignore[invalid-argument-type]
+        filters.registered_command(scopes=["default"])  # ty: ignore[invalid-argument-type]
+        filters.registered_command(language_codes=[1])  # ty: ignore[invalid-argument-type]
 
     def _check_factories() -> None:
         assert_type(filters.startswith("a", ["b", ("c",)]), Filter)

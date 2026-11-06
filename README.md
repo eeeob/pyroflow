@@ -214,6 +214,30 @@ while True:
 
 To filter every wait that passes no `listen_filters`, give the listener a `strict_filter`, such as `MessageListener(strict_filter=~filters.command("cancel"))`. An update that fails it ends the wait with `ListenerRejected`.
 
+**Registered commands.** `pyroflow.filters.registered_command()` passes a message whose text or caption is a command registered for this bot, with or without arguments. `/cmd@this_bot` passes; `/cmd@other_bot`, an unknown command and plain text do not. The commands come from `client.get_bot_commands()` for each of the filter's `scopes` (by default `registered_command.DEFAULT_SCOPES`, the four that need no chat or user) in each of its `language_codes` (by default `""`), fetched at once on first use and kept by the filter with the bot's usernames until the client starts again, so commands set meanwhile are seen after a restart. A failed fetch, as on a user account, raises its error unchanged and cancels the other fetches, and the next command fetches again. Each `registered_command()` filter fetches for itself. `registered_command(ephemeral=False)` leaves out commands marked `is_ephemeral`, and `username_policy` (a `CommandUsernamePolicy` from `pyroflow.enums`) sets which `@username` passes: `OPTIONAL` (the default) takes none or the bot's, `REQUIRED` only the bot's, `None` none or any, `ANY_REQUIRED` any but not none, and `FORBIDDEN` none.
+
+Inverted as a `strict_filter`, it lets a registered command end a question that passes no `listen_filters` and reach its handler, while any other message answers it:
+
+```python
+from pyroflow import MessageListener, filters
+
+client.register_listener(MessageListener(strict_filter=~filters.registered_command()))
+```
+
+A question with its own `listen_filters` skips `strict_filter`, so it adds the filter itself, and any other message that fails them, such as a photo, then ends it too:
+
+```python
+from pyrogram import filters as pyrogram_filters
+
+name = await message.ask(
+    "Your name?",
+    listen_filters=pyrogram_filters.text & ~filters.registered_command(),
+    listen_strict=True,
+)
+```
+
+Either way the command goes on to any other wait it matches, such as one for the whole chat, and reaches its handler only if none of them takes it.
+
 To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `context`, filter) before `listen` raises:
 
 ```python
