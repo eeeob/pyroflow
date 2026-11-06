@@ -34,7 +34,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   publishes the bot commands declared on registered handlers. It assumes one
   session per bot: when two overlap, such as during a rolling deploy, the one
   that stops deletes the commands the other still uses, unless it stops with
-  `remove_commands=False`.
+  `remove_commands=False`. A class without `Client` after it gets `TypeError`.
 - `pyroflow.enums.ListenMessageId` as `listen_message_id` on `ask` and
   `ask_rich`: `SENT` waits on the message `ask` sent or edited, such as a
   press on its buttons; `NEXT` waits for the message right after it.

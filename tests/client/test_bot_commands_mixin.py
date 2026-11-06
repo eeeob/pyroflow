@@ -33,7 +33,7 @@ def _cmd(name: str) -> BotCommand:
 # --- BotCommandsMixin -------------------------------------------------------
 
 
-class _MixinBase:
+class _MixinBase(pyroflow.Client):
     """A minimal stand-in for `Client` under `BotCommandsMixin`, recording every call."""
 
     def __init__(self) -> None:
@@ -105,6 +105,32 @@ def _client_with_a_busy_worker() -> tuple[_MixedClient, asyncio.Lock]:
 async def _drain() -> None:
     for _ in range(5):
         await asyncio.sleep(0)
+
+
+def test_bot_commands_mixin_refuses_a_class_without_client() -> None:
+    class NotAClient(BotCommandsMixin):
+        pass
+
+    with pytest.raises(TypeError, match="NotAClient must inherit Client after"):
+        NotAClient()
+
+
+def test_bot_commands_mixin_refuses_client_before_it() -> None:
+    class WrongOrder(pyroflow.Client, BotCommandsMixin):
+        pass
+
+    with pytest.raises(TypeError, match="WrongOrder must inherit Client after"):
+        WrongOrder("probe", api_id=1, api_hash="x", in_memory=True)
+
+
+def test_bot_commands_mixin_ignores_what_comes_before_it() -> None:
+    class Extra:
+        pass
+
+    class Child(Extra, _MixedClient):
+        pass
+
+    assert isinstance(Child("probe", api_id=1, api_hash="x", in_memory=True), BotCommandsMixin)
 
 
 def test_bot_commands_mixin_is_a_plain_object_at_runtime() -> None:

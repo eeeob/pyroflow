@@ -6,6 +6,7 @@ import asyncio
 from functools import cached_property
 from typing import Any, TYPE_CHECKING
 
+from pyrogram import Client as PyroClient
 from pyrogram.sync import wrap as async_to_sync
 from pytrove import (
     to_list,
@@ -20,7 +21,6 @@ from ..utils import split_bot_command_entry, mark_bot_commands
 from ..utils.bot_commands import _BOT_COMMANDS_ATTR
 
 if TYPE_CHECKING:
-    from pyrogram import Client as PyroClient
     from pyrogram.types import BotCommand
 
     from ..typings import BotCommandGroupKeyT
@@ -45,12 +45,32 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     `(language_code, scope)` group is one Telegram call, so different scopes
     never overwrite each other.
 
+    Raises:
+        TypeError: If `Client` does not come after this mixin in the class's MRO.
+
     Warning:
         Telegram keeps one command list per bot, scope and language, with no
         owner. If two sessions of the same bot overlap, such as during a
         restart or a rolling deploy, the one that stops deletes the commands
         the other still uses. Stop with `remove_commands=False` there.
     """
+
+    if not TYPE_CHECKING:
+
+        def __init__(self, *args: object, **kw: object) -> None:
+            """Refuse a class without `Client` after this mixin, then initialise as usual.
+
+            Args:
+                *args: Passed to the next class in the MRO.
+                **kw: Passed to the next class in the MRO.
+            """
+            mro = type(self).__mro__
+
+            if PyroClient not in mro[mro.index(BotCommandsMixin) + 1 :]:
+                msg = f"{type(self).__name__} must inherit Client after BotCommandsMixin"
+                raise TypeError(msg)
+
+            super().__init__(*args, **kw)
 
     @cached_property
     def bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
