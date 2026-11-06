@@ -16,10 +16,9 @@ if TYPE_CHECKING:
     def _check_context(
         context: ListenerContext, order: _OrderContext, model: ListenerModel
     ) -> None:
-        assert_type(context.message_id, int | None)
         assert_type(context.message, Message | None)
         assert_type(context.note, Any)
         context.note = "x"
         assert_type(order.step, int)
-        assert_type(order.message_id, int | None)
+        assert_type(order.message, Message | None)
         assert_type(model.context, ListenerContext | None)

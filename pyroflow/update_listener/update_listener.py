@@ -249,7 +249,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Inside a handler, the wait holds the worker running it, so the
         dispatcher's `WorkersPolicy` applies first (see
-        `Client.with_workers_policy`). That can yield before the wait is
+        `Client.setup_pyroflow`). That can yield before the wait is
         registered.
 
         Args:

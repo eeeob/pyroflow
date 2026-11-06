@@ -221,13 +221,14 @@ class Message(PyroMessage):
         elif listen_message_id is ListenMessageId.NEXT:
             listen_message_id = m.id + 1
 
-        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+        context = listen_context
 
-        if context.message_id is None:
-            context.message_id = m.id
-
-        if context.message is None:
-            context.message = m
+        if self._client.ask_context_message:
+            if context is None:
+                context = ListenerContext(message=m)
+            elif context.message is None:
+                context = copy.copy(context)
+                context.message = m
 
         return await listener(
             chat_id=self.chat.id,  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `kurigram` types `Message.chat` and `Chat.id` as optional; a non-empty message always has both
@@ -378,13 +379,14 @@ class Message(PyroMessage):
         elif listen_message_id is ListenMessageId.NEXT:
             listen_message_id = m.id + 1
 
-        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+        context = listen_context
 
-        if context.message_id is None:
-            context.message_id = m.id
-
-        if context.message is None:
-            context.message = m
+        if self._client.ask_context_message:
+            if context is None:
+                context = ListenerContext(message=m)
+            elif context.message is None:
+                context = copy.copy(context)
+                context.message = m
 
         return await listener(
             chat_id=self.chat.id,  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `kurigram` types `Message.chat` and `Chat.id` as optional; a non-empty message always has both

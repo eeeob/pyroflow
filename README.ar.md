@@ -141,8 +141,8 @@ client.callback_listen   # UpdateListener[CallbackQuery]
 from pyroflow.enums import WorkersBusyMode
 from pyroflow.models import WorkersPolicy
 
-client = Client("bot", workers=12).with_workers_policy(
-    WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
+client = Client("bot", workers=12).setup_pyroflow(
+    workers_policy=WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
 )
 ```
 
@@ -151,7 +151,7 @@ client = Client("bot", workers=12).with_workers_policy(
 | `REJECT` | يرفع الانتظار `ListenerWorkersBusy` | سقف مقصود، مثل بوت دعم بطاقة ثابتة |
 | `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، وينتظر الجديد worker حراً: فقد يكمل الـ handler القديم عمله، فلا يبدأ الانتظار الجديد إلا حين يفرغ worker فعلاً، ويرفع `ListenerEvictionTimeout` (وهو `ListenerWorkersBusy`) إن لم يفرغ خلال `evict_timeout` ثانية. وإن لم يوجد انتظار يُنهى، يرفع `ListenerWorkersBusy` | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
 
-بلا `with_workers_policy` لا يحدث تدخل وقد يتجمّد البوت، وهذا مقبول حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`with_workers_policy(None)` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. الافتراضي لـ `free_workers` هو `1`. و`busy_timeout` (الافتراضي `5`) ينتظر أولًا هذه المدة لعل worker يتحرر، و`evict_timeout` (الافتراضي `5`) هو ما ينتظره `CANCEL_OLDEST` بعد ذلك. ولا يقرأ ذلك الـ worker أي update خلالها، والرد الذي يصل قبل تسجيل الانتظار يذهب إلى الـ handlers. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
+بلا `setup_pyroflow(workers_policy=...)` لا يحدث تدخل وقد يتجمّد البوت، وهذا مقبول حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`setup_pyroflow()` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. الافتراضي لـ `free_workers` هو `1`. و`busy_timeout` (الافتراضي `5`) ينتظر أولًا هذه المدة لعل worker يتحرر، و`evict_timeout` (الافتراضي `5`) هو ما ينتظره `CANCEL_OLDEST` بعد ذلك. ولا يقرأ ذلك الـ worker أي update خلالها، والرد الذي يصل قبل تسجيل الانتظار يذهب إلى الـ handlers. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
 
 ---
 
@@ -270,7 +270,7 @@ async def drop_question(exc, model):
         await model.context.message.delete()
 ```
 
-`MessageListenCancellingCallbackQueryListener` هو `CallbackQueryListener` يلغي أيضًا انتظار الرسائل: الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة (`context.message_id` فيه)، فيرفع `ask` الخطأ `ListenerCancelled`. سجّله بدل `CallbackQueryListener` لتحصل على ذلك. مثلًا، زر "رجوع" على رسالة سؤال ينهي عندها انتظار جوابه:
+`MessageListenCancellingCallbackQueryListener` هو `CallbackQueryListener` يلغي أيضًا انتظار الرسائل: الضغطة التي لا يأخذها أي انتظار callback تلغي انتظار الرسائل المرتبط بالرسالة المضغوطة (`context.message` فيه)، فيرفع `ask` الخطأ `ListenerCancelled`. سجّله بدل `CallbackQueryListener` لتحصل على ذلك. مثلًا، زر "رجوع" على رسالة سؤال ينهي عندها انتظار جوابه:
 
 ```python
 from pyroflow import MessageListenCancellingCallbackQueryListener
@@ -284,10 +284,12 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 - `RESOLVED`: الضغطة التي أخذها انتظار callback فقط.
 - `ALWAYS`: كل ضغطة.
 
-و`cancel_scope` يحدد كم انتظار رسائل مرتبط بالرسالة المضغوطة (`context.message_id` فيه) تلغيه الضغطة:
+و`cancel_scope` يحدد كم انتظار رسائل مرتبط بالرسالة المضغوطة (`context.message` فيه) تلغيه الضغطة:
 
 - `ListenerScope.ALL` (الافتراضي): كل انتظار مرتبط.
 - `FIRST`: الأكثر تحديدًا فقط، أي الأول بترتيب `sub_keys`.
+
+و`ask` يسجّل تلك الرسالة في السياق، إلا إذا أوقف ذلك `setup_pyroflow(ask_context_message=False)`. عندها لا يرتبط برسالة إلا انتظار وضع `context.message` بنفسه.
 
 > ⚠️ **انتظار لا ينتهي.** بلا `listen_strict`، يبقى الانتظار مفتوحًا حتى `listen_timeout`، أو إلى الأبد بلا `listen_timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.

@@ -18,8 +18,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
     After a press is resolved, and when `cancel_policy` allows it, the
     client's message listener (`Client.message_listen`) is searched for the
-    waits tied to the pressed message: their `context.message_id` is that
-    message's id, as `ask` records it. Every one of them, or only the most
+    waits tied to the pressed message: their `context.message` is that
+    message, as `ask` records it. Every one of them, or only the most
     specific, as `cancel_scope` says, ends with `ListenerCancelled`. Only
     message waits are cancelled, and only those aimed at the presser or at
     anyone in the chat.
@@ -36,7 +36,7 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
         >>> from pyroflow.update_listener import MessageListener
         >>> async def main():
         ...     messages = MessageListener()
-        ...     context = ListenerContext(message_id=3)
+        ...     context = ListenerContext(message=Message(id=3))
         ...     waiter = asyncio.create_task(messages.listen(1, 2, context=context))
         ...     await asyncio.sleep(0)
         ...     query = CallbackQuery(
@@ -105,8 +105,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
 
         The candidates are the sub-keys of `(chat, presser, pressed message)`,
         most specific first, so a press only ends waits aimed at the presser
-        or at anyone in the chat. Those whose `context.message_id` is the
-        pressed message's id are cancelled: every one, or with
+        or at anyone in the chat. Those whose `context.message` is the
+        pressed message are cancelled: every one, or with
         `ListenerScope.FIRST` only the first. Nothing is cancelled when the callback carries no message,
         chat or message id, or the client has no message listener.
 
@@ -129,7 +129,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
             if (
                 listener is not None
                 and listener.context is not None
-                and listener.context.message_id == m.id
+                and listener.context.message is not None
+                and listener.context.message.id == m.id
             ):
                 m_listen.cancel(sub)
 

@@ -10,7 +10,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
-- `Client.with_workers_policy(WorkersPolicy(...))`, `pyroflow.models.WorkersPolicy`
+- `Client.setup_pyroflow(workers_policy=WorkersPolicy(...))`, `pyroflow.models.WorkersPolicy`
   and `pyroflow.enums.WorkersBusyMode`: what a wait inside a handler does
   once it would leave fewer than `free_workers` workers free (`1` by
   default), after up to `busy_timeout` seconds (`5` by default): `REJECT`
@@ -20,7 +20,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   (`5` by default) for a worker to free, since the evicted handler may go on
   working, or raises the new `ListenerEvictionTimeout` (a
   `ListenerWorkersBusy`). Without a policy, the default, nothing steps in;
-  `with_workers_policy(None)` removes one.
+  `setup_pyroflow()` removes one.
+- `Client.setup_pyroflow(ask_context_message=False)`: `ask` and `ask_rich` leave
+  `listen_context` as it is, instead of putting the message in it.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
@@ -65,7 +67,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
   whose presses that no callback wait takes cancel the message listen tied
   to the pressed message (see the Changed entry below): every wait whose
-  `context.message_id` is that message's id. Its `cancel_policy=` (the new
+  `context.message` is that message. Its `cancel_policy=` (the new
   `pyroflow.enums.MessageListenCancelPolicy`) sets which presses cancel:
   `ALWAYS`, `UNRESOLVED` (the default) or `RESOLVED`; its `cancel_scope=`
   (the new `pyroflow.enums.ListenerScope`) how many tied waits:
@@ -129,9 +131,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   longer a value of any type or a dict; it is keyword-only, and
   `ListenerModel.meta` is `ListenerModel.context`, `None` unless one was passed.
   `ListenerModel` takes its `future` as the second field, with no default.
-  `ask` copies the context and sets the copy's `message_id` and `message` to
-  the id of the sent or edited message and to the message itself, each
-  unless it is already set, so the id is `context.message_id` instead of
+  `ask` puts the sent or edited message in the context as `message`, on a
+  copy, unless it holds one, so the id is `context.message.id` instead of
   `meta["message_id"]`. Affects code passing
   or reading `meta`, or building `ListenerModel` itself.
   Migration: `listen(chat, context=ListenerContext(step=1))` instead of

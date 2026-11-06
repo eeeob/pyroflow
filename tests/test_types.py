@@ -28,6 +28,7 @@ def make_client(me_id: int | None = ME_ID) -> SimpleNamespace:
     listener = AsyncMock(return_value=SENTINEL)
     return SimpleNamespace(
         me=me,
+        ask_context_message=True,
         listeners={
             pyrogram.types.Message: listener,
             CallbackQuery: listener,
@@ -139,7 +140,7 @@ def assert_listened(m: Any, **expected: Any) -> None:
         "chat_id": 100,
         "user_id": None,
         "message_id": 10,
-        "context": ListenerContext(message_id=9, message=SENT),
+        "context": ListenerContext(message=SENT),
         "filters": None,
         "strict": False,
         "timeout": None,
@@ -175,7 +176,7 @@ async def test_ask_replies_when_not_editable() -> None:
     assert_listened(
         m,
         user_id=7,
-        context=ListenerContext(step=1, message_id=9, message=SENT),
+        context=ListenerContext(step=1, message=SENT),
         filters=pyrogram.filters.text,
         strict=True,
         timeout=1,
@@ -229,13 +230,23 @@ async def test_ask_auto_waits_on_no_message_for_other_update_types() -> None:
     assert_listened(m, message_id=None)
 
 
-async def test_ask_keeps_what_the_context_already_holds_on_a_copy() -> None:
+async def test_ask_passes_a_context_holding_a_message_as_it_is() -> None:
     m = make_ask_msg()
-    context = ListenerContext(message_id=1, message="mine")
+    context = ListenerContext(message="mine")
     await m.ask("hi", listen_context=context)
 
-    assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is not context
-    assert_listened(m, context=ListenerContext(message_id=1, message="mine"))
+    assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is context
+
+
+@pytest.mark.parametrize("context", [None, CONTEXT])
+async def test_ask_without_ask_context_message_passes_the_context_as_it_is(
+    context: ListenerContext | None,
+) -> None:
+    m = make_ask_msg()
+    m._client.ask_context_message = False
+    await m.ask("hi", listen_context=context)
+
+    assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is context
 
 
 # --- Message.ask_rich -----------------------------------------------------
@@ -294,3 +305,22 @@ async def test_ask_rich_turns_sent_into_the_id_to_wait_on() -> None:
     await m.ask_rich(RICH, listen_message_id=ListenMessageId.SENT)
 
     assert_listened(m, message_id=9)
+
+
+async def test_ask_rich_passes_a_context_holding_a_message_as_it_is() -> None:
+    m = make_ask_msg()
+    context = ListenerContext(message="mine")
+    await m.ask_rich(RICH, listen_context=context)
+
+    assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is context
+
+
+@pytest.mark.parametrize("context", [None, CONTEXT])
+async def test_ask_rich_without_ask_context_message_passes_the_context_as_it_is(
+    context: ListenerContext | None,
+) -> None:
+    m = make_ask_msg()
+    m._client.ask_context_message = False
+    await m.ask_rich(RICH, listen_context=context)
+
+    assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is context

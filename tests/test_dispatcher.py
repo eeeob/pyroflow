@@ -726,7 +726,7 @@ async def test_no_policy_lets_waits_take_every_worker() -> None:
 
 async def test_policy_reject_refuses_the_wait_that_would_take_the_last_worker() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=0))
+    client.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=0))
     await _start_waits(client, 2)
     try:
         await _until(lambda: "ping" in results)
@@ -739,7 +739,7 @@ async def test_policy_reject_refuses_the_wait_that_would_take_the_last_worker() 
 
 async def test_policy_busy_timeout_lets_a_freed_worker_go_to_the_waiting_one() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=2))
+    client.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=2))
     await _start_waits(client, 2, ping=False)
     try:
         await _until(lambda: len(listener.listeners) == 1 and len(results) == 0)
@@ -756,7 +756,7 @@ async def test_policy_busy_timeout_lets_a_freed_worker_go_to_the_waiting_one() -
 
 async def test_stop_ends_a_wait_held_by_a_busy_timeout() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=30))
+    client.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=30))
     await _start_waits(client, 2, ping=False)
     await _until(lambda: len(listener.listeners) == 1)
     await asyncio.sleep(0.05)  # the second wait now waits for a free worker
@@ -769,7 +769,9 @@ async def test_stop_ends_a_wait_held_by_a_busy_timeout() -> None:
 
 async def test_policy_cancel_oldest_evicts_the_oldest_wait() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0))
+    client.setup_pyroflow(
+        workers_policy=WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0)
+    )
     await _start_waits(client, 2)
     try:
         await _until(
@@ -789,8 +791,10 @@ def _stubborn_bot(
     client = pyroflow.Client(
         "probe", api_id=1, api_hash="x", in_memory=True, workers=workers, skip_updates=True
     )
-    client.with_workers_policy(
-        WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0, evict_timeout=evict_timeout)
+    client.setup_pyroflow(
+        workers_policy=WorkersPolicy(
+            WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0, evict_timeout=evict_timeout
+        )
     )
     listener = MessageListener()
     client.register_listener(listener)
@@ -861,8 +865,10 @@ async def test_an_evicted_handler_that_waits_again_is_counted_once() -> None:
     client = pyroflow.Client(
         "probe", api_id=1, api_hash="x", in_memory=True, workers=3, skip_updates=True
     )
-    client.with_workers_policy(
-        WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0, evict_timeout=0.05)
+    client.setup_pyroflow(
+        workers_policy=WorkersPolicy(
+            WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0, evict_timeout=0.05
+        )
     )
     listener = MessageListener()
     client.register_listener(listener)
@@ -892,7 +898,9 @@ async def test_an_evicted_handler_that_waits_again_is_counted_once() -> None:
 
 async def test_policy_cancel_oldest_without_a_wait_to_evict_refuses() -> None:
     client, _, results = _waiting_bot(workers=1)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0))
+    client.setup_pyroflow(
+        workers_policy=WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, busy_timeout=0)
+    )
     await _start_waits(client, 1)
     try:
         await _until(lambda: "ping" in results)

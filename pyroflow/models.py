@@ -115,12 +115,10 @@ class ListenerContext(SimpleNamespace):
         >>> class OrderContext(ListenerContext):
         ...     step: int = 0
         >>> context = OrderContext(step=2, note="x")
-        >>> context.step, context.note, context.message_id
+        >>> context.step, context.note, context.message
         (2, 'x', None)
     """
 
-    message_id: int | None = None
-    """Id of the message `ask` sent or edited for the wait."""
     message: Message | None = None
     """The message `ask` sent or edited for the wait."""
 
@@ -171,7 +169,7 @@ class WorkersPolicy:
     when too many do, no worker is left to read the replies and the bot
     freezes. Once a wait would leave fewer than `free_workers` workers free,
     `mode` steps in, after up to `busy_timeout` seconds for one to free. Set
-    it with `Client.with_workers_policy`; without one, nothing steps in.
+    it with `Client.setup_pyroflow`; without one, nothing steps in.
 
     Raises:
         ValueError: If `free_workers` is below `1`, `busy_timeout` is negative,

@@ -79,34 +79,50 @@ class Client(PyroClient):
         """
         return self.listeners[CallbackQuery]
 
-    def with_workers_policy(self, policy: WorkersPolicy | None) -> Self:
-        """Set the `WorkersPolicy` waits inside handlers follow, and return the client.
+    ask_context_message: bool = True
+    """Whether `ask` puts the message it sent or edited in the wait's `context`."""
 
-        Without a call there is no policy: waits hold their workers, and the
-        bot freezes if all of them wait.
+    def setup_pyroflow(
+        self,
+        *,
+        workers_policy: WorkersPolicy | None = None,
+        ask_context_message: bool = True,
+    ) -> Self:
+        """Set up pyroflow on this client, and return the client.
 
-        It is a method rather than a `Client(...)` argument so pyroflow does
+        Every call sets all the values: one it leaves out goes back to its
+        default.
+
+        It is a method rather than `Client(...)` arguments so pyroflow does
         not redeclare `pyrogram.Client.__init__`, a long signature it would
         then have to follow on every Pyrogram change. Chain it instead:
-        `Client("bot", workers=12).with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))`.
+        `Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT))`.
 
         Args:
-            policy: The policy, see `WorkersPolicy` and `WorkersBusyMode`, or
-                `None` to remove the current one.
+            workers_policy: The `WorkersPolicy` waits inside handlers follow,
+                see `WorkersBusyMode`. With `None` there is no policy: waits
+                hold their workers, and the bot freezes if all of them wait.
+            ask_context_message: Whether `ask` and `ask_rich` put the message
+                they sent or edited in the wait's `context`. Without it,
+                `listen_context` reaches the listener as it is, and
+                `MessageListenCancellingCallbackQueryListener` only finds
+                waits whose `context.message` the caller set.
 
         Returns:
             The client itself.
 
         Raises:
-            ValueError: If `policy.free_workers` is above the client's `workers`.
+            ValueError: If `workers_policy.free_workers` is above the client's `workers`.
         """
-        if policy is not None and policy.free_workers > self.workers:
+        if workers_policy is not None and workers_policy.free_workers > self.workers:
             msg = (
-                f"free_workers must not exceed workers ({self.workers}), got {policy.free_workers}"
+                f"free_workers must not exceed workers ({self.workers}), "
+                f"got {workers_policy.free_workers}"
             )
             raise ValueError(msg)
 
-        self.dispatcher.workers_policy = policy
+        self.dispatcher.workers_policy = workers_policy
+        self.ask_context_message = ask_context_message
         return self
 
     if TYPE_CHECKING:
@@ -227,11 +243,10 @@ class Client(PyroClient):
                 `CallbackQuery` and no filter otherwise.
                 In a group, `NEXT` can be taken by another member's message;
                 pass `None` there.
-            listen_context: Values attached to the listener. It is copied,
-                and the copy's `message_id` and `message` are set to the id
-                of the sent or edited message and to the message itself,
-                each unless it is already set. So `on_error_func` can edit
-                or delete the question and, with
+            listen_context: Values attached to the listener. It gets the sent
+                or edited message as `message`, on a copy, unless it holds one
+                or `setup_pyroflow` turned `ask_context_message` off. So
+                `on_error_func` can edit or delete the question and, with
                 `MessageListenCancellingCallbackQueryListener` registered, a
                 button pressed on that message cancels the wait.
             listen_filters: A Pyrogram filter the awaited update must pass besides
@@ -304,13 +319,14 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
-        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+        context = listen_context
 
-        if context.message_id is None:
-            context.message_id = m.id
-
-        if context.message is None:
-            context.message = m
+        if self.ask_context_message:
+            if context is None:
+                context = ListenerContext(message=m)
+            elif context.message is None:
+                context = copy.copy(context)
+                context.message = m
 
         return await listener(
             chat_id=final_chat_id,
@@ -476,13 +492,14 @@ class Client(PyroClient):
                 await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
             )
 
-        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+        context = listen_context
 
-        if context.message_id is None:
-            context.message_id = m.id
-
-        if context.message is None:
-            context.message = m
+        if self.ask_context_message:
+            if context is None:
+                context = ListenerContext(message=m)
+            elif context.message is None:
+                context = copy.copy(context)
+                context.message = m
 
         return await listener(
             chat_id=final_chat_id,

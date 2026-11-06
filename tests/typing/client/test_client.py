@@ -13,10 +13,11 @@ if TYPE_CHECKING:
     from pyroflow.enums import WorkersBusyMode
     from pyroflow.models import WorkersPolicy
 
-    def _check_with_workers_policy(client: Client) -> None:
+    def _check_setup_pyroflow(client: Client) -> None:
         policy = WorkersPolicy(WorkersBusyMode.REJECT)
-        assert_type(client.with_workers_policy(policy), Client)
-        assert_type(client.with_workers_policy(None), Client)
+        assert_type(client.setup_pyroflow(workers_policy=policy), Client)
+        assert_type(client.setup_pyroflow(ask_context_message=False), Client)
+        assert_type(client.setup_pyroflow(), Client)
 
     async def _check_ask_send(client: Client) -> None:
         assert_type(await client.ask(1, "hi"), Message)

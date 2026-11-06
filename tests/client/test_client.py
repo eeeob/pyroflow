@@ -6,6 +6,7 @@ from __future__ import annotations as _annotations
 import inspect
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pyroflow
 import pytest
@@ -41,27 +42,36 @@ def test_module_exports() -> None:
     assert client_module.__all__ == ("Client",)
 
 
-def test_with_workers_policy_sets_the_dispatchers_policy_and_returns_the_client() -> None:
-    c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
-    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=4, busy_timeout=1)
+def test_setup_pyroflow_sets_the_values_and_returns_the_client() -> None:
+    c = make_client()
+    policy = WorkersPolicy(WorkersBusyMode.REJECT)
 
-    assert c.with_workers_policy(policy) is c
+    assert c.setup_pyroflow(workers_policy=policy, ask_context_message=False) is c
     assert c.dispatcher.workers_policy is policy
+    assert c.ask_context_message is False
 
 
-def test_with_workers_policy_none_removes_the_policy() -> None:
-    c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
-    c.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))
+def test_setup_pyroflow_resets_what_it_leaves_out() -> None:
+    c = make_client()
+    c.setup_pyroflow(
+        workers_policy=WorkersPolicy(WorkersBusyMode.REJECT), ask_context_message=False
+    )
 
-    assert c.with_workers_policy(None) is c
+    c.setup_pyroflow()
+
     assert c.dispatcher.workers_policy is None
+    assert c.ask_context_message is True
 
 
-def test_with_workers_policy_rejects_more_free_workers_than_workers() -> None:
+def test_ask_context_message_defaults_to_true() -> None:
+    assert make_client().ask_context_message is True
+
+
+def test_setup_pyroflow_rejects_more_free_workers_than_workers() -> None:
     c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
 
     with pytest.raises(ValueError, match="must not exceed workers"):
-        c.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, free_workers=5))
+        c.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT, free_workers=5))
 
     assert c.dispatcher.workers_policy is None
 
@@ -199,7 +209,7 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
             "chat_id": 100,
             "user_id": None,
             "message_id": 6,  # `AUTO`: the message after the question
-            "context": ListenerContext(message_id=5, message=send.result),
+            "context": ListenerContext(message=send.result),
             "filters": None,
             "strict": False,
             "timeout": 3,
@@ -242,15 +252,13 @@ async def test_ask_send_mode_accepts_a_non_inline_reply_markup() -> None:
     assert send.calls[0]["reply_markup"] is markup
 
 
-async def test_ask_records_the_sent_message_and_its_id_in_a_copy_of_the_context() -> None:
+async def test_ask_records_the_sent_message_in_a_copy_of_the_context() -> None:
     c, listener, send, _ = _ask_client()
     context = ListenerContext(step=1)
 
     await c.ask(100, "hi", listen_context=context)
 
-    assert listener.calls[0]["context"] == ListenerContext(
-        step=1, message_id=5, message=send.result
-    )
+    assert listener.calls[0]["context"] == ListenerContext(step=1, message=send.result)
     assert context == ListenerContext(step=1)
 
 
@@ -341,14 +349,48 @@ async def test_ask_waits_on_the_listener_of_the_given_update_type() -> None:
     assert await c.ask(100, "hi", listen_update_type=CallbackQuery) is listener.result
 
 
-async def test_ask_keeps_the_fields_context_already_has_on_a_copy() -> None:
+async def test_ask_passes_a_context_holding_a_message_as_it_is() -> None:
     c, listener, _, _ = _ask_client()
-    context = ListenerContext(message_id=9, message="mine", step=1)
+    context = ListenerContext(message="mine", step=1)
 
     await c.ask(100, "hi", listen_context=context)
 
-    assert listener.calls[0]["context"] == context
-    assert listener.calls[0]["context"] is not context
+    assert listener.calls[0]["context"] is context
+
+
+@pytest.mark.parametrize("context", [None, ListenerContext(step=1)])
+async def test_ask_without_ask_context_message_passes_the_context_as_it_is(
+    context: ListenerContext | None,
+) -> None:
+    c, listener, _, _ = _ask_client()
+    c.ask_context_message = False
+
+    await c.ask(100, "hi", listen_context=context)
+
+    assert listener.calls[0]["context"] is context
+
+
+@pytest.mark.parametrize("context", [None, ListenerContext(step=1)])
+async def test_ask_rich_without_ask_context_message_passes_the_context_as_it_is(
+    context: ListenerContext | None,
+) -> None:
+    c, listener, _, _ = _ask_client()
+    c.send_rich_message = AsyncMock(return_value=make_message(chat_id=100, message_id=5))
+    c.ask_context_message = False
+
+    await c.ask_rich(100, object(), listen_context=context)
+
+    assert listener.calls[0]["context"] is context
+
+
+async def test_ask_rich_passes_a_context_holding_a_message_as_it_is() -> None:
+    c, listener, _, _ = _ask_client()
+    c.send_rich_message = AsyncMock(return_value=make_message(chat_id=100, message_id=5))
+    context = ListenerContext(message="mine")
+
+    await c.ask_rich(100, object(), listen_context=context)
+
+    assert listener.calls[0]["context"] is context
 
 
 async def test_ask_passes_filters_and_strict_to_the_listener() -> None:
@@ -411,7 +453,7 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
             "chat_id": 100,
             "user_id": None,
             "message_id": 6,  # `AUTO`: the message after the question
-            "context": ListenerContext(message_id=5, message=c.send_rich_message.result),
+            "context": ListenerContext(message=c.send_rich_message.result),
             "filters": None,
             "strict": False,
             "timeout": 3,

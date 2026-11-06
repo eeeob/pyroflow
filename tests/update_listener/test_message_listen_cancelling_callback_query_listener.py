@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, TYPE_CHECKING
 
 import pytest
@@ -34,7 +35,8 @@ class _FakeClient:
 async def _listen(
     lis: MessageListener, *key: int | None, prompt_id: int | None = None
 ) -> asyncio.Task:
-    task = asyncio.create_task(lis.listen(*key, context=ListenerContext(message_id=prompt_id)))
+    prompt = None if prompt_id is None else SimpleNamespace(id=prompt_id)
+    task = asyncio.create_task(lis.listen(*key, context=ListenerContext(message=prompt)))
     for _ in range(10):
         if ListenerKey(*key) in lis.listeners:
             break

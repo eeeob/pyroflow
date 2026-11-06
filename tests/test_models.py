@@ -130,15 +130,14 @@ async def test_listener_model_defaults() -> None:
 
 def test_listener_context_fields_default_to_none() -> None:
     context = ListenerContext()
-    assert context.message_id is None
     assert context.message is None
     assert vars(context) == {}
 
 
 def test_listener_context_reads_added_values_like_its_fields() -> None:
-    context = ListenerContext(message_id=5, step=1)
+    context = ListenerContext(message="m", step=1)
     context.note = "x"
-    assert (context.message_id, context.step, context.note) == (5, 1, "x")
+    assert (context.message, context.step, context.note) == ("m", 1, "x")
 
 
 def test_listener_context_subclass_declares_fields_with_defaults() -> None:

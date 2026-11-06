@@ -129,8 +129,8 @@ A handler that waits in `ask` or `listen` holds the worker running it (Pyrogram'
 from pyroflow.enums import WorkersBusyMode
 from pyroflow.models import WorkersPolicy
 
-client = Client("bot", workers=12).with_workers_policy(
-    WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
+client = Client("bot", workers=12).setup_pyroflow(
+    workers_policy=WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
 )
 ```
 
@@ -139,7 +139,7 @@ client = Client("bot", workers=12).with_workers_policy(
 | `REJECT` | The wait raises `ListenerWorkersBusy` | A deliberate cap, such as a support bot with fixed capacity |
 | `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one waits for a worker: its handler may go on working, so the new wait starts only once a worker really frees, and raises `ListenerEvictionTimeout` (a `ListenerWorkersBusy`) if none does within `evict_timeout` seconds; with no wait to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
 
-Without `with_workers_policy` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. `with_workers_policy(None)` removes a policy. Every mode keeps each handler under its worker's lock. `free_workers` defaults to `1`. `busy_timeout` (default `5`) first waits that many seconds for a worker to free, and `evict_timeout` (default `5`) is how long `CANCEL_OLDEST` then waits; meanwhile that worker reads no update, and a reply that arrives before the wait is registered goes to the handlers. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
+Without `setup_pyroflow(workers_policy=...)` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. `setup_pyroflow()` removes a policy. Every mode keeps each handler under its worker's lock. `free_workers` defaults to `1`. `busy_timeout` (default `5`) first waits that many seconds for a worker to free, and `evict_timeout` (default `5`) is how long `CANCEL_OLDEST` then waits; meanwhile that worker reads no update, and a reply that arrives before the wait is registered goes to the handlers. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
 
 ---
 
@@ -244,7 +244,7 @@ async def drop_question(exc, model):
         await model.context.message.delete()
 ```
 
-`MessageListenCancellingCallbackQueryListener` is a `CallbackQueryListener` that also cancels message listens: a press that no callback wait takes cancels the message wait tied to the pressed message (its `context.message_id`), which raises `ListenerCancelled` in `ask`. Register it instead of `CallbackQueryListener` to get this; for example, a "back" button on a question then ends the wait for its answer:
+`MessageListenCancellingCallbackQueryListener` is a `CallbackQueryListener` that also cancels message listens: a press that no callback wait takes cancels the message wait tied to the pressed message (its `context.message`), which raises `ListenerCancelled` in `ask`. Register it instead of `CallbackQueryListener` to get this; for example, a "back" button on a question then ends the wait for its answer:
 
 ```python
 from pyroflow import MessageListenCancellingCallbackQueryListener
@@ -252,7 +252,7 @@ from pyroflow import MessageListenCancellingCallbackQueryListener
 client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
-`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message_id`) one press cancels: `ListenerScope.ALL` (the default) every one, `FIRST` only the most specific.
+`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message`) one press cancels: `ListenerScope.ALL` (the default) every one, `FIRST` only the most specific. `ask` records that message in the context unless `setup_pyroflow(ask_context_message=False)` turned it off; then only waits that set `context.message` themselves are tied to a message.
 
 > ⚠️ **A wait that never ends.** Without `listen_strict`, a wait stays open until `listen_timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.
