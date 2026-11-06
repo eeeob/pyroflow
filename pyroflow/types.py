@@ -2,14 +2,15 @@
 
 from __future__ import annotations as _annotations
 
+import copy
 from typing import (
     Any,
     Literal,
+    cast,
     overload,
     TYPE_CHECKING,
 )
 
-from pyrogram import types as pyro_types
 from pyrogram.types import (
     Message as PyroMessage,
     CallbackQuery as PyroCallbackQuery,
@@ -18,6 +19,7 @@ from pyrogram.types import (
 )
 
 from .enums import ListenMessageId
+from .models import ListenerContext
 from .utils import patch_cls
 
 
@@ -40,7 +42,6 @@ if TYPE_CHECKING:
         MessageAskSendKw,
     )
     from .client import Client
-    from .models import ListenerContext
     from .typings import UpdateType, ListenMessageIdT
 
 
@@ -150,9 +151,10 @@ class Message(PyroMessage):
     ) -> PyroUpdate:
         """Send a new message or edit the current one, then wait for a matching update.
 
-        If this message is `editable` and `force_send` is `False`, it is edited in
-        place; otherwise a new message is sent as a reply to it, by default in
-        this message's topic.
+        If this message is `editable` and `force_send` is `False`, it is edited
+        with `edit`; otherwise a new message is sent with `reply`. Pyrogram
+        fills in the topic, the business connection and the rest, as for any
+        call of those methods.
 
         Args:
             text: The text to send or edit.
@@ -169,7 +171,7 @@ class Message(PyroMessage):
                 `ListenerRejected` instead of being skipped; see `Client.ask`.
             listen_timeout: Seconds to wait before raising `ListenerTimeout`.
             listen_update_type: Class of the update to wait for.
-            **kw: Passed through to `Client.ask`.
+            **kw: Passed to `edit` or `reply`.
 
         Returns:
             The first matching update.
@@ -183,23 +185,58 @@ class Message(PyroMessage):
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
         """
-        message_id = self._ask_target(force_send, kw)
+        if self.service or self.empty:
+            msg = "Cannot call 'ask' on a service or empty message."
+            raise ValueError(msg)
 
-        # `Client.ask` splits send/edit across overloads on `message_id`, which is
-        # only known here at runtime; `Client.ask` enforces that contract itself.
-        return await self._client.ask(  # ty: ignore[no-matching-overload]
-            self.chat.id,  # ty: ignore[unresolved-attribute]  # `kurigram` types `Message.chat` as optional; a non-empty message always has one
-            text,
-            message_id,
-            business_connection_id=self.business_connection_id,
-            listen_user_id=listen_user_id,
-            listen_message_id=listen_message_id,
-            listen_context=listen_context,
-            listen_filters=listen_filters,
-            listen_strict=listen_strict,
-            listen_timeout=listen_timeout,
-            listen_update_type=listen_update_type,
-            **kw,
+        listener = self._client.listeners.get(listen_update_type)
+
+        if listener is None:
+            msg = (
+                f"No listener registered for {listen_update_type.__name__}. "
+                f"Register one via client.register_listener() before calling ask()."
+            )
+            raise RuntimeError(msg)
+
+        m = cast(
+            "Message",
+            await (
+                self.edit(text, **kw)
+                if not force_send and self.editable
+                else self.reply(text, **kw)
+            ),
+        )
+
+        if listen_message_id is ListenMessageId.AUTO:
+            listen_message_id = (
+                ListenMessageId.NEXT
+                if issubclass(listen_update_type, Message)
+                else ListenMessageId.SENT
+                if issubclass(listen_update_type, CallbackQuery)
+                else None
+            )
+
+        if listen_message_id is ListenMessageId.SENT:
+            listen_message_id = m.id
+        elif listen_message_id is ListenMessageId.NEXT:
+            listen_message_id = m.id + 1
+
+        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+
+        if context.message_id is None:
+            context.message_id = m.id
+
+        if context.message is None:
+            context.message = m
+
+        return await listener(
+            chat_id=self.chat.id,  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `kurigram` types `Message.chat` and `Chat.id` as optional; a non-empty message always has both
+            user_id=listen_user_id,
+            message_id=listen_message_id,
+            context=context,
+            filters=listen_filters,
+            strict=listen_strict,
+            timeout=listen_timeout,
         )
 
     @overload
@@ -279,7 +316,7 @@ class Message(PyroMessage):
     ) -> PyroUpdate:
         """Send a new rich message or edit the current one, then wait for a matching update.
 
-        Like `ask`, but goes through `Client.ask_rich`.
+        Like `ask`, but edits with `edit(rich_message=...)` or sends with `reply_rich`.
 
         Args:
             rich_message: The rich message to send or edit.
@@ -291,7 +328,7 @@ class Message(PyroMessage):
             listen_strict: As in `ask`.
             listen_timeout: As in `ask`.
             listen_update_type: As in `ask`.
-            **kw: Passed through to `Client.ask_rich`.
+            **kw: Passed to `edit` or `reply_rich`.
 
         Returns:
             The first matching update.
@@ -305,59 +342,59 @@ class Message(PyroMessage):
                 too few workers free (see `WorkersPolicy`). The message is
                 already sent or edited by then.
         """
-        message_id = self._ask_target(force_send, kw)
-
-        # `send_rich_message` takes no `business_connection_id` since kurigram 2.2.25.
-        if message_id is not None:
-            kw["business_connection_id"] = self.business_connection_id
-
-        # Same runtime-only `message_id` split as in `ask`.
-        return await self._client.ask_rich(  # ty: ignore[no-matching-overload]
-            self.chat.id,  # ty: ignore[unresolved-attribute]  # `kurigram` types `Message.chat` as optional; a non-empty message always has one
-            rich_message,
-            message_id,
-            listen_user_id=listen_user_id,
-            listen_message_id=listen_message_id,
-            listen_context=listen_context,
-            listen_filters=listen_filters,
-            listen_strict=listen_strict,
-            listen_timeout=listen_timeout,
-            listen_update_type=listen_update_type,
-            **kw,
-        )
-
-    def _ask_target(self, force_send: bool, kw: dict[str, Any]) -> int | None:
-        """Decide whether `ask` edits this message or replies to it.
-
-        When replying, `kw` gets the reply defaults for what it leaves as `None`.
-
-        Args:
-            force_send: Reply even if this message is `editable`.
-            kw: The Pyrogram arguments `ask` was given.
-
-        Returns:
-            This message's id when editing, otherwise `None`.
-
-        Raises:
-            ValueError: If this is a service or empty message.
-        """
         if self.service or self.empty:
             msg = "Cannot call 'ask' on a service or empty message."
             raise ValueError(msg)
 
-        if not force_send and self.editable:
-            return self.id
+        listener = self._client.listeners.get(listen_update_type)
 
-        if kw.get("reply_parameters") is None:
-            kw["reply_parameters"] = pyro_types.ReplyParameters(message_id=self.id)
+        if listener is None:
+            msg = (
+                f"No listener registered for {listen_update_type.__name__}. "
+                f"Register one via client.register_listener() before calling ask()."
+            )
+            raise RuntimeError(msg)
 
-        if kw.get("message_thread_id") is None:
-            kw["message_thread_id"] = self.message_thread_id
+        m = cast(
+            "Message",
+            await (
+                self.edit(rich_message=rich_message, **kw)
+                if not force_send and self.editable
+                else self.reply_rich(rich_message, **kw)
+            ),
+        )
 
-        if kw.get("direct_messages_topic_id") is None:
-            kw["direct_messages_topic_id"] = self.direct_messages_topic_id
+        if listen_message_id is ListenMessageId.AUTO:
+            listen_message_id = (
+                ListenMessageId.NEXT
+                if issubclass(listen_update_type, Message)
+                else ListenMessageId.SENT
+                if issubclass(listen_update_type, CallbackQuery)
+                else None
+            )
 
-        return None
+        if listen_message_id is ListenMessageId.SENT:
+            listen_message_id = m.id
+        elif listen_message_id is ListenMessageId.NEXT:
+            listen_message_id = m.id + 1
+
+        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+
+        if context.message_id is None:
+            context.message_id = m.id
+
+        if context.message is None:
+            context.message = m
+
+        return await listener(
+            chat_id=self.chat.id,  # ty: ignore[unresolved-attribute, invalid-argument-type]  # `kurigram` types `Message.chat` and `Chat.id` as optional; a non-empty message always has both
+            user_id=listen_user_id,
+            message_id=listen_message_id,
+            context=context,
+            filters=listen_filters,
+            strict=listen_strict,
+            timeout=listen_timeout,
+        )
 
     @property
     def editable(self) -> bool:

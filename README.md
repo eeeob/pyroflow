@@ -262,7 +262,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 > Give such waits a timeout (`listen_timeout` on `ask`, `timeout` on `listen` or on the listener), use `listen_strict=True` (`strict=True` on `listen`) when the first rejected update should end the wait, or end the wait yourself with `listener.cancel(key)`. Note that `listen_strict=True` ends the wait on **any** rejected update of the key, such as a photo while text is awaited.
 
 
-`ask_rich()` does the same with a rich message: it sends with `send_rich_message`, or edits with `edit_message_text(rich_message=...)` when `message_id` is given. `Message.ask_rich()` mirrors `Message.ask()`.
+`ask_rich()` does the same with a rich message: it sends with `send_rich_message`, or edits with `edit_message_text(rich_message=...)` when `message_id` is given. `Message.ask_rich()` mirrors `Message.ask()`. Both call the message's own `edit`, `reply` and `reply_rich`, so they accept what those accept; use `client.ask()` for arguments such as `reply_parameters`.
 
 ```python
 from pyrogram.types import InputRichMessage

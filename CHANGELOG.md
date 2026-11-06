@@ -82,8 +82,15 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `reply_markup` other than `InlineKeyboardMarkup` when editing, or for send
   arguments on an edit. Affects code that relied on those. Migration: pass only
   what the mode takes; the type hints show it, and Pyrogram raises `TypeError`
-  for anything else. `ask` and `ask_rich` now accept every argument of every
-  supported kurigram, each marked by version.
+  for anything else.
+- **BREAKING:** `Message.ask` and `Message.ask_rich` call the message's own
+  `reply`, `reply_rich` and `edit` instead of `Client.ask`, so Pyrogram handles
+  replies in topics, business chats and ephemeral messages, and they accept
+  only what those methods accept. That leaves out `reply_parameters`,
+  `message_thread_id` and `direct_messages_topic_id` on a reply, and
+  `schedule_date` on an edit. Migration: call `client.ask` with those arguments.
+- **BREAKING:** pyroflow needs `kurigram>=2.2.26`, the first version with
+  `Message.edit(rich_message=...)`. Migration: upgrade kurigram.
 - Faster dispatch: `UpdateListener.resolve` returns at once when no wait is
   open, and listener filters, `extract_key_func`, `on_error_func`, handler
   callbacks and `split_text` rules that are coroutine functions are awaited
@@ -158,7 +165,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   not the message.
 - `split_text` never matches `bytes` callback data, even without a
   `separator` (it used to pass the bytes to a single callable rule).
-- pyroflow now depends on `pytrove>=2.0` and `kurigram>=2.2.24` only. It no
+- pyroflow now depends on `pytrove>=2.0` and `kurigram` only. It no
   longer depends on `cachetools`, `sortedcontainers` or `typing_extensions`.
 - `pyroflow.typings` now also holds `UpdateType`.
 - Every module defines `__all__`; `pyroflow.typings`, `pyroflow.errors`,

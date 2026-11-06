@@ -283,17 +283,43 @@ class Client(PyroClient):
                 await self.send_message(chat_id=chat_id, text=text, **kw),
             )
 
-        return await self._listen_after_ask(
-            m,
-            chat_id,
-            listener,
-            listen_update_type=listen_update_type,
-            listen_user_id=listen_user_id,
-            listen_message_id=listen_message_id,
-            listen_context=listen_context,
-            listen_filters=listen_filters,
-            listen_strict=listen_strict,
-            listen_timeout=listen_timeout,
+        if listen_message_id is ListenMessageId.AUTO:
+            listen_message_id = (
+                ListenMessageId.NEXT
+                if issubclass(listen_update_type, Message)
+                else ListenMessageId.SENT
+                if issubclass(listen_update_type, CallbackQuery)
+                else None
+            )
+
+        if listen_message_id is ListenMessageId.SENT:
+            listen_message_id = m.id
+        elif listen_message_id is ListenMessageId.NEXT:
+            listen_message_id = m.id + 1
+
+        final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
+
+        if isinstance(final_chat_id, str):
+            final_chat_id = pyro_ut.get_peer_id(
+                await self.resolve_peer(final_chat_id)  # ty: ignore[invalid-argument-type]  # `resolve_peer` returns `None` only for a `None` `peer_id`
+            )
+
+        context = ListenerContext() if listen_context is None else copy.copy(listen_context)
+
+        if context.message_id is None:
+            context.message_id = m.id
+
+        if context.message is None:
+            context.message = m
+
+        return await listener(
+            chat_id=final_chat_id,
+            user_id=listen_user_id,
+            message_id=listen_message_id,
+            context=context,
+            filters=listen_filters,
+            strict=listen_strict,
+            timeout=listen_timeout,
         )
 
     @overload
@@ -429,50 +455,6 @@ class Client(PyroClient):
                 await self.send_rich_message(chat_id=chat_id, rich_message=rich_message, **kw),
             )
 
-        return await self._listen_after_ask(
-            m,
-            chat_id,
-            listener,
-            listen_update_type=listen_update_type,
-            listen_user_id=listen_user_id,
-            listen_message_id=listen_message_id,
-            listen_context=listen_context,
-            listen_filters=listen_filters,
-            listen_strict=listen_strict,
-            listen_timeout=listen_timeout,
-        )
-
-    async def _listen_after_ask(
-        self,
-        m: Message,
-        chat_id: StrInt,
-        listener: UpdateListener[Any],
-        *,
-        listen_update_type: type[pyro_types.Update],
-        listen_user_id: int | None,
-        listen_message_id: ListenMessageIdT | None,
-        listen_context: ListenerContext | None,
-        listen_filters: Filter | None,
-        listen_strict: bool,
-        listen_timeout: Number | None,
-    ) -> pyro_types.Update:
-        """Wait on `listener` for the reply to `m`, the message `ask` or `ask_rich` sent or edited.
-
-        Args:
-            m: The message sent or edited.
-            chat_id: The chat `ask` was given, used when `m` carries none.
-            listener: The listener registered for `listen_update_type`.
-            listen_update_type: As in `ask`.
-            listen_user_id: As in `ask`.
-            listen_message_id: As in `ask`.
-            listen_context: As in `ask`.
-            listen_filters: As in `ask`.
-            listen_strict: As in `ask`.
-            listen_timeout: As in `ask`.
-
-        Returns:
-            The matching update of type `listen_update_type`.
-        """
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
                 ListenMessageId.NEXT

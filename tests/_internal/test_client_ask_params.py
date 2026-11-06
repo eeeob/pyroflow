@@ -2,7 +2,8 @@
 
 from __future__ import annotations as _annotations
 
-import pytest
+import inspect
+from typing import TYPE_CHECKING
 
 import pyroflow
 from pyroflow._internal import client_ask_params as module
@@ -12,32 +13,36 @@ from pyroflow._internal.client_ask_params import (
     AskRichSendKw,
     AskSendKw,
 )
-from pyroflow._internal.message_ask_params import (
-    MessageAskEditKw,
-    MessageAskRichEditKw,
-    MessageAskRichSendKw,
-    MessageAskSendKw,
-)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+def _params(func: Callable[..., object], *owned: str) -> set[str]:
+    return set(inspect.signature(func).parameters) - {"self", "chat_id", *owned}
 
 
 def test_module_all() -> None:
     assert module.__all__ == ("AskSendKw", "AskEditKw", "AskRichSendKw", "AskRichEditKw")
 
 
-@pytest.mark.parametrize(
-    ("client_kw", "message_kw"),
-    [
-        (AskSendKw, MessageAskSendKw),
-        (AskEditKw, MessageAskEditKw),
-        (AskRichSendKw, MessageAskRichSendKw),
-        (AskRichEditKw, MessageAskRichEditKw),
-    ],
-)
-def test_client_kw_add_the_business_connection_to_the_message_ones(
-    client_kw: type, message_kw: type
-) -> None:
-    extra = client_kw.__optional_keys__ - message_kw.__optional_keys__
-    assert extra == {"business_connection_id"}
+def test_ask_send_kw_covers_send_message() -> None:
+    assert _params(pyroflow.Client.send_message, "text") <= AskSendKw.__optional_keys__
+
+
+def test_ask_edit_kw_covers_edit_message_text() -> None:
+    params = _params(pyroflow.Client.edit_message_text, "message_id", "text", "rich_message")
+    assert params <= AskEditKw.__optional_keys__
+
+
+def test_ask_rich_send_kw_covers_send_rich_message() -> None:
+    params = _params(pyroflow.Client.send_rich_message, "rich_message")
+    assert params <= AskRichSendKw.__optional_keys__
+
+
+def test_ask_rich_edit_kw_leaves_out_what_only_text_takes() -> None:
+    keys = AskRichEditKw.__optional_keys__
+    assert keys == {"schedule_date", "business_connection_id", "reply_markup"}
 
 
 def test_package_stays_out_of_the_public_names() -> None:

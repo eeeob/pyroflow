@@ -30,15 +30,11 @@ class AskSendKw(TypedDict, total=False):
     """Target topic."""
     direct_messages_topic_id: int | None
     """Target direct messages topic."""
-    ephemeral_message_parameters: pyro_types.EphemeralMessageParameters | None  # kurigram>=2.2.26
+    ephemeral_message_parameters: pyro_types.EphemeralMessageParameters | None
     """Parameters of an ephemeral message."""
-    receiver_user_id: int | str | None  # kurigram==2.2.25, removed in 2.2.26
-    """The user who receives the message."""
-    callback_query_id: str | None  # kurigram==2.2.25, removed in 2.2.26
-    """The callback query the message answers."""
     effect_id: int | None
     """Message effect to apply."""
-    show_caption_above_media: bool | None
+    show_caption_above_media: bool | None  # deprecated in Pyrogram
     """Show the caption above the media."""
     reply_parameters: pyro_types.ReplyParameters | None
     """Reply options."""
@@ -95,7 +91,7 @@ class AskEditKw(TypedDict, total=False):
     """Business connection to edit through."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
-    show_caption_above_media: bool | None
+    show_caption_above_media: bool | None  # deprecated in Pyrogram
     """Show the caption above the media."""
     disable_web_page_preview: bool | None  # deprecated in Pyrogram
     """Disable the link preview."""
@@ -110,20 +106,14 @@ class AskRichSendKw(TypedDict, total=False):
     """Target topic."""
     direct_messages_topic_id: int | None
     """Target direct messages topic."""
-    ephemeral_message_parameters: pyro_types.EphemeralMessageParameters | None  # kurigram>=2.2.26
+    ephemeral_message_parameters: pyro_types.EphemeralMessageParameters | None
     """Parameters of an ephemeral message."""
-    receiver_user_id: int | str | None  # kurigram==2.2.25, removed in 2.2.26
-    """The user who receives the message."""
-    callback_query_id: str | None  # kurigram==2.2.25, removed in 2.2.26
-    """The callback query the message answers."""
     effect_id: int | None
     """Message effect to apply."""
     reply_parameters: pyro_types.ReplyParameters | None
     """Reply options."""
     protect_content: bool | None
     """Protect the message from forwarding and saving."""
-    business_connection_id: str | None  # kurigram==2.2.24, removed in 2.2.25
-    """Business connection to send through."""
     allow_paid_broadcast: bool | None
     """Allow a paid broadcast."""
     suggested_post_parameters: pyro_types.SuggestedPostParameters | None

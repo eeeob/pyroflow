@@ -4,12 +4,12 @@ from __future__ import annotations as _annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pyrogram
 import pytest
 from pyrogram.enums import ChatType
-from pyrogram.types import Chat, ReplyParameters
+from pyrogram.types import Chat
 
 from pyroflow import types as pf_types
 from pyroflow.enums import ListenMessageId
@@ -19,13 +19,20 @@ from pyroflow.types import CallbackQuery, Message, User
 
 ME_ID = 42
 SENTINEL = object()
+SENT = SimpleNamespace(id=9)
 CONTEXT = ListenerContext(step=1)
 
 
 def make_client(me_id: int | None = ME_ID) -> SimpleNamespace:
     me = None if me_id is None else SimpleNamespace(id=me_id)
+    listener = AsyncMock(return_value=SENTINEL)
     return SimpleNamespace(
-        me=me, ask=AsyncMock(return_value=SENTINEL), ask_rich=AsyncMock(return_value=SENTINEL)
+        me=me,
+        listeners={
+            pyrogram.types.Message: listener,
+            CallbackQuery: listener,
+            pyrogram.types.Poll: listener,
+        },
     )
 
 
@@ -119,17 +126,39 @@ def test_respond_is_reply_when_not_editable() -> None:
 # --- Message.ask ----------------------------------------------------------
 
 
+def make_ask_msg(*, is_self: bool = False, **fields: Any) -> Any:
+    m = make_msg(is_self=is_self, **fields)
+    m.reply = AsyncMock(return_value=SENT)
+    m.edit = AsyncMock(return_value=SENT)
+    m.reply_rich = AsyncMock(return_value=SENT)
+    return m
+
+
+def assert_listened(m: Any, **expected: Any) -> None:
+    wait = {
+        "chat_id": 100,
+        "user_id": None,
+        "message_id": 10,
+        "context": ListenerContext(message_id=9, message=SENT),
+        "filters": None,
+        "strict": False,
+        "timeout": None,
+    }
+    listener = m._client.listeners[pyrogram.types.Message]
+    assert listener.await_args == call(**{**wait, **expected})
+
+
 @pytest.mark.parametrize("field", ["service", "empty"])
 async def test_ask_rejects_service_or_empty_message(field: str) -> None:
-    m = make_msg()
+    m = make_ask_msg()
     setattr(m, field, True)
     with pytest.raises(ValueError, match="service or empty"):
         await m.ask("hi")
-    m._client.ask.assert_not_awaited()
+    m.reply.assert_not_awaited()
 
 
-async def test_ask_sends_reply_when_not_editable() -> None:
-    m = make_msg(message_thread_id=3, direct_messages_topic_id=4, business_connection_id="bc")
+async def test_ask_replies_when_not_editable() -> None:
+    m = make_ask_msg()
     result = await m.ask(
         "hi",
         listen_user_id=7,
@@ -141,62 +170,72 @@ async def test_ask_sends_reply_when_not_editable() -> None:
     )
 
     assert result is SENTINEL
-    args, kwargs = m._client.ask.await_args
-    assert args == (100, "hi", None)
-    assert kwargs["reply_parameters"].message_id == 5
-    assert kwargs["message_thread_id"] == 3
-    assert kwargs["direct_messages_topic_id"] == 4
-    assert kwargs["business_connection_id"] == "bc"
-    assert kwargs["listen_user_id"] == 7
-    assert kwargs["listen_message_id"] is ListenMessageId.AUTO
-    assert kwargs["listen_context"] is CONTEXT
-    assert kwargs["listen_filters"] is pyrogram.filters.text
-    assert kwargs["listen_strict"] is True
-    assert kwargs["listen_timeout"] == 1
-    assert kwargs["listen_update_type"] is pyrogram.types.Message
-    assert kwargs["extra"] == "kw"
-
-
-async def test_ask_send_keeps_explicit_send_options() -> None:
-    m = make_msg(message_thread_id=3, direct_messages_topic_id=4)
-    rp = ReplyParameters(message_id=99)
-    await m.ask("hi", reply_parameters=rp, message_thread_id=8, direct_messages_topic_id=9)
-
-    kwargs = m._client.ask.await_args.kwargs
-    assert kwargs["reply_parameters"] is rp
-    assert kwargs["message_thread_id"] == 8
-    assert kwargs["direct_messages_topic_id"] == 9
+    assert m.reply.await_args == call("hi", extra="kw")
+    m.edit.assert_not_awaited()
+    assert_listened(
+        m,
+        user_id=7,
+        context=ListenerContext(step=1, message_id=9, message=SENT),
+        filters=pyrogram.filters.text,
+        strict=True,
+        timeout=1,
+    )
 
 
 async def test_ask_edits_when_editable() -> None:
-    m = make_msg(is_self=True)
-    assert await m.ask("hi", listen_update_type=CallbackQuery) is SENTINEL
+    m = make_ask_msg(is_self=True)
+    assert await m.ask("hi", listen_update_type=CallbackQuery, parse_mode=None) is SENTINEL
 
-    args, kwargs = m._client.ask.await_args
-    assert args == (100, "hi", 5)
-    assert "reply_parameters" not in kwargs
-    assert "message_thread_id" not in kwargs
-    assert "direct_messages_topic_id" not in kwargs
-    assert kwargs["listen_update_type"] is CallbackQuery
+    assert m.edit.await_args == call("hi", parse_mode=None)
+    m.reply.assert_not_awaited()
+    assert_listened(m, message_id=9)
 
 
-async def test_ask_force_send_sends_even_when_editable() -> None:
-    m = make_msg(is_self=True)
+async def test_ask_force_send_replies_even_when_editable() -> None:
+    m = make_ask_msg(is_self=True)
     await m.ask("hi", True, disable_notification=True)
 
-    args, kwargs = m._client.ask.await_args
-    assert args[2] is None
-    assert kwargs["reply_parameters"].message_id == 5
-    assert kwargs["disable_notification"] is True
+    assert m.reply.await_args == call("hi", disable_notification=True)
+    m.edit.assert_not_awaited()
 
 
-async def test_ask_edit_leaves_the_arguments_to_pyrogram() -> None:
-    m = make_msg(is_self=True)
-    await m.ask("hi", disable_notification=False)
+async def test_ask_sends_nothing_without_a_listener() -> None:
+    m = make_ask_msg()
+    m._client.listeners.clear()
 
-    args, kwargs = m._client.ask.await_args
-    assert args[2] == 5
-    assert kwargs["disable_notification"] is False
+    with pytest.raises(RuntimeError, match="No listener registered for Message"):
+        await m.ask("hi")
+
+    m.reply.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("given", "listened"),
+    [(ListenMessageId.SENT, 9), (ListenMessageId.NEXT, 10), (None, None), (3, 3)],
+)
+async def test_ask_turns_listen_message_id_into_the_id_to_wait_on(
+    given: ListenMessageId | int | None, listened: int | None
+) -> None:
+    m = make_ask_msg()
+    await m.ask("hi", listen_message_id=given)
+
+    assert_listened(m, message_id=listened)
+
+
+async def test_ask_auto_waits_on_no_message_for_other_update_types() -> None:
+    m = make_ask_msg()
+    await m.ask("hi", listen_update_type=pyrogram.types.Poll)
+
+    assert_listened(m, message_id=None)
+
+
+async def test_ask_keeps_what_the_context_already_holds_on_a_copy() -> None:
+    m = make_ask_msg()
+    context = ListenerContext(message_id=1, message="mine")
+    await m.ask("hi", listen_context=context)
+
+    assert m._client.listeners[pyrogram.types.Message].await_args.kwargs["context"] is not context
+    assert_listened(m, context=ListenerContext(message_id=1, message="mine"))
 
 
 # --- Message.ask_rich -----------------------------------------------------
@@ -206,110 +245,52 @@ RICH = object()
 
 @pytest.mark.parametrize("field", ["service", "empty"])
 async def test_ask_rich_rejects_service_or_empty_message(field: str) -> None:
-    m = make_msg()
+    m = make_ask_msg()
     setattr(m, field, True)
     with pytest.raises(ValueError, match="service or empty"):
         await m.ask_rich(RICH)
-    m._client.ask_rich.assert_not_awaited()
+    m.reply_rich.assert_not_awaited()
 
 
-async def test_ask_rich_sends_reply_when_not_editable() -> None:
-    m = make_msg(message_thread_id=3, direct_messages_topic_id=4, business_connection_id="bc")
-    result = await m.ask_rich(
-        RICH,
-        listen_user_id=7,
-        listen_context=CONTEXT,
-        listen_filters=pyrogram.filters.text,
-        listen_strict=True,
-        listen_timeout=1,
-        extra="kw",
-    )
+async def test_ask_rich_replies_when_not_editable() -> None:
+    m = make_ask_msg()
+    result = await m.ask_rich(RICH, listen_user_id=7, listen_timeout=1, extra="kw")
 
     assert result is SENTINEL
-    m._client.ask.assert_not_awaited()
-    args, kwargs = m._client.ask_rich.await_args
-    assert args == (100, RICH, None)
-    assert kwargs["reply_parameters"].message_id == 5
-    assert kwargs["message_thread_id"] == 3
-    assert kwargs["direct_messages_topic_id"] == 4
-    assert "business_connection_id" not in kwargs
-    assert kwargs["listen_user_id"] == 7
-    assert kwargs["listen_message_id"] is ListenMessageId.AUTO
-    assert kwargs["listen_context"] is CONTEXT
-    assert kwargs["listen_filters"] is pyrogram.filters.text
-    assert kwargs["listen_strict"] is True
-    assert kwargs["listen_timeout"] == 1
-    assert kwargs["listen_update_type"] is pyrogram.types.Message
-    assert kwargs["extra"] == "kw"
+    assert m.reply_rich.await_args == call(RICH, extra="kw")
+    m.edit.assert_not_awaited()
+    assert_listened(m, user_id=7, timeout=1)
 
 
 async def test_ask_rich_edits_when_editable() -> None:
-    m = make_msg(is_self=True, business_connection_id="bc")
-    assert await m.ask_rich(RICH, listen_update_type=CallbackQuery) is SENTINEL
+    m = make_ask_msg(is_self=True)
+    assert await m.ask_rich(RICH, listen_update_type=CallbackQuery, reply_markup=None) is SENTINEL
 
-    args, kwargs = m._client.ask_rich.await_args
-    assert args == (100, RICH, 5)
-    assert "reply_parameters" not in kwargs
-    assert "message_thread_id" not in kwargs
-    assert kwargs["business_connection_id"] == "bc"
-    assert kwargs["listen_update_type"] is CallbackQuery
+    assert m.edit.await_args == call(rich_message=RICH, reply_markup=None)
+    m.reply_rich.assert_not_awaited()
+    assert_listened(m, message_id=9)
 
 
-async def test_ask_rich_force_send_sends_even_when_editable() -> None:
-    m = make_msg(is_self=True)
+async def test_ask_rich_force_send_replies_even_when_editable() -> None:
+    m = make_ask_msg(is_self=True)
     await m.ask_rich(RICH, True, disable_notification=True)
 
-    args, kwargs = m._client.ask_rich.await_args
-    assert args[2] is None
-    assert kwargs["reply_parameters"].message_id == 5
-    assert kwargs["disable_notification"] is True
+    assert m.reply_rich.await_args == call(RICH, disable_notification=True)
+    m.edit.assert_not_awaited()
 
 
-async def test_ask_rich_edit_leaves_the_arguments_to_pyrogram() -> None:
-    m = make_msg(is_self=True)
-    await m.ask_rich(RICH, disable_notification=False)
+async def test_ask_rich_sends_nothing_without_a_listener() -> None:
+    m = make_ask_msg()
+    m._client.listeners.clear()
 
-    args, kwargs = m._client.ask_rich.await_args
-    assert args[2] == 5
-    assert kwargs["disable_notification"] is False
+    with pytest.raises(RuntimeError, match="No listener registered for Message"):
+        await m.ask_rich(RICH)
 
-
-# --- Message._ask_target --------------------------------------------------
+    m.reply_rich.assert_not_awaited()
 
 
-@pytest.mark.parametrize("field", ["service", "empty"])
-def test_ask_target_rejects_service_or_empty_message(field: str) -> None:
-    m = make_msg(is_self=True)
-    setattr(m, field, True)
-    with pytest.raises(ValueError, match="Cannot call 'ask' on a service or empty message"):
-        m._ask_target(False, {})
+async def test_ask_rich_turns_sent_into_the_id_to_wait_on() -> None:
+    m = make_ask_msg()
+    await m.ask_rich(RICH, listen_message_id=ListenMessageId.SENT)
 
-
-def test_ask_target_edits_an_editable_message_and_leaves_the_arguments() -> None:
-    kw: dict[str, Any] = {}
-
-    assert make_msg(is_self=True)._ask_target(False, kw) == 5
-    assert kw == {}
-
-
-@pytest.mark.parametrize(("is_self", "force_send"), [(False, False), (True, True)])
-def test_ask_target_replies_with_this_messages_defaults(is_self: bool, force_send: bool) -> None:
-    m = make_msg(is_self=is_self, message_thread_id=3, direct_messages_topic_id=4)
-    kw: dict[str, Any] = {}
-
-    assert m._ask_target(force_send, kw) is None
-    assert kw["reply_parameters"].message_id == 5
-    assert (kw["message_thread_id"], kw["direct_messages_topic_id"]) == (3, 4)
-
-
-def test_ask_target_reply_keeps_explicit_values() -> None:
-    m = make_msg(message_thread_id=3, direct_messages_topic_id=4)
-    rp = ReplyParameters(message_id=99)
-    kw: dict[str, Any] = {
-        "reply_parameters": rp,
-        "message_thread_id": 8,
-        "direct_messages_topic_id": 9,
-    }
-
-    assert m._ask_target(False, kw) is None
-    assert kw == {"reply_parameters": rp, "message_thread_id": 8, "direct_messages_topic_id": 9}
+    assert_listened(m, message_id=9)

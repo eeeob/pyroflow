@@ -302,7 +302,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 - ترسل عبر `send_rich_message`.
 - أو تعدّل عبر `edit_message_text(rich_message=...)` إن أُعطي `message_id`.
 
-و`Message.ask_rich()` تقابل `Message.ask()`.
+و`Message.ask_rich()` تقابل `Message.ask()`. وكلتاهما تستدعي `edit` و`reply` و`reply_rich` من الرسالة نفسها، فتقبلان ما تقبله هذه الدوال. ولمعاملات مثل `reply_parameters` استعمل `client.ask()`.
 
 ```python
 from pyrogram.types import InputRichMessage
