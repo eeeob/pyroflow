@@ -46,25 +46,23 @@ def test_setup_pyroflow_sets_the_values_and_returns_the_client() -> None:
     c = make_client()
     policy = WorkersPolicy(WorkersBusyMode.REJECT)
 
-    assert c.setup_pyroflow(workers_policy=policy, ask_context_message=False) is c
+    assert c.setup_pyroflow(workers_policy=policy, ask_context_message=True) is c
     assert c.dispatcher.workers_policy is policy
-    assert c.ask_context_message is False
+    assert c.ask_context_message is True
 
 
 def test_setup_pyroflow_resets_what_it_leaves_out() -> None:
     c = make_client()
-    c.setup_pyroflow(
-        workers_policy=WorkersPolicy(WorkersBusyMode.REJECT), ask_context_message=False
-    )
+    c.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT), ask_context_message=True)
 
     c.setup_pyroflow()
 
     assert c.dispatcher.workers_policy is None
-    assert c.ask_context_message is True
+    assert c.ask_context_message is False
 
 
-def test_ask_context_message_defaults_to_true() -> None:
-    assert make_client().ask_context_message is True
+def test_ask_context_message_defaults_to_false() -> None:
+    assert make_client().ask_context_message is False
 
 
 def test_setup_pyroflow_rejects_more_free_workers_than_workers() -> None:
@@ -110,7 +108,7 @@ class _Recorder:
 def _ask_client(
     sent: object | None = None, update_type: type[Message | CallbackQuery] = Message
 ) -> tuple[pyroflow.Client, _RecordingListener, _Recorder, _Recorder]:
-    c = make_client()
+    c = make_client().setup_pyroflow(ask_context_message=True)
     listener = _RecordingListener()
     c.dispatcher.listeners[update_type] = listener
     message = make_message(chat_id=100, message_id=5) if sent is None else sent

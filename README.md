@@ -236,7 +236,7 @@ class OrderContext(ListenerContext):
 answer = await message.ask("Your name?", listen_context=OrderContext(step=1, note="signup"))
 ```
 
-`ask` passes a copy of `listen_context`, with `message_id` set to the id of the message it sent or edited, and `message` set to that message itself (unless you set them first). With it, `on_error_func` can clean up the question:
+With `setup_pyroflow(ask_context_message=True)`, `ask` puts the message it sent or edited in `listen_context` as `message`, on a copy, unless you set one first. Otherwise `listen_context` reaches the listener as it is. With the message, `on_error_func` can clean up the question:
 
 ```python
 async def drop_question(exc, model):
@@ -252,7 +252,7 @@ from pyroflow import MessageListenCancellingCallbackQueryListener
 client.register_listener(MessageListenCancellingCallbackQueryListener())
 ```
 
-`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message`) one press cancels: `ListenerScope.ALL` (the default) every one, `FIRST` only the most specific. `ask` records that message in the context unless `setup_pyroflow(ask_context_message=False)` turned it off; then only waits that set `context.message` themselves are tied to a message.
+`cancel_policy` decides which presses cancel: `MessageListenCancelPolicy.UNRESOLVED` (the default) only those no callback wait took, `RESOLVED` only those one took, and `ALWAYS` every press. `cancel_scope` decides how many message waits tied to the pressed message (its `context.message`) one press cancels: `ListenerScope.ALL` (the default) every one, `FIRST` only the most specific. `ask` records that message in the context only with `setup_pyroflow(ask_context_message=True)`; otherwise only waits that set `context.message` themselves are tied to a message.
 
 > ⚠️ **A wait that never ends.** Without `listen_strict`, a wait stays open until `listen_timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The key names a single update. With `MessageListener`, a `listen_message_id` names one incoming message: if the filter rejects it, nothing else can match.

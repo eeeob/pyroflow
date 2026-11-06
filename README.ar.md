@@ -257,12 +257,7 @@ class OrderContext(ListenerContext):
 answer = await message.ask("Your name?", listen_context=OrderContext(step=1, note="signup"))
 ```
 
-`ask` يمرر نسخة من `listen_context`، ويضبط فيها:
-
-- `message_id`: رقم الرسالة التي أرسلها أو عدّلها.
-- `message`: الرسالة نفسها.
-
-ما تضبطه أنت مسبقًا يبقى كما هو. بالرسالة تستطيع `on_error_func` تنظيف السؤال:
+مع `setup_pyroflow(ask_context_message=True)` يضع `ask` الرسالة التي أرسلها أو عدّلها في `listen_context` باسم `message`، على نسخة منه، إلا إذا ضبطتها أنت مسبقًا. وبدونه يصل `listen_context` إلى الـ listener كما هو. بالرسالة تستطيع `on_error_func` تنظيف السؤال:
 
 ```python
 async def drop_question(exc, model):
@@ -289,7 +284,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 - `ListenerScope.ALL` (الافتراضي): كل انتظار مرتبط.
 - `FIRST`: الأكثر تحديدًا فقط، أي الأول بترتيب `sub_keys`.
 
-و`ask` يسجّل تلك الرسالة في السياق، إلا إذا أوقف ذلك `setup_pyroflow(ask_context_message=False)`. عندها لا يرتبط برسالة إلا انتظار وضع `context.message` بنفسه.
+و`ask` يسجّل تلك الرسالة في السياق مع `setup_pyroflow(ask_context_message=True)` فقط. وبدونه لا يرتبط برسالة إلا انتظار وضع `context.message` بنفسه.
 
 > ⚠️ **انتظار لا ينتهي.** بلا `listen_strict`، يبقى الانتظار مفتوحًا حتى `listen_timeout`، أو إلى الأبد بلا `listen_timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - المفتاح يسمّي update واحدًا. في `MessageListener` يسمّي `listen_message_id` رسالة واردة واحدة، فإن رفضها الفلتر لا يطابق شيء بعدها.

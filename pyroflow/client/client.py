@@ -56,6 +56,52 @@ class Client(PyroClient):
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
     """The dispatcher that routes updates to listeners and handlers."""
 
+    ask_context_message: bool = False
+    """Whether `ask` puts the message it sent or edited in the wait's `context`."""
+
+    def setup_pyroflow(
+        self,
+        *,
+        workers_policy: WorkersPolicy | None = None,
+        ask_context_message: bool = ask_context_message,
+    ) -> Self:
+        """Set up pyroflow on this client, and return the client.
+
+        Every call sets all the values: one it leaves out goes back to its
+        default.
+
+        It is a method rather than `Client(...)` arguments so pyroflow does
+        not redeclare `pyrogram.Client.__init__`, a long signature it would
+        then have to follow on every Pyrogram change. Chain it instead:
+        `Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT))`.
+
+        Args:
+            workers_policy: The `WorkersPolicy` waits inside handlers follow,
+                see `WorkersBusyMode`. With `None` there is no policy: waits
+                hold their workers, and the bot freezes if all of them wait.
+            ask_context_message: Whether `ask` and `ask_rich` put the message
+                they sent or edited in the wait's `context`. Otherwise
+                `listen_context` reaches the listener as it is, and
+                `MessageListenCancellingCallbackQueryListener` only finds
+                waits whose `context.message` the caller set.
+
+        Returns:
+            The client itself.
+
+        Raises:
+            ValueError: If `workers_policy.free_workers` is above the client's `workers`.
+        """
+        if workers_policy is not None and workers_policy.free_workers > self.workers:
+            msg = (
+                f"free_workers must not exceed workers ({self.workers}), "
+                f"got {workers_policy.free_workers}"
+            )
+            raise ValueError(msg)
+
+        self.dispatcher.workers_policy = workers_policy
+        self.ask_context_message = ask_context_message
+        return self
+
     @property
     def listeners(self) -> dict[type[pyro_types.Update], UpdateListener[Any]]:
         """The registered `UpdateListener` of each update type, such as `Message`."""
@@ -78,52 +124,6 @@ class Client(PyroClient):
             KeyError: If no `CallbackQuery` listener is registered.
         """
         return self.listeners[CallbackQuery]
-
-    ask_context_message: bool = True
-    """Whether `ask` puts the message it sent or edited in the wait's `context`."""
-
-    def setup_pyroflow(
-        self,
-        *,
-        workers_policy: WorkersPolicy | None = None,
-        ask_context_message: bool = True,
-    ) -> Self:
-        """Set up pyroflow on this client, and return the client.
-
-        Every call sets all the values: one it leaves out goes back to its
-        default.
-
-        It is a method rather than `Client(...)` arguments so pyroflow does
-        not redeclare `pyrogram.Client.__init__`, a long signature it would
-        then have to follow on every Pyrogram change. Chain it instead:
-        `Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT))`.
-
-        Args:
-            workers_policy: The `WorkersPolicy` waits inside handlers follow,
-                see `WorkersBusyMode`. With `None` there is no policy: waits
-                hold their workers, and the bot freezes if all of them wait.
-            ask_context_message: Whether `ask` and `ask_rich` put the message
-                they sent or edited in the wait's `context`. Without it,
-                `listen_context` reaches the listener as it is, and
-                `MessageListenCancellingCallbackQueryListener` only finds
-                waits whose `context.message` the caller set.
-
-        Returns:
-            The client itself.
-
-        Raises:
-            ValueError: If `workers_policy.free_workers` is above the client's `workers`.
-        """
-        if workers_policy is not None and workers_policy.free_workers > self.workers:
-            msg = (
-                f"free_workers must not exceed workers ({self.workers}), "
-                f"got {workers_policy.free_workers}"
-            )
-            raise ValueError(msg)
-
-        self.dispatcher.workers_policy = workers_policy
-        self.ask_context_message = ask_context_message
-        return self
 
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.
@@ -253,10 +253,11 @@ class Client(PyroClient):
                 `EphemeralUpdates.ANY` and `NEXT` is `None`, since ephemeral
                 ids do not follow each other; pass `EphemeralUpdates.ANY` for
                 an ephemeral answer.
-            listen_context: Values attached to the listener. It gets the sent
-                or edited message as `message`, on a copy, unless it holds one
-                or `setup_pyroflow` turned `ask_context_message` off. So
-                `on_error_func` can edit or delete the question and, with
+            listen_context: Values attached to the listener. With
+                `ask_context_message` on (see `setup_pyroflow`), it gets the
+                sent or edited message as `message`, on a copy, unless it
+                holds one. So `on_error_func` can edit or delete the question
+                and, with
                 `MessageListenCancellingCallbackQueryListener` registered, a
                 button pressed on that message cancels the wait.
             listen_filters: A Pyrogram filter the awaited update must pass besides

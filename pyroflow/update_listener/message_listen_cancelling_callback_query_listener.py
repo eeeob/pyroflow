@@ -19,7 +19,8 @@ class MessageListenCancellingCallbackQueryListener(CallbackQueryListener):
     After a press is resolved, and when `cancel_policy` allows it, the
     client's message listener (`Client.message_listen`) is searched for the
     waits tied to the pressed message: their `context.message` is that
-    message, as `ask` records it. Every one of them, or only the most
+    message, as `ask` records it with `ask_context_message` on (see
+    `Client.setup_pyroflow`). Every one of them, or only the most
     specific, as `cancel_scope` says, ends with `ListenerCancelled`. Only
     message waits are cancelled, and only those aimed at the presser or at
     anyone in the chat.

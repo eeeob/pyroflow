@@ -21,8 +21,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   working, or raises the new `ListenerEvictionTimeout` (a
   `ListenerWorkersBusy`). Without a policy, the default, nothing steps in;
   `setup_pyroflow()` removes one.
-- `Client.setup_pyroflow(ask_context_message=False)`: `ask` and `ask_rich` leave
-  `listen_context` as it is, instead of putting the message in it.
+- `Client.setup_pyroflow(ask_context_message=True)`: `ask` and `ask_rich` put
+  the message in `listen_context`. Off by default, so it stays as it is.
 - `pyroflow.enums.EphemeralUpdates.ANY`: waits on ephemeral updates, in `listen` and in
   `listen_message_id` of `ask`. It needs a user. Ephemeral ids do not follow
   each other and can be reused, so no key holds one, an ephemeral update reaches
@@ -72,7 +72,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
   whose presses that no callback wait takes cancel the message listen tied
   to the pressed message (see the Changed entry below): every wait whose
-  `context.message` is that message. Its `cancel_policy=` (the new
+  `context.message` is that message, which `ask` sets with
+  `ask_context_message` on. Its `cancel_policy=` (the new
   `pyroflow.enums.MessageListenCancelPolicy`) sets which presses cancel:
   `ALWAYS`, `UNRESOLVED` (the default) or `RESOLVED`; its `cancel_scope=`
   (the new `pyroflow.enums.ListenerScope`) how many tied waits:
@@ -136,8 +137,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   longer a value of any type or a dict; it is keyword-only, and
   `ListenerModel.meta` is `ListenerModel.context`, `None` unless one was passed.
   `ListenerModel` takes its `future` as the second field, with no default.
-  `ask` puts the sent or edited message in the context as `message`, on a
-  copy, unless it holds one, so the id is `context.message.id` instead of
+  With `ask_context_message` on, `ask` puts the sent or edited message in the
+  context as `message`, on a copy, unless it holds one, so the id is
+  `context.message.id` instead of
   `meta["message_id"]`. Affects code passing
   or reading `meta`, or building `ListenerModel` itself.
   Migration: `listen(chat, context=ListenerContext(step=1))` instead of
