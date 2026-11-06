@@ -115,14 +115,27 @@ def test_not_editable_without_sender_or_me() -> None:
 # --- Message.respond ------------------------------------------------------
 
 
-def test_respond_is_edit_when_editable() -> None:
-    m = make_msg(is_self=True)
-    assert m.respond == m.edit
+@pytest.mark.parametrize(
+    "respond",
+    [
+        pytest.param(lambda m: m.respond("hi", parse_mode=None), id="instance"),
+        pytest.param(lambda m: Message.respond(m, "hi", parse_mode=None), id="class"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("is_self", "used", "unused"), [(True, "edit", "reply"), (False, "reply", "edit")]
+)
+async def test_respond_edits_or_replies_through_the_instance_and_the_class(
+    respond: Any, is_self: bool, used: str, unused: str
+) -> None:
+    m = make_msg(is_self=is_self)
+    m.edit = AsyncMock(return_value=SENTINEL)
+    m.reply = AsyncMock(return_value=SENTINEL)
 
+    assert await respond(m) is SENTINEL
 
-def test_respond_is_reply_when_not_editable() -> None:
-    m = make_msg()
-    assert m.respond == m.reply
+    getattr(m, used).assert_awaited_once_with("hi", parse_mode=None)
+    getattr(m, unused).assert_not_awaited()
 
 
 # --- Message.ask ----------------------------------------------------------

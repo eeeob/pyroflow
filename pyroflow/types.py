@@ -466,10 +466,9 @@ class Message(PyroMessage):
         """`edit` if this message is `editable`, otherwise `reply`."""
     else:
 
-        @property
-        def respond(self) -> Any:
+        async def respond(self, *args: Any, **kw: Any) -> Any:
             """`edit` if this message is `editable`, otherwise `reply`."""
-            return self.edit if self.editable else self.reply
+            return await (self.edit if self.editable else self.reply)(*args, **kw)
 
 
 @patch_cls
