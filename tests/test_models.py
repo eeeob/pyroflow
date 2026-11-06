@@ -159,23 +159,20 @@ def test_models_all() -> None:
     )
 
 
-def test_workers_policy_defaults_to_none_with_a_third_and_no_timeout() -> None:
-    policy = WorkersPolicy()
-    assert (policy.mode, policy.free_workers, policy.busy_timeout) == (
-        WorkersBusyMode.NONE,
-        None,
-        0,
-    )
+def test_workers_policy_defaults_to_a_third_and_no_timeout() -> None:
+    policy = WorkersPolicy(WorkersBusyMode.REJECT)
+    assert (policy.free_workers, policy.busy_timeout) == (None, 0)
 
 
 @pytest.mark.parametrize(("free", "timeout"), [(0, 0), (None, -1)])
 def test_workers_policy_rejects_invalid_values(free: int | None, timeout: float) -> None:
     with pytest.raises(ValueError):
-        WorkersPolicy(free_workers=free, busy_timeout=timeout)
+        WorkersPolicy(WorkersBusyMode.REJECT, free_workers=free, busy_timeout=timeout)
 
 
 @pytest.mark.parametrize(("workers", "free", "expected"), [(9, None, 3), (2, None, 1), (9, 5, 5)])
 def test_workers_policy_min_free_workers_is_the_setting_or_a_third(
     workers: int, free: int | None, expected: int
 ) -> None:
-    assert WorkersPolicy(free_workers=free).min_free_workers(workers) == expected
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=free)
+    assert policy.min_free_workers(workers) == expected

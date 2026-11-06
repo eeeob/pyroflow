@@ -711,16 +711,15 @@ async def _start_waits(client: pyroflow.Client, asks: int, *, ping: bool = True)
         client.dispatcher.updates_queue.put_nowait((UpdateLoginToken(), {}, {}))
 
 
-async def test_policy_none_lets_waits_take_every_worker() -> None:
+async def test_no_policy_lets_waits_take_every_worker() -> None:
     client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.NONE))
     await _start_waits(client, 2)
     try:
         await _until(lambda: len(listener.listeners) == 2)
         await asyncio.sleep(0.05)
 
         assert "ping" not in results  # the bot is frozen: no worker reads the queue
-        assert client.dispatcher.handler_waits == {}  # `NONE` tracks nothing
+        assert client.dispatcher.handler_waits == {}  # no policy tracks nothing
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
@@ -795,10 +794,10 @@ async def test_policy_cancel_oldest_without_a_wait_to_evict_refuses() -> None:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
 
-async def test_init_starts_with_the_default_policy_and_no_waits() -> None:
+async def test_init_starts_with_no_policy_and_no_waits() -> None:
     dispatcher = make_real_dispatcher()
 
-    assert dispatcher.workers_policy == WorkersPolicy()
+    assert dispatcher.workers_policy is None
     assert dispatcher.handler_waits == {}
     assert dispatcher.worker_freed is None
 
@@ -815,19 +814,19 @@ def _hold_a_worker(dispatcher: Dispatcher, chat_id: int = 1) -> asyncio.Future:
 
 async def test_lacks_free_workers_counts_the_holding_waits() -> None:
     dispatcher = make_real_dispatcher(workers=2)
-    dispatcher.workers_policy = WorkersPolicy(free_workers=1)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1)
 
-    assert dispatcher.lacks_free_workers() is False
+    assert dispatcher.lacks_free_workers(policy) is False
     _hold_a_worker(dispatcher)
-    assert dispatcher.lacks_free_workers() is True
+    assert dispatcher.lacks_free_workers(policy) is True
 
 
 async def test_enter_handler_wait_with_workers_free_leaves_the_waits_alone() -> None:
     dispatcher = make_real_dispatcher(workers=3)
-    dispatcher.workers_policy = WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=1)
+    policy = WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=1)
     future = _hold_a_worker(dispatcher)
 
-    await dispatcher.enter_handler_wait(ListenerKey(2))
+    await dispatcher.enter_handler_wait(policy, ListenerKey(2))
 
     assert list(dispatcher.handler_waits) == [future]
     assert not future.done()
@@ -835,32 +834,30 @@ async def test_enter_handler_wait_with_workers_free_leaves_the_waits_alone() -> 
 
 async def test_enter_handler_wait_with_reject_raises_and_keeps_the_waits() -> None:
     dispatcher = make_real_dispatcher(workers=2)
-    dispatcher.workers_policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1)
     future = _hold_a_worker(dispatcher)
 
     with pytest.raises(ListenerWorkersBusy):
-        await dispatcher.enter_handler_wait(ListenerKey(2))
+        await dispatcher.enter_handler_wait(policy, ListenerKey(2))
 
     assert list(dispatcher.handler_waits) == [future]
 
 
 async def test_enter_handler_wait_steps_in_once_the_busy_timeout_expires() -> None:
     dispatcher = make_real_dispatcher(workers=2)
-    dispatcher.workers_policy = WorkersPolicy(
-        WorkersBusyMode.REJECT, free_workers=1, busy_timeout=0.01
-    )
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, free_workers=1, busy_timeout=0.01)
     _hold_a_worker(dispatcher)
 
     with pytest.raises(ListenerWorkersBusy):
-        await dispatcher.enter_handler_wait(ListenerKey(2))
+        await dispatcher.enter_handler_wait(policy, ListenerKey(2))
 
 
 async def test_enter_handler_wait_with_cancel_oldest_evicts_only_the_oldest() -> None:
     dispatcher = make_real_dispatcher(workers=3)
-    dispatcher.workers_policy = WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=1)
+    policy = WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=1)
     oldest, newer = _hold_a_worker(dispatcher, 1), _hold_a_worker(dispatcher, 2)
 
-    await dispatcher.enter_handler_wait(ListenerKey(3))
+    await dispatcher.enter_handler_wait(policy, ListenerKey(3))
 
     assert isinstance(oldest.exception(), ListenerEvicted)
     assert list(dispatcher.handler_waits) == [newer]
@@ -869,11 +866,11 @@ async def test_enter_handler_wait_with_cancel_oldest_evicts_only_the_oldest() ->
 
 async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
     dispatcher = make_real_dispatcher(workers=1)
-    dispatcher.workers_policy = WorkersPolicy(busy_timeout=0.05)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=0.05)
     loop = asyncio.get_running_loop()
     start = loop.time()
 
-    await asyncio.wait_for(dispatcher.wait_for_free_worker(), 1)
+    await asyncio.wait_for(dispatcher.wait_for_free_worker(policy), 1)
 
     assert loop.time() - start >= 0.04
     assert isinstance(dispatcher.worker_freed, asyncio.Event)
@@ -881,9 +878,9 @@ async def test_wait_for_free_worker_gives_up_at_the_timeout() -> None:
 
 async def test_wait_for_free_worker_returns_once_a_wait_ends() -> None:
     dispatcher = make_real_dispatcher(workers=2)
-    dispatcher.workers_policy = WorkersPolicy(busy_timeout=5)
+    policy = WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=5)
     future = _hold_a_worker(dispatcher)
-    task = asyncio.ensure_future(dispatcher.wait_for_free_worker())
+    task = asyncio.ensure_future(dispatcher.wait_for_free_worker(policy))
     await asyncio.sleep(0.01)
 
     dispatcher.end_handler_wait(future)

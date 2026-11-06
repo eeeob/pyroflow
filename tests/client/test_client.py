@@ -54,9 +54,9 @@ def test_with_workers_policy_rejects_more_free_workers_than_workers() -> None:
     c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
 
     with pytest.raises(ValueError, match="must not exceed workers"):
-        c.with_workers_policy(WorkersPolicy(free_workers=5))
+        c.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, free_workers=5))
 
-    assert c.dispatcher.workers_policy == WorkersPolicy()
+    assert c.dispatcher.workers_policy is None
 
 
 # --- shared fakes for the rest of the module ---------------------------------

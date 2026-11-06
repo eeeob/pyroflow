@@ -112,6 +112,11 @@ class WorkersBusyMode(StrEnum):
     starts another worker, so every handler keeps running under its worker's
     lock, which `add_handler` and `remove_handler` rely on.
 
+    Without a policy, the default, nothing steps in and the bot can freeze.
+    That suits a bot that manages it itself, such as with far more `workers`
+    than conversations can ever be open at once, or with no `ask` inside
+    handlers.
+
     Example:
         >>> WorkersBusyMode.REJECT == "reject"
         True
@@ -132,12 +137,6 @@ class WorkersBusyMode(StrEnum):
     questions users often leave unanswered: the oldest wait is most likely
     abandoned, so ending it beats refusing a user who is there now. With no
     such wait to end, the new one raises `ListenerWorkersBusy`.
-    """
-    NONE = auto()
-    """No step in, the default; waits always hold their worker, which can freeze the bot.
-
-    When you manage it yourself, such as with far more `workers` than
-    conversations can ever be open at once, or with no `ask` inside handlers.
     """
 
 

@@ -17,7 +17,7 @@ from ..errors import (
     ListenerRejected,
     ListenerTimeout,
 )
-from ..enums import DuplicatePolicy, ListenerScope, WorkersBusyMode
+from ..enums import DuplicatePolicy, ListenerScope
 from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
@@ -331,17 +331,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 }
             )
 
+        dispatcher = None
         holder = handler_worker_var.get()
-        # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
-        dispatcher = (
-            holder[0]
-            if holder is not None
-            and holder[0].workers_policy.mode is not WorkersBusyMode.NONE
-            and asyncio.current_task() is holder[1]
-            else None
-        )
 
-        if dispatcher is not None:
+        # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
+        if (
+            holder is not None
+            and (policy := holder[0].workers_policy) is not None
+            and asyncio.current_task() is holder[1]
+        ):
+            dispatcher = holder[0]
             waiting = self.listeners.get(key)
 
             if waiting is not None and waiting.done():
@@ -353,7 +352,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 raise ListenerAlreadyExists(key)
 
             if waiting is None or waiting.future not in dispatcher.handler_waits:
-                await dispatcher.enter_handler_wait(key)
+                await dispatcher.enter_handler_wait(policy, key)
 
                 # `stop` may have run during a `busy_timeout`, and it ends only registered waits.
                 if self.is_closed:

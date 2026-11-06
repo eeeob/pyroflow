@@ -84,8 +84,8 @@ class Client(PyroClient):
     def with_workers_policy(self, policy: WorkersPolicy) -> Self:
         """Set the `WorkersPolicy` waits inside handlers follow, and return the client.
 
-        Without a call the client uses `WorkersPolicy()`: `NONE`, so waits
-        hold their workers and the bot freezes if all of them wait.
+        Without a call there is no policy: waits hold their workers, and the
+        bot freezes if all of them wait.
 
         It is a method rather than a `Client(...)` argument so pyroflow does
         not redeclare `pyrogram.Client.__init__`, a long signature it would

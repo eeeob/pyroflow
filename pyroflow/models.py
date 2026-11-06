@@ -171,7 +171,7 @@ class WorkersPolicy:
     when too many do, no worker is left to read the replies and the bot
     freezes. Once a wait would leave fewer than `free_workers` workers free,
     `mode` steps in, after up to `busy_timeout` seconds for one to free. Set
-    it with `Client.with_workers_policy`.
+    it with `Client.with_workers_policy`; without one, nothing steps in.
 
     Raises:
         ValueError: If `free_workers` is below `1`, or `busy_timeout` is negative.
@@ -181,7 +181,7 @@ class WorkersPolicy:
         4
     """
 
-    mode: WorkersBusyMode = WorkersBusyMode.NONE
+    mode: WorkersBusyMode
     """What steps in; see `WorkersBusyMode` for each mode and when it fits."""
     free_workers: int | None = None
     """Fewest workers a wait may leave free before `mode` steps in; `None` is a third.

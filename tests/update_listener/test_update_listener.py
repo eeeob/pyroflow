@@ -20,7 +20,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
-from pyroflow.enums import DuplicatePolicy, ListenerScope, WorkersBusyMode
+from pyroflow.enums import DuplicatePolicy, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -304,16 +304,14 @@ async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
 class _Holder:
     """Stands in for the dispatcher of a worker: records what `listen` does with it."""
 
-    def __init__(
-        self, error: Exception | None = None, mode: WorkersBusyMode = WorkersBusyMode.REJECT
-    ) -> None:
+    def __init__(self, error: Exception | None = None, *, has_policy: bool = True) -> None:
         self.error = error
-        self.workers_policy = SimpleNamespace(mode=mode)
+        self.workers_policy = object() if has_policy else None
         self.handler_waits: dict[asyncio.Future, tuple[object, ListenerModel]] = {}
         self.entered: list[ListenerKey] = []
         self.ended: list[tuple[object, ListenerModel]] = []
 
-    async def enter_handler_wait(self, key: ListenerKey) -> None:
+    async def enter_handler_wait(self, policy: object, key: ListenerKey) -> None:
         if self.error is not None:
             raise self.error
         self.entered.append(key)
@@ -357,8 +355,8 @@ async def test_listen_in_a_task_the_handler_spawned_holds_no_worker() -> None:
     assert holder.entered == []
 
 
-async def test_listen_with_policy_none_leaves_the_dispatcher_alone() -> None:
-    holder = _Holder(mode=WorkersBusyMode.NONE)
+async def test_listen_without_a_policy_leaves_the_dispatcher_alone() -> None:
+    holder = _Holder(has_policy=False)
     token = _as_worker(holder)
     try:
         with pytest.raises(ListenerTimeout):

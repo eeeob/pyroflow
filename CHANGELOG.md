@@ -14,9 +14,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   and `pyroflow.enums.WorkersBusyMode`: what a wait inside a handler does
   once it would leave fewer than `free_workers` workers free (a third by
   default), after up to `busy_timeout` seconds: `REJECT` raises the new
-  `ListenerWorkersBusy`, `CANCEL_OLDEST` ends the oldest such wait with the
-  new `ListenerEvicted` (a `ListenerCancelled`, through the new
-  `UpdateListener.evict`), and `NONE` (the default) does nothing.
+  `ListenerWorkersBusy`, and `CANCEL_OLDEST` ends the oldest such wait with
+  the new `ListenerEvicted` (a `ListenerCancelled`, through the new
+  `UpdateListener.evict`). Without a policy, the default, nothing steps in.
 - `ListenerAlreadyExists.message`: when `ask` or `ask_rich` is refused a
   duplicate wait, the error carries the message it already sent or edited,
   so the caller can delete or edit it.
