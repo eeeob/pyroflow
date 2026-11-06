@@ -280,7 +280,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerEvicted: If `WorkersBusyMode.CANCEL_OLDEST` ended this
                 wait inside a handler to free its worker.
             ListenerWorkersBusy: If the wait would start inside a handler
-                with too few workers free, under `WorkersBusyMode.REJECT`.
+                with too few workers free, under `WorkersBusyMode.REJECT`, or
+                under `WorkersBusyMode.CANCEL_OLDEST` with no wait to end.
 
         Warning:
             A wait that is not `strict` can stay open for good, until
@@ -341,7 +342,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         )
 
         if dispatcher is not None:
-            await dispatcher.enter_handler_wait(key)
+            waiting = self.listeners.get(key)
+
+            if waiting is not None and waiting.done():
+                waiting = None
+
+            # Settled before making room: a refused wait must evict nobody, and one
+            # replacing a wait that holds a worker takes over that worker.
+            if waiting is not None and self.duplicate_policy is DuplicatePolicy.REJECT:
+                raise ListenerAlreadyExists(key)
+
+            if waiting is None or waiting.future not in dispatcher.handler_waits:
+                await dispatcher.enter_handler_wait(key)
+
+                # `stop` may have run during a `busy_timeout`, and it ends only registered waits.
+                if self.is_closed:
+                    raise ListenerCancelled(key)
 
         current = self.listeners.get(key)
 

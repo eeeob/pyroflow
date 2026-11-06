@@ -755,6 +755,19 @@ async def test_policy_busy_timeout_lets_a_freed_worker_go_to_the_waiting_one() -
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
 
+async def test_stop_ends_a_wait_held_by_a_busy_timeout() -> None:
+    client, listener, results = _waiting_bot(workers=2)
+    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT, busy_timeout=30))
+    await _start_waits(client, 2, ping=False)
+    await _until(lambda: len(listener.listeners) == 1)
+    await asyncio.sleep(0.05)  # the second wait now waits for a free worker
+
+    await asyncio.wait_for(client.dispatcher.stop(), 2)
+
+    assert sorted(results, key=str) == [(1, ListenerCancelled), (2, ListenerCancelled)]
+    assert client.dispatcher.handler_waits == {}
+
+
 async def test_policy_cancel_oldest_evicts_the_oldest_wait() -> None:
     client, listener, results = _waiting_bot(workers=2)
     client.with_workers_policy(WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST))
@@ -829,6 +842,17 @@ async def test_enter_handler_wait_with_reject_raises_and_keeps_the_waits() -> No
         await dispatcher.enter_handler_wait(ListenerKey(2))
 
     assert list(dispatcher.handler_waits) == [future]
+
+
+async def test_enter_handler_wait_steps_in_once_the_busy_timeout_expires() -> None:
+    dispatcher = make_real_dispatcher(workers=2)
+    dispatcher.workers_policy = WorkersPolicy(
+        WorkersBusyMode.REJECT, free_workers=1, busy_timeout=0.01
+    )
+    _hold_a_worker(dispatcher)
+
+    with pytest.raises(ListenerWorkersBusy):
+        await dispatcher.enter_handler_wait(ListenerKey(2))
 
 
 async def test_enter_handler_wait_with_cancel_oldest_evicts_only_the_oldest() -> None:

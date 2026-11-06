@@ -137,7 +137,7 @@ client = Client("bot", workers=12).with_workers_policy(
 | `mode` | What happens | Fits |
 |---|---|---|
 | `REJECT` | The wait raises `ListenerWorkersBusy` | A deliberate cap, such as a support bot with fixed capacity |
-| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one takes its worker | Menus and questions users often leave unanswered |
+| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one takes its worker; with none to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
 | `NONE` (default) | Nothing; the bot can freeze | When `workers` is far above any number of open conversations |
 
 Every mode keeps each handler under its worker's lock. `free_workers` defaults to a third of `workers`. `busy_timeout` (default `0`) first waits that many seconds for a worker to free; meanwhile that worker reads no update. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.

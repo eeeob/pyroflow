@@ -382,7 +382,7 @@ async def test_listen_refused_by_the_policy_registers_nothing() -> None:
     assert lis.listeners == {}
 
 
-async def test_listen_does_not_track_a_rejected_duplicate() -> None:
+async def test_listen_refuses_a_duplicate_before_making_room_for_it() -> None:
     lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
     first = await _pending(lis, 100)
     holder = _Holder()
@@ -394,8 +394,41 @@ async def test_listen_does_not_track_a_rejected_duplicate() -> None:
         handler_worker_var.reset(token)
         await _drain(first)
 
+    assert holder.entered == []
     assert holder.handler_waits == {}
     assert holder.ended == []
+
+
+async def test_listen_replacing_a_wait_that_holds_a_worker_needs_no_room() -> None:
+    lis = _make()
+    first = await _pending(lis, 100)
+    model = lis.listeners[ListenerKey(100)]
+    holder = _Holder()
+    holder.handler_waits[model.future] = (lis, model)
+    token = _as_worker(holder)
+    try:
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(100, timeout=0.01)
+    finally:
+        handler_worker_var.reset(token)
+        await _drain(first)
+
+    assert holder.entered == []
+
+
+async def test_listen_replacing_a_wait_that_holds_no_worker_makes_room() -> None:
+    lis = _make()
+    first = await _pending(lis, 100)
+    holder = _Holder()
+    token = _as_worker(holder)
+    try:
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(100, timeout=0.01)
+    finally:
+        handler_worker_var.reset(token)
+        await _drain(first)
+
+    assert holder.entered == [ListenerKey(100)]
 
 
 async def test_listen_without_context_attaches_none() -> None:

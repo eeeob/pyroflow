@@ -149,7 +149,7 @@ client = Client("bot", workers=12).with_workers_policy(
 | `mode` | ماذا يحدث | يناسب |
 |---|---|---|
 | `REJECT` | يرفع الانتظار `ListenerWorkersBusy` | سقف مقصود، مثل بوت دعم بطاقة ثابتة |
-| `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، ويأخذ الجديد الـ worker الخاص به | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
+| `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، ويأخذ الجديد الـ worker الخاص به. وإن لم يوجد انتظار يُنهى، يرفع `ListenerWorkersBusy` | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
 | `NONE` (الافتراضي) | لا شيء، وقد يتجمّد البوت | حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة |
 
 كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. الافتراضي لـ `free_workers` ثلث `workers`. و`busy_timeout` (الافتراضي `0`) ينتظر أولًا هذه المدة لعل worker يتحرر، ولا يقرأ ذلك الـ worker أي update خلالها. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.

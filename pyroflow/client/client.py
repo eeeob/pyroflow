@@ -350,6 +350,9 @@ class Client(PyroClient):
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                too few workers free (see `WorkersPolicy`). The message is
+                already sent or edited by then.
             ListenerAlreadyExists: If the listener refuses a second wait on
                 the key (`DuplicatePolicy.REJECT`). The message is already
                 sent or edited by then; it is the error's `message`.
@@ -602,6 +605,9 @@ class Client(PyroClient):
                 than `InlineKeyboardMarkup`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                too few workers free (see `WorkersPolicy`). The message is
+                already sent or edited by then.
             ListenerAlreadyExists: As in `ask`; the error's `message` is the
                 rich message already sent or edited.
         """

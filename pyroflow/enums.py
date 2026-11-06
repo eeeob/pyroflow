@@ -130,7 +130,8 @@ class WorkersBusyMode(StrEnum):
 
     For bots where the newest interaction matters more, such as menus and
     questions users often leave unanswered: the oldest wait is most likely
-    abandoned, so ending it beats refusing a user who is there now.
+    abandoned, so ending it beats refusing a user who is there now. With no
+    such wait to end, the new one raises `ListenerWorkersBusy`.
     """
     NONE = auto()
     """No step in, the default; waits always hold their worker, which can freeze the bot.

@@ -336,6 +336,9 @@ class Message(PyroMessage):
                 arguments are passed while the message is edited.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                too few workers free (see `WorkersPolicy`). The message is
+                already sent or edited by then.
         """
         message_id, reply_parameters, message_thread_id, direct_messages_topic_id = (
             self._ask_target(
@@ -546,6 +549,9 @@ class Message(PyroMessage):
                 arguments are passed while the message is edited.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                too few workers free (see `WorkersPolicy`). The message is
+                already sent or edited by then.
         """
         message_id, reply_parameters, message_thread_id, direct_messages_topic_id = (
             self._ask_target(
