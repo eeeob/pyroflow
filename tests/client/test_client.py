@@ -3,6 +3,7 @@ register/unregister forwarders, `ask`)."""
 
 from __future__ import annotations as _annotations
 
+import asyncio
 import inspect
 from datetime import datetime
 from types import SimpleNamespace
@@ -20,7 +21,8 @@ from pyrogram.types import (
 )
 
 import pyroflow.client.client as client_module
-from pyroflow.enums import EphemeralUpdates, ListenMessageId, WorkersPolicy
+from pyroflow.enums import DuplicatePolicy, EphemeralUpdates, ListenMessageId, WorkersPolicy
+from pyroflow.errors import ListenerAlreadyExists
 from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message
 
@@ -197,7 +199,7 @@ async def test_ask_sends_a_new_message_and_returns_the_listeners_result() -> Non
         {
             "chat_id": 100,
             "user_id": None,
-            "message_id": 6,  # `AUTO`: the message after the question
+            "message_id": None,
             "context": ListenerContext(message=send.result),
             "filters": None,
             "strict": False,
@@ -276,12 +278,12 @@ async def test_ask_listens_on_the_next_message_for_listen_message_id_next() -> N
     assert listener.calls[0]["message_id"] == 6
 
 
-async def test_ask_defaults_to_the_sent_message_for_a_callback_query() -> None:
+async def test_ask_defaults_to_no_message_for_a_callback_query() -> None:
     c, listener, _, _ = _ask_client(update_type=CallbackQuery)
 
     await c.ask(100, "hi", listen_update_type=CallbackQuery)
 
-    assert listener.calls[0]["message_id"] == 5  # `AUTO`: a press on the question's buttons
+    assert listener.calls[0]["message_id"] is None
 
 
 async def test_ask_passes_an_explicit_none_listen_message_id_through() -> None:
@@ -443,7 +445,7 @@ async def test_ask_rich_sends_with_send_rich_message() -> None:
         {
             "chat_id": 100,
             "user_id": None,
-            "message_id": 6,  # `AUTO`: the message after the question
+            "message_id": None,
             "context": ListenerContext(message=c.send_rich_message.result),
             "filters": None,
             "strict": False,
@@ -538,14 +540,14 @@ def _ephemeral_sent() -> Message:
 
 @pytest.mark.parametrize("method", ["ask", "ask_rich"])
 @pytest.mark.parametrize("update_type", [Message, CallbackQuery])
-async def test_ask_auto_waits_on_ephemeral_updates_after_an_ephemeral_message(
+async def test_ask_defaults_to_no_message_after_an_ephemeral_message(
     method: str, update_type: type[Message | CallbackQuery]
 ) -> None:
     c, listener, _, _ = _ask_client(_ephemeral_sent(), update_type)
 
     await getattr(c, method)(100, "hi", listen_user_id=7, listen_update_type=update_type)
 
-    assert listener.calls[0]["message_id"] is EphemeralUpdates.ANY
+    assert listener.calls[0]["message_id"] is None
 
 
 @pytest.mark.parametrize("method", ["ask", "ask_rich"])
@@ -583,9 +585,9 @@ async def test_ask_refuses_sent_and_next_on_ephemeral_parameters_before_sending(
 
 
 @pytest.mark.parametrize("method", ["ask", "ask_rich"])
-@pytest.mark.parametrize("given", [None, 3])
+@pytest.mark.parametrize("given", [None, 3, EphemeralUpdates.ANY])
 async def test_ask_keeps_an_explicit_id_after_an_ephemeral_message(
-    method: str, given: int | None
+    method: str, given: int | EphemeralUpdates | None
 ) -> None:
     c, listener, _, _ = _ask_client(_ephemeral_sent())
 
@@ -614,3 +616,55 @@ async def test_ask_refuses_an_ephemeral_wait_without_a_user_before_sending(
         await getattr(c, method)(100, "hi", **kw)
 
     assert getattr(c, sender).calls == []
+
+
+# --- the default wait, through a real listener -----------------------------------
+
+
+def _waiting_client(**listener_kw: object) -> tuple[pyroflow.Client, pyroflow.MessageListener]:
+    c = make_client()
+    listener = pyroflow.MessageListener(**listener_kw)
+    c.register_listener(listener)
+    sent = make_message(chat_id=100, message_id=5)
+    c.send_message = AsyncMock(return_value=sent)
+    c.edit_message_text = AsyncMock(return_value=sent)
+    return c, listener
+
+
+async def _ask_task(c: pyroflow.Client, **kw: object) -> asyncio.Future:
+    task = asyncio.ensure_future(c.ask(100, "hi", listen_user_id=7, **kw))
+    await asyncio.sleep(0)
+    return task
+
+
+async def test_ask_takes_the_reply_after_another_members_message() -> None:
+    c, listener = _waiting_client()
+    task = await _ask_task(c)
+    reply = make_message(message_id=7)
+
+    assert await listener.resolve(make_message(user_id=8, message_id=6)) is False
+    assert await listener.resolve(reply) is True
+    assert await task is reply
+
+
+async def test_ask_editing_one_message_takes_the_next_reply_each_time() -> None:
+    c, listener = _waiting_client()
+
+    for message_id in (6, 7):
+        task = await _ask_task(c, message_id=5)
+        reply = make_message(message_id=message_id)
+
+        assert await listener.resolve(reply) is True
+        assert await task is reply
+
+
+async def test_ask_refuses_a_second_question_to_the_user_under_duplicate_reject() -> None:
+    c, listener = _waiting_client(duplicate_policy=DuplicatePolicy.REJECT)
+    c.send_message = AsyncMock(side_effect=[make_message(message_id=n) for n in (5, 6)])
+    task = await _ask_task(c)
+
+    with pytest.raises(ListenerAlreadyExists):
+        await asyncio.wait_for(c.ask(100, "again", listen_user_id=7), 1)
+
+    await listener.stop()
+    await asyncio.gather(task, return_exceptions=True)

@@ -5,11 +5,13 @@ from __future__ import annotations as _annotations
 import asyncio
 from types import SimpleNamespace
 from typing import Any, TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 
 import pyroflow.update_listener.message_listen_cancelling_callback_query_listener as module
 from pyroflow import (
+    Client,
     MessageListenCancellingCallbackQueryListener,
     CallbackQueryListener,
     MessageListener,
@@ -19,7 +21,7 @@ from pyroflow.errors import ListenerCancelled
 from pyroflow.models import ListenerContext, ListenerKey
 from pyroflow.types import Message
 
-from ..conftest import make_callback_query
+from ..conftest import make_callback_query, make_message
 
 if TYPE_CHECKING:
     from pyroflow.update_listener import UpdateListener
@@ -297,3 +299,19 @@ async def test_cancel_message_listen_on_an_ephemeral_message_leaves_regular_wait
 
     assert list(mlis.listeners) == [ListenerKey(100, 7)]
     await _stop(mlis, task)
+
+
+async def test_press_on_the_question_cancels_the_ask_waiting_on_its_answer() -> None:
+    c = Client("probe", api_id=1, api_hash="x", in_memory=True)
+    c.setup_pyroflow(ask_context_message=True)
+    buttons = MessageListenCancellingCallbackQueryListener()
+    c.register_listener(MessageListener())
+    c.register_listener(buttons)
+    c.send_message = AsyncMock(return_value=make_message(message_id=5))
+    task = asyncio.ensure_future(c.ask(100, "hi", listen_user_id=7))
+    await asyncio.sleep(0)
+
+    await buttons.resolve(make_callback_query(message_id=5, _client=c))
+
+    with pytest.raises(ListenerCancelled):
+        await asyncio.wait_for(task, 1)

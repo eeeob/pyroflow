@@ -146,7 +146,7 @@ class Client(PyroClient):
         text: str,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -162,7 +162,7 @@ class Client(PyroClient):
         text: str,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -179,7 +179,7 @@ class Client(PyroClient):
         message_id: int,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -196,7 +196,7 @@ class Client(PyroClient):
         message_id: int,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -212,7 +212,7 @@ class Client(PyroClient):
         message_id: int | None = None,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -233,15 +233,13 @@ class Client(PyroClient):
             message_id: If provided, edit this message instead of sending a new one.
             listen_user_id: Filter the awaited update by user.
             listen_message_id: Filter the awaited update by message: an id,
-                `None` for no filter, or a `ListenMessageId`: `SENT` for the
-                message sent or edited here (a press on its buttons), `NEXT`
-                for the message right after it, or `AUTO` (the default),
-                which is `NEXT` for a `Message` wait, `SENT` for a
-                `CallbackQuery` and no filter otherwise.
-                In a group, `NEXT` can be taken by another member's message;
-                pass `None` there. After an ephemeral message `AUTO` is
-                `EphemeralUpdates.ANY`, and `SENT` and `NEXT` raise
-                `ValueError`, since ephemeral ids do not follow each other.
+                `None` (the default) for no filter, or a `ListenMessageId`:
+                `SENT` for the message sent or edited here (a press on its
+                buttons), or `NEXT` for the message right after it, which in
+                a group another member's message can take. After an ephemeral
+                message, pass `EphemeralUpdates.ANY`: the answer reaches no
+                other wait. `SENT` and `NEXT` raise `ValueError` there, since
+                ephemeral ids do not follow each other.
             listen_context: Values attached to the listener. With
                 `ask_context_message` on (see `setup_pyroflow`), it gets the
                 sent or edited message as `message`, on a copy, unless it
@@ -317,17 +315,6 @@ class Client(PyroClient):
                 await self.send_message(chat_id=chat_id, text=text, **kw),
             )
 
-        if listen_message_id is ListenMessageId.AUTO:
-            listen_message_id = (
-                ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
-                else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
-                else EphemeralUpdates.ANY
-                if issubclass(listen_update_type, (Message, CallbackQuery))
-                else None
-            )
-
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
             if m.ephemeral_message_id is not None:
@@ -372,7 +359,7 @@ class Client(PyroClient):
         rich_message: InputRichMessage,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -388,7 +375,7 @@ class Client(PyroClient):
         rich_message: InputRichMessage,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -405,7 +392,7 @@ class Client(PyroClient):
         message_id: int,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -422,7 +409,7 @@ class Client(PyroClient):
         message_id: int,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -438,7 +425,7 @@ class Client(PyroClient):
         message_id: int | None = None,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -511,17 +498,6 @@ class Client(PyroClient):
             m = cast(
                 "Message",
                 await self.send_rich_message(chat_id=chat_id, rich_message=rich_message, **kw),
-            )
-
-        if listen_message_id is ListenMessageId.AUTO:
-            listen_message_id = (
-                ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
-                else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
-                else EphemeralUpdates.ANY
-                if issubclass(listen_update_type, (Message, CallbackQuery))
-                else None
             )
 
         # An ephemeral message's id does not follow the others and can be reused.

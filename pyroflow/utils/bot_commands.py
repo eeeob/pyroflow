@@ -18,12 +18,11 @@ if TYPE_CHECKING:
 _BOT_COMMANDS_ATTR: Final[str] = "_pyroflow_bot_commands"
 """Namespaced `Handler` attribute where `mark_bot_commands` stores its declarations."""
 
-_MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = tuple(
-    getattr(handlers, name)
-    for name in ("MessageHandler", "BusinessMessageHandler")
-    if hasattr(handlers, name)
+_MESSAGES_HANDLER: Final[tuple[type[Handler], ...]] = (
+    handlers.MessageHandler,
+    handlers.BusinessMessageHandler,
 )
-"""Handler types `mark_bot_commands` marks; `BusinessMessageHandler` only where the installed Pyrogram has it."""
+"""Handler types `mark_bot_commands` marks."""
 
 
 def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:

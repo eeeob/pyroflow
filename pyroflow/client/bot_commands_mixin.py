@@ -181,13 +181,16 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
         """Delete the published commands, then stop the client as usual.
 
+        A failure to delete them, such as a lost connection, is logged and
+        does not keep the client from stopping.
+
         Args:
             *args: Passed to `pyrogram.Client.stop`.
             remove_commands: `False` keeps the commands on Telegram after stopping.
             **kw: Passed to `pyrogram.Client.stop`.
         """
         if remove_commands:
-            await self.remove_bot_commands()
+            await safe_await(self.remove_bot_commands(), return_exc=True, log_exc=True)
 
         return await super().stop(*args, **kw)
 

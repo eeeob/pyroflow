@@ -65,7 +65,6 @@ async def on_start(client, message):
         return
 
     answer = await message.ask(
-        chat_id=message.chat.id,
         text="What is your name?",
         listen_user_id=message.from_user.id,
         listen_timeout=60,
@@ -136,7 +135,7 @@ client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.C
 | `REJECT` | The wait raises `ListenerWorkersBusy` | A deliberate cap, such as a support bot with fixed capacity |
 | `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one takes its place at once. Its handler may go on working, and a new wait of its goes through the same steps; with no wait to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
 
-Without `setup_pyroflow(workers_policy=...)` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. `setup_pyroflow()` removes a policy. Every mode keeps each handler under its worker's lock. Only waits are counted, not a handler that is simply working. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
+By default there is no policy and no timeout, so a question nobody answers holds its worker for good: once `workers` such questions are open, the bot reads no more updates until it restarts. Set a policy, a `listen_timeout`, or both, unless `workers` is far above any number of open conversations. `setup_pyroflow()` removes a policy. Every mode keeps each handler under its worker's lock. Only waits are counted, not a handler that is simply working, and only a wait in the handler itself: one in a task the handler spawned is not counted, even if the handler awaits that task with `asyncio.gather` and so holds its worker, and neither is one in a sync handler, which runs in a thread. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
 
 ---
 
@@ -173,7 +172,7 @@ callback = await client.ask(
 | `text` | Message text |
 | `message_id` | If provided, edits the message instead of sending a new one |
 | `listen_user_id` | Filter the awaited update by user |
-| `listen_message_id` | Filter the awaited update by message: an id, `None` for no filter, or a `ListenMessageId` (from `pyroflow.enums`): `SENT` for the message `ask` sent or edited (a press on its buttons), `NEXT` for the message right after it. The default, `AUTO`, is `NEXT` for a `Message` wait, `SENT` for a `CallbackQuery` and no filter otherwise. In a group another member's message can take the next id; pass `None` there |
+| `listen_message_id` | Filter the awaited update by message: an id, `None` (the default) for no filter, or a `ListenMessageId` (from `pyroflow.enums`): `SENT` for the message `ask` sent or edited (a press on its buttons), `NEXT` for the message right after it. In a group another member's message can take the next id |
 | `listen_timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `listen_update_type` | Update type to wait for — determines the return type (default: `Message`) |
 | `listen_context` | A `ListenerContext` of values attached to the listener |
@@ -211,7 +210,7 @@ while True:
         await message.reply("That is not a number.")
 ```
 
-`listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below. Since a `Message` wait of `ask` takes only the next message by default, that warning also shows for a non-strict `listen_filters` there: pass `listen_strict=True`, or `listen_message_id=None` to wait for any message.
+`listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below.
 
 To filter every wait that passes no `listen_filters`, give the listener a `strict_filter`, such as `MessageListener(strict_filter=~filters.command("cancel"))`. An update that fails it ends the wait with `ListenerRejected`.
 
@@ -263,7 +262,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 
 `ask_rich()` does the same with a rich message: it sends with `send_rich_message`, or edits with `edit_message_text(rich_message=...)` when `message_id` is given. `Message.ask_rich()` mirrors `Message.ask()`. Both call the message's own `edit`, `reply` and `reply_rich`, so they accept what those accept; use `client.ask()` for arguments such as `reply_parameters`.
 
-Ephemeral messages have ids that do not follow each other and can be reused, so listeners never match them by id. Pass `EphemeralUpdates.ANY` as `listen_message_id`, or as `message_id` of `listen()`, with a user: only that wait receives ephemeral updates, and a regular update never reaches it. After an ephemeral `ask()`, `AUTO` means `EphemeralUpdates.ANY`, and `SENT` and `NEXT` raise `ValueError`; pass `listen_message_id=None` to wait for the user's next regular message. `client.ask()` with `ephemeral_message_parameters` needs `listen_user_id`; `Message.ask()` replying to an ephemeral message takes it from the sender. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
+Ephemeral messages have ids that do not follow each other and can be reused, so listeners never match them by id. Pass `EphemeralUpdates.ANY` as `listen_message_id`, or as `message_id` of `listen()`, with a user: only that wait receives ephemeral updates, and a regular update never reaches it. So an ephemeral `ask()` gets its answer only with `listen_message_id=EphemeralUpdates.ANY`: with the default `None` it waits for the user's next regular message, and the ephemeral answer never reaches it. `SENT` and `NEXT` raise `ValueError` there. `client.ask()` with `ephemeral_message_parameters` needs `listen_user_id`; `Message.ask()` replying to an ephemeral message takes it from the sender. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
 
 ```python
 from pyrogram.types import InputRichMessage

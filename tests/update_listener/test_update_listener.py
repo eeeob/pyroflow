@@ -352,7 +352,7 @@ async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
     assert holder.handler_waits == {}
 
 
-async def test_listen_in_a_task_the_handler_spawned_holds_no_worker() -> None:
+async def test_listen_in_a_task_the_handler_spawned_is_not_counted() -> None:
     holder = _Holder()
     token = _as_worker(holder)
     try:

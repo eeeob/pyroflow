@@ -90,8 +90,6 @@ class ListenMessageId(StrEnum):
         True
     """
 
-    AUTO = auto()
-    """`NEXT` for a `Message` wait, `SENT` for a `CallbackQuery`, otherwise no filter."""
     SENT = auto()
     """The message `ask` sent or edited; for a `CallbackQuery`, a press on its buttons."""
     NEXT = auto()

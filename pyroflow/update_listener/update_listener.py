@@ -278,8 +278,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             message_id: The message to wait on; `None` matches any regular
                 message. `EphemeralUpdates.ANY` waits on ephemeral
                 updates, the only wait they reach; it needs `user_id`.
-            context: Values attached to the listener model; `None` attaches none
-                empty `ListenerContext`.
+            context: Values attached to the listener model; `None` attaches none.
             filters: A Pyrogram filter the update must pass besides its key;
                 `None` falls back to the listener's `strict_filter`.
             strict: What an update whose key matches but that fails `filters`
@@ -300,8 +299,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerCancelled: If the listener is stopped, or is cancelled while
                 waiting, including when a newer listener replaces it.
             ListenerRejected: If `strict` is true, or `strict_filter` applies,
-                and an update whose key matches fails the filter; it carries
-                that update.
+                and an update whose key matches fails the filter.
             ListenerEvicted: If `WorkersPolicy.CANCEL_OLDEST` ended this
                 wait inside a handler to give its place to a newer one.
             ListenerWorkersBusy: If the wait would start inside a handler
@@ -371,7 +369,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         dispatcher = None
         holder = _HANDLER_WORKER.get()
 
-        # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
+        # Only a wait in the worker task itself is counted, not one in a task the handler spawned.
         if (
             holder is not None
             and (policy := holder[0].workers_policy) is not None

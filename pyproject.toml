@@ -46,7 +46,7 @@ dependencies = [
     # `Message.ask_rich` calls `Message.reply_rich` and `Message.edit(rich_message=...)`,
     # and `ephemeral_message_parameters` is new in this version.
     "kurigram>=2.2.26",
-    # cancel_task and yield_control are pytrove 2.0 APIs.
+    # yield_control is a pytrove 2.0 API.
     "pytrove>=2.0.0",
 ]
 
@@ -82,8 +82,9 @@ lint = [
 test = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
-    # TOML reading below 3.11, for test_compat_static.
-    "tomli; python_version < '3.11'",
+    # TOML reading below 3.11, for test_compat_static. Its `load` takes a binary
+    # file, which older releases refuse.
+    "tomli>=2; python_version < '3.11'",
 ]
 
 
@@ -95,9 +96,6 @@ include = ["/pyroflow", "/tests"]
 [tool.hatch.version]
 path = "pyroflow/__init__.py"
 
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 ignore-vcs = true

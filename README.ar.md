@@ -69,7 +69,6 @@ async def on_start(client, message):
         return
 
     answer = await message.ask(
-        chat_id=message.chat.id,
         text="What is your name?",
         listen_user_id=message.from_user.id,
         listen_timeout=60,
@@ -148,7 +147,7 @@ client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.C
 | `REJECT` | يرفع الانتظار `ListenerWorkersBusy` | سقف مقصود، مثل بوت دعم بطاقة ثابتة |
 | `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، ويدخل الجديد مكانه فورًا. وقد يكمل الـ handler القديم عمله، وأي انتظار جديد منه يمر بالخطوات نفسها. وإن لم يوجد انتظار يُنهى، يرفع `ListenerWorkersBusy` | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
 
-بلا `setup_pyroflow(workers_policy=...)` لا يحدث تدخل وقد يتجمّد البوت، وهذا مقبول حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`setup_pyroflow()` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. والعدّ للانتظارات فقط، لا للـ handler الذي يعمل. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
+افتراضيًا لا سياسة ولا مهلة، فالسؤال الذي لا يُجاب يمسك الـ worker للأبد: وحين تُفتح `workers` أسئلة كهذه يتوقف البوت عن قراءة الـ updates حتى إعادة التشغيل. فاضبط سياسة أو `listen_timeout` أو كليهما، إلا إذا كانت `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`setup_pyroflow()` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. والعدّ للانتظارات فقط، لا للـ handler الذي يعمل، وللانتظار في الـ handler نفسه فقط: فالانتظار في task أنشأها الـ handler لا يُحسب، حتى لو انتظرها بـ `asyncio.gather` فبقي حاجزًا للـ worker، ولا الانتظار في handler غير async، لأنه يعمل في thread. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
 
 ---
 
@@ -187,7 +186,7 @@ callback = await client.ask(
 | `text` | نص الرسالة |
 | `message_id` | إن أُعطي، تُعدَّل الرسالة بدل إرسال رسالة جديدة |
 | `listen_user_id` | تصفية الـ update المنتظَرة حسب المستخدم |
-| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `None` بلا تصفية، أو `ListenMessageId` (من `pyroflow.enums`): `SENT` للرسالة التي أرسلها `ask` أو عدّلها (ضغطة على أزرارها)، و`NEXT` للرسالة التي بعدها مباشرة. الافتراضي `AUTO`، وهو `NEXT` لانتظار `Message`، و`SENT` لانتظار `CallbackQuery`، وبلا تصفية لغيرهما. في المجموعات قد تأخذ رسالة عضو آخر الرقم التالي، فمرّر `None` |
+| `listen_message_id` | تصفية الـ update المنتظَرة حسب الرسالة: رقم، أو `None` (الافتراضي) بلا تصفية، أو `ListenMessageId` (من `pyroflow.enums`): `SENT` للرسالة التي أرسلها `ask` أو عدّلها (ضغطة على أزرارها)، و`NEXT` للرسالة التي بعدها مباشرة. في المجموعات قد تأخذ رسالة عضو آخر الرقم التالي |
 | `listen_timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `listen_update_type` | نوع الـ update المنتظَرة، ويحدد نوع القيمة المعادة (الافتراضي: `Message`) |
 | `listen_context` | `ListenerContext` بقيم تُرفق بالـ listener |
@@ -228,7 +227,7 @@ while True:
         await message.reply("That is not a number.")
 ```
 
-`listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه. ولأن انتظار `Message` في `ask` يأخذ الرسالة التالية فقط افتراضيًا، يظهر هذا التحذير أيضًا مع `listen_filters` غير صارم هناك: مرّر `listen_strict=True`، أو `listen_message_id=None` لانتظار أي رسالة.
+`listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه.
 
 ولفلترة كل انتظار لا يمرر `listen_filters`، أعطِ الـ listener قيمة `strict_filter`، مثل `MessageListener(strict_filter=~filters.command("cancel"))`. والـ update الذي يفشل فيه ينهي الانتظار بـ `ListenerRejected`.
 
@@ -300,7 +299,7 @@ client.register_listener(MessageListenCancellingCallbackQueryListener())
 
 و`Message.ask_rich()` تقابل `Message.ask()`. وكلتاهما تستدعي `edit` و`reply` و`reply_rich` من الرسالة نفسها، فتقبلان ما تقبله هذه الدوال. ولمعاملات مثل `reply_parameters` استعمل `client.ask()`.
 
-معرّفات الرسائل المؤقتة لا تتسلسل وقد يُعاد استعمالها، فلا يطابقها الاستماع بالرقم. مرّر `EphemeralUpdates.ANY` في `listen_message_id`، أو في `message_id` عند `listen()`، مع مستخدم: فهذا الانتظار وحده يستقبل التحديثات المؤقتة، ولا يصله تحديث عادي. وبعد `ask()` مؤقت تعني `AUTO` القيمة `EphemeralUpdates.ANY`، وترفع `SENT` و`NEXT` الخطأ `ValueError`. ولانتظار رسالة عادية من المستخدم مرّر `listen_message_id=None`. ويشترط `client.ask()` مع `ephemeral_message_parameters` تمرير `listen_user_id`، أما `Message.ask()` عند الرد على رسالة مؤقتة فيأخذه من مرسلها. ورسالتان مؤقتتان للمستخدم نفسه تشتركان في المفتاح، ففرّق بينهما بـ `listen_filters`.
+معرّفات الرسائل المؤقتة لا تتسلسل وقد يُعاد استعمالها، فلا يطابقها الاستماع بالرقم. مرّر `EphemeralUpdates.ANY` في `listen_message_id`، أو في `message_id` عند `listen()`، مع مستخدم: فهذا الانتظار وحده يستقبل التحديثات المؤقتة، ولا يصله تحديث عادي. لذلك لا يستلم `ask()` المؤقت رده إلا مع `listen_message_id=EphemeralUpdates.ANY`: فبالافتراضي `None` ينتظر رسالة عادية من المستخدم، ولا يصله الرد المؤقت. وترفع `SENT` و`NEXT` الخطأ `ValueError` هناك. ويشترط `client.ask()` مع `ephemeral_message_parameters` تمرير `listen_user_id`، أما `Message.ask()` عند الرد على رسالة مؤقتة فيأخذه من مرسلها. ورسالتان مؤقتتان للمستخدم نفسه تشتركان في المفتاح، ففرّق بينهما بـ `listen_filters`.
 
 ```python
 from pyrogram.types import InputRichMessage

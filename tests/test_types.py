@@ -153,7 +153,7 @@ def assert_listened(m: Any, **expected: Any) -> None:
     wait = {
         "chat_id": 100,
         "user_id": None,
-        "message_id": 10,
+        "message_id": None,
         "context": ListenerContext(message=SENT),
         "filters": None,
         "strict": False,
@@ -203,7 +203,7 @@ async def test_ask_edits_when_editable() -> None:
 
     assert m.edit.await_args == call("hi", parse_mode=None)
     m.reply.assert_not_awaited()
-    assert_listened(m, message_id=9)
+    assert_listened(m)
 
 
 async def test_ask_force_send_replies_even_when_editable() -> None:
@@ -237,9 +237,12 @@ async def test_ask_turns_listen_message_id_into_the_id_to_wait_on(
     assert_listened(m, message_id=listened)
 
 
-async def test_ask_auto_waits_on_no_message_for_other_update_types() -> None:
+@pytest.mark.parametrize(
+    "update_type", [pyrogram.types.Message, CallbackQuery, pyrogram.types.Poll]
+)
+async def test_ask_waits_on_no_message_by_default(update_type: type) -> None:
     m = make_ask_msg()
-    await m.ask("hi", listen_update_type=pyrogram.types.Poll)
+    await m.ask("hi", listen_update_type=update_type)
 
     assert_listened(m, message_id=None)
 
@@ -293,7 +296,7 @@ async def test_ask_rich_edits_when_editable() -> None:
 
     assert m.edit.await_args == call(rich_message=RICH, reply_markup=None)
     m.reply_rich.assert_not_awaited()
-    assert_listened(m, message_id=9)
+    assert_listened(m)
 
 
 async def test_ask_rich_force_send_replies_even_when_editable() -> None:
@@ -364,7 +367,7 @@ async def test_ask_replying_to_an_ephemeral_message_waits_on_its_sender(
     await getattr(m, method)(content)
 
     assert listened(m)["user_id"] == 7
-    assert listened(m)["message_id"] is EphemeralUpdates.ANY
+    assert listened(m)["message_id"] is None
 
 
 @pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
@@ -378,9 +381,13 @@ async def test_ask_keeps_the_given_user_on_an_ephemeral_message(
 
 
 @pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
-async def test_ask_waits_on_the_buttons_of_an_ephemeral_reply(method: str, content: object) -> None:
+async def test_ask_waits_on_the_buttons_of_an_ephemeral_reply_when_told(
+    method: str, content: object
+) -> None:
     m = make_ephemeral_msg()
-    await getattr(m, method)(content, listen_update_type=CallbackQuery)
+    await getattr(m, method)(
+        content, listen_update_type=CallbackQuery, listen_message_id=EphemeralUpdates.ANY
+    )
 
     assert listened(m)["message_id"] is EphemeralUpdates.ANY
 

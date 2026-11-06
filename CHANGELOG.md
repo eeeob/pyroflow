@@ -27,7 +27,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `listen_message_id` of `ask`. It needs a user. Ephemeral ids do not follow
   each other and can be reused, so no key holds one, an ephemeral update reaches
   only such a wait, and a regular update never does. After an ephemeral `ask`,
-  `AUTO` is `EphemeralUpdates.ANY`, and `SENT` and `NEXT` raise `ValueError`.
+  `SENT` and `NEXT` raise `ValueError`; pass `EphemeralUpdates.ANY` for the answer.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
@@ -112,13 +112,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   the update instead of raising `StopPropagation`, and the worker calls it
   before taking its lock; `handle_update` only runs the handlers. A
   listener now resolves an update while handlers hold the worker locks.
-- **BREAKING:** `listen_message_id` on `ask` and `ask_rich` (on `Client` and
-  `Message`) defaults to `ListenMessageId.AUTO` instead of `None`: a
-  `Message` wait now takes only the message right after the question
-  (`NEXT`), a `CallbackQuery` wait only a press on the question's buttons
-  (`SENT`), and other waits keep no message filter. In a group another
-  member's message can take the next id; there, and for the old behavior,
-  pass `listen_message_id=None`.
 - **BREAKING:** `UpdateListener.resolve` returns whether a listener took the
   update, instead of returning `None` or raising `UnresolvedUpdate`.
   Affects code calling or overriding `resolve`.

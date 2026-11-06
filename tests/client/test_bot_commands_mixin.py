@@ -337,6 +337,17 @@ async def test_stop_deletes_the_sent_commands_then_stops() -> None:
     assert c.calls == [("delete", {}), ("stop", (1,), {"flag": True})]
 
 
+async def test_stop_logs_a_failed_delete_and_still_stops(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    c = _MixedFake()
+    c.bot_command_groups.append(((None, None), [_cmd("a")]))
+    c.delete_error = ExcA("boom")
+
+    assert await c.stop() == "stopped"
+    assert "boom" in caplog.text
+
+
 async def test_stop_with_remove_commands_false_keeps_them_on_telegram() -> None:
     c = _MixedFake()
     a = _cmd("a")

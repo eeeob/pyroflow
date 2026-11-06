@@ -81,7 +81,7 @@ class Message(PyroMessage):
         force_send: Literal[False] = False,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -96,7 +96,7 @@ class Message(PyroMessage):
         force_send: Literal[False] = False,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -111,7 +111,7 @@ class Message(PyroMessage):
         force_send: Literal[True],
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -126,7 +126,7 @@ class Message(PyroMessage):
         force_send: Literal[True],
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -141,7 +141,7 @@ class Message(PyroMessage):
         force_send: bool = False,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -161,8 +161,8 @@ class Message(PyroMessage):
             force_send: Send a new reply even if this message is `editable`.
             listen_user_id: Only accept updates from this user.
             listen_message_id: Only accept updates for this message id; see
-                `Client.ask` for `None` and the `ListenMessageId` values, and
-                for the default `AUTO`.
+                `Client.ask` for `None`, the default, and the `ListenMessageId`
+                values.
             listen_context: Values attached to the created listener; see
                 `Client.ask`.
             listen_filters: A Pyrogram filter the awaited update must pass; see
@@ -224,17 +224,6 @@ class Message(PyroMessage):
             await (self.edit(text, **kw) if edits else self.reply(text, **kw)),
         )
 
-        if listen_message_id is ListenMessageId.AUTO:
-            listen_message_id = (
-                ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
-                else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
-                else EphemeralUpdates.ANY
-                if issubclass(listen_update_type, (Message, CallbackQuery))
-                else None
-            )
-
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
             if m.ephemeral_message_id is not None:
@@ -272,7 +261,7 @@ class Message(PyroMessage):
         force_send: Literal[False] = False,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -287,7 +276,7 @@ class Message(PyroMessage):
         force_send: Literal[False] = False,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -302,7 +291,7 @@ class Message(PyroMessage):
         force_send: Literal[True],
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -317,7 +306,7 @@ class Message(PyroMessage):
         force_send: Literal[True],
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -332,7 +321,7 @@ class Message(PyroMessage):
         force_send: bool = False,
         *,
         listen_user_id: int | None = None,
-        listen_message_id: ListenMessageIdT | None = ListenMessageId.AUTO,
+        listen_message_id: ListenMessageIdT | None = None,
         listen_context: ListenerContext | None = None,
         listen_filters: Filter | None = None,
         listen_strict: bool = False,
@@ -410,17 +399,6 @@ class Message(PyroMessage):
                 else self.reply_rich(rich_message, **kw)
             ),
         )
-
-        if listen_message_id is ListenMessageId.AUTO:
-            listen_message_id = (
-                ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
-                else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
-                else EphemeralUpdates.ANY
-                if issubclass(listen_update_type, (Message, CallbackQuery))
-                else None
-            )
 
         # An ephemeral message's id does not follow the others and can be reused.
         if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
