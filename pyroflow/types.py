@@ -180,7 +180,9 @@ class Message(PyroMessage):
             RuntimeError: If no listener is registered for `listen_update_type`.
             ValueError: If this is a service or empty message, or a wait on an
                 ephemeral message lacks `listen_user_id`; a reply to an
-                ephemeral message takes it from this message's sender.
+                ephemeral message takes it from this message's sender. Or if
+                `listen_message_id` is `SENT` or `NEXT` on an ephemeral
+                message, checked before sending and again on the message sent.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -210,6 +212,13 @@ class Message(PyroMessage):
                 msg = "Waiting on an ephemeral message needs listen_user_id"
                 raise ValueError(msg)
 
+        if self.ephemeral_message_id is not None and listen_message_id in (
+            ListenMessageId.SENT,
+            ListenMessageId.NEXT,
+        ):
+            msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+            raise ValueError(msg)
+
         m = cast(
             "Message",
             await (self.edit(text, **kw) if edits else self.reply(text, **kw)),
@@ -218,17 +227,24 @@ class Message(PyroMessage):
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
                 ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message)
+                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
                 else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery)
+                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
+                else EphemeralUpdates.ANY
+                if issubclass(listen_update_type, (Message, CallbackQuery))
                 else None
             )
 
         # An ephemeral message's id does not follow the others and can be reused.
-        if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
-        elif listen_message_id is ListenMessageId.NEXT:
-            listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
+        if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
+            if m.ephemeral_message_id is not None:
+                msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+                raise ValueError(msg)
+
+            if listen_message_id is ListenMessageId.SENT:
+                listen_message_id = m.id
+            elif listen_message_id is ListenMessageId.NEXT:
+                listen_message_id = m.id + 1
 
         context = listen_context
 
@@ -347,7 +363,9 @@ class Message(PyroMessage):
             RuntimeError: If no listener is registered for `listen_update_type`.
             ValueError: If this is a service or empty message, or a wait on an
                 ephemeral message lacks `listen_user_id`; a reply to an
-                ephemeral message takes it from this message's sender.
+                ephemeral message takes it from this message's sender. Or if
+                `listen_message_id` is `SENT` or `NEXT` on an ephemeral
+                message, checked before sending and again on the message sent.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -377,6 +395,13 @@ class Message(PyroMessage):
                 msg = "Waiting on an ephemeral message needs listen_user_id"
                 raise ValueError(msg)
 
+        if self.ephemeral_message_id is not None and listen_message_id in (
+            ListenMessageId.SENT,
+            ListenMessageId.NEXT,
+        ):
+            msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+            raise ValueError(msg)
+
         m = cast(
             "Message",
             await (
@@ -389,17 +414,24 @@ class Message(PyroMessage):
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
                 ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message)
+                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
                 else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery)
+                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
+                else EphemeralUpdates.ANY
+                if issubclass(listen_update_type, (Message, CallbackQuery))
                 else None
             )
 
         # An ephemeral message's id does not follow the others and can be reused.
-        if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
-        elif listen_message_id is ListenMessageId.NEXT:
-            listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
+        if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
+            if m.ephemeral_message_id is not None:
+                msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+                raise ValueError(msg)
+
+            if listen_message_id is ListenMessageId.SENT:
+                listen_message_id = m.id
+            elif listen_message_id is ListenMessageId.NEXT:
+                listen_message_id = m.id + 1
 
         context = listen_context
 

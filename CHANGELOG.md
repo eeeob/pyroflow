@@ -27,7 +27,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `listen_message_id` of `ask`. It needs a user. Ephemeral ids do not follow
   each other and can be reused, so no key holds one, an ephemeral update reaches
   only such a wait, and a regular update never does. After an ephemeral `ask`,
-  `SENT` is `EphemeralUpdates.ANY` and `NEXT` waits for that user's next regular message.
+  `AUTO` is `EphemeralUpdates.ANY`, and `SENT` and `NEXT` raise `ValueError`.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that

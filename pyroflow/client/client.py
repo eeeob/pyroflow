@@ -249,10 +249,9 @@ class Client(PyroClient):
                 which is `NEXT` for a `Message` wait, `SENT` for a
                 `CallbackQuery` and no filter otherwise.
                 In a group, `NEXT` can be taken by another member's message;
-                pass `None` there. After an ephemeral message `SENT` is
-                `EphemeralUpdates.ANY` and `NEXT` is `None`, since ephemeral
-                ids do not follow each other; pass `EphemeralUpdates.ANY` for
-                an ephemeral answer.
+                pass `None` there. After an ephemeral message `AUTO` is
+                `EphemeralUpdates.ANY`, and `SENT` and `NEXT` raise
+                `ValueError`, since ephemeral ids do not follow each other.
             listen_context: Values attached to the listener. With
                 `ask_context_message` on (see `setup_pyroflow`), it gets the
                 sent or edited message as `message`, on a copy, unless it
@@ -277,8 +276,10 @@ class Client(PyroClient):
         Raises:
             RuntimeError: If no listener is registered for `listen_update_type`.
             ValueError: If `ephemeral_message_parameters` or
-                `EphemeralUpdates.ANY` comes without `listen_user_id`.
-                Nothing is sent by then.
+                `EphemeralUpdates.ANY` comes without `listen_user_id`, or if
+                `listen_message_id` is `SENT` or `NEXT` and the message is
+                ephemeral. Both are checked before sending, and the second
+                again on the message sent.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
@@ -304,6 +305,13 @@ class Client(PyroClient):
             msg = "Waiting on an ephemeral message needs listen_user_id"
             raise ValueError(msg)
 
+        if kw.get("ephemeral_message_parameters") is not None and listen_message_id in (
+            ListenMessageId.SENT,
+            ListenMessageId.NEXT,
+        ):
+            msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+            raise ValueError(msg)
+
         if message_id is not None:
             # `patch_cls` makes pyrogram's `Message` the same class as pyroflow's at runtime.
             m = cast(
@@ -322,17 +330,24 @@ class Client(PyroClient):
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
                 ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message)
+                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
                 else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery)
+                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
+                else EphemeralUpdates.ANY
+                if issubclass(listen_update_type, (Message, CallbackQuery))
                 else None
             )
 
         # An ephemeral message's id does not follow the others and can be reused.
-        if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
-        elif listen_message_id is ListenMessageId.NEXT:
-            listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
+        if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
+            if m.ephemeral_message_id is not None:
+                msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+                raise ValueError(msg)
+
+            if listen_message_id is ListenMessageId.SENT:
+                listen_message_id = m.id
+            elif listen_message_id is ListenMessageId.NEXT:
+                listen_message_id = m.id + 1
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 
@@ -488,6 +503,13 @@ class Client(PyroClient):
             msg = "Waiting on an ephemeral message needs listen_user_id"
             raise ValueError(msg)
 
+        if kw.get("ephemeral_message_parameters") is not None and listen_message_id in (
+            ListenMessageId.SENT,
+            ListenMessageId.NEXT,
+        ):
+            msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+            raise ValueError(msg)
+
         if message_id is not None:
             m = cast(
                 "Message",
@@ -504,17 +526,24 @@ class Client(PyroClient):
         if listen_message_id is ListenMessageId.AUTO:
             listen_message_id = (
                 ListenMessageId.NEXT
-                if issubclass(listen_update_type, Message)
+                if issubclass(listen_update_type, Message) and m.ephemeral_message_id is None
                 else ListenMessageId.SENT
-                if issubclass(listen_update_type, CallbackQuery)
+                if issubclass(listen_update_type, CallbackQuery) and m.ephemeral_message_id is None
+                else EphemeralUpdates.ANY
+                if issubclass(listen_update_type, (Message, CallbackQuery))
                 else None
             )
 
         # An ephemeral message's id does not follow the others and can be reused.
-        if listen_message_id is ListenMessageId.SENT:
-            listen_message_id = m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY
-        elif listen_message_id is ListenMessageId.NEXT:
-            listen_message_id = m.id + 1 if m.ephemeral_message_id is None else None
+        if listen_message_id in (ListenMessageId.SENT, ListenMessageId.NEXT):
+            if m.ephemeral_message_id is not None:
+                msg = "An ephemeral message has no id to wait on; use EphemeralUpdates.ANY"
+                raise ValueError(msg)
+
+            if listen_message_id is ListenMessageId.SENT:
+                listen_message_id = m.id
+            elif listen_message_id is ListenMessageId.NEXT:
+                listen_message_id = m.id + 1
 
         final_chat_id = m.chat.id if m.chat and m.chat.id is not None else chat_id
 

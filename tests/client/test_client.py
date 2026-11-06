@@ -546,18 +546,61 @@ def _ephemeral_sent() -> Message:
 
 
 @pytest.mark.parametrize("method", ["ask", "ask_rich"])
+@pytest.mark.parametrize("update_type", [Message, CallbackQuery])
+async def test_ask_auto_waits_on_ephemeral_updates_after_an_ephemeral_message(
+    method: str, update_type: type[Message | CallbackQuery]
+) -> None:
+    c, listener, _, _ = _ask_client(_ephemeral_sent(), update_type)
+
+    await getattr(c, method)(100, "hi", listen_user_id=7, listen_update_type=update_type)
+
+    assert listener.calls[0]["message_id"] is EphemeralUpdates.ANY
+
+
+@pytest.mark.parametrize("method", ["ask", "ask_rich"])
+@pytest.mark.parametrize("given", [ListenMessageId.SENT, ListenMessageId.NEXT])
+async def test_ask_refuses_sent_and_next_after_an_ephemeral_message(
+    method: str, given: ListenMessageId
+) -> None:
+    c, listener, _, _ = _ask_client(_ephemeral_sent())
+
+    with pytest.raises(ValueError, match="no id to wait on"):
+        await getattr(c, method)(100, "hi", listen_user_id=7, listen_message_id=given)
+
+    assert listener.calls == []
+
+
 @pytest.mark.parametrize(
-    ("given", "listened"),
-    [(ListenMessageId.SENT, EphemeralUpdates.ANY), (ListenMessageId.NEXT, None), (3, 3)],
+    ("method", "sender"), [("ask", "send_message"), ("ask_rich", "send_rich_message")]
 )
-async def test_ask_never_waits_on_an_ephemeral_messages_id(
-    method: str, given: ListenMessageId | int, listened: EphemeralUpdates | int | None
+@pytest.mark.parametrize("given", [ListenMessageId.SENT, ListenMessageId.NEXT])
+async def test_ask_refuses_sent_and_next_on_ephemeral_parameters_before_sending(
+    method: str, sender: str, given: ListenMessageId
+) -> None:
+    c, _, _, _ = _ask_client(_ephemeral_sent())
+
+    with pytest.raises(ValueError, match="no id to wait on"):
+        await getattr(c, method)(
+            100,
+            "hi",
+            listen_user_id=7,
+            listen_message_id=given,
+            ephemeral_message_parameters=object(),
+        )
+
+    assert getattr(c, sender).calls == []
+
+
+@pytest.mark.parametrize("method", ["ask", "ask_rich"])
+@pytest.mark.parametrize("given", [None, 3])
+async def test_ask_keeps_an_explicit_id_after_an_ephemeral_message(
+    method: str, given: int | None
 ) -> None:
     c, listener, _, _ = _ask_client(_ephemeral_sent())
 
     await getattr(c, method)(100, "hi", listen_user_id=7, listen_message_id=given)
 
-    assert listener.calls[0]["message_id"] == listened
+    assert listener.calls[0]["message_id"] == given
 
 
 @pytest.mark.parametrize(

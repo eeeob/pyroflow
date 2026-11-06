@@ -351,7 +351,7 @@ async def test_ask_replying_to_an_ephemeral_message_waits_on_its_sender(
     await getattr(m, method)(content)
 
     assert listened(m)["user_id"] == 7
-    assert listened(m)["message_id"] is None
+    assert listened(m)["message_id"] is EphemeralUpdates.ANY
 
 
 @pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
@@ -395,3 +395,32 @@ async def test_ask_editing_an_ephemeral_message_needs_a_user_before_sending(
         await getattr(m, method)(content)
 
     m.edit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+@pytest.mark.parametrize("given", [ListenMessageId.SENT, ListenMessageId.NEXT])
+async def test_ask_refuses_sent_and_next_on_an_ephemeral_message_before_sending(
+    method: str, content: object, given: ListenMessageId
+) -> None:
+    m = make_ephemeral_msg()
+
+    with pytest.raises(ValueError, match="no id to wait on"):
+        await getattr(m, method)(content, listen_message_id=given)
+
+    m.reply.assert_not_awaited()
+    m.reply_rich.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("method", "content"), [("ask", "hi"), ("ask_rich", RICH)])
+@pytest.mark.parametrize("given", [ListenMessageId.SENT, ListenMessageId.NEXT])
+async def test_ask_refuses_sent_and_next_when_what_it_sent_is_ephemeral(
+    method: str, content: object, given: ListenMessageId
+) -> None:
+    m = make_ask_msg()
+    m.reply.return_value = EPHEMERAL_SENT
+    m.reply_rich.return_value = EPHEMERAL_SENT
+
+    with pytest.raises(ValueError, match="no id to wait on"):
+        await getattr(m, method)(content, listen_message_id=given)
+
+    m._client.listeners[pyrogram.types.Message].assert_not_awaited()
