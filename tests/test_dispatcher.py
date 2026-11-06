@@ -25,7 +25,7 @@ from pyrogram.types import Message
 
 import pyroflow
 from pyroflow import dispatcher as dispatcher_module
-from pyroflow.dispatcher import Dispatcher, LentWorker, WorkerWait
+from pyroflow.dispatcher import Dispatcher, WorkerWait
 from pyroflow.enums import WorkersBusyMode
 from pyroflow.errors import (
     ListenerCancelled,
@@ -51,7 +51,7 @@ def test_module_logger_is_named_after_the_module() -> None:
 
 
 def test_public_surface() -> None:
-    assert dispatcher_module.__all__ == ("Dispatcher", "WorkerWait", "LentWorker")
+    assert dispatcher_module.__all__ == ("Dispatcher", "WorkerWait")
 
 
 # --- Dispatcher: construction, start and stop -------------------------------
@@ -509,9 +509,7 @@ async def test_handler_worker_parses_and_dispatches_under_the_lock() -> None:
     async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
         return ("parsed", MessageHandler)
 
-    async def handle_update(
-        packet: object, parsed: object, handler_type: object, **kw: object
-    ) -> None:
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
         seen.append((packet, parsed, handler_type, lock.locked()))
 
     dispatcher.update_parsers = {FakeRawUpdate: parser}
@@ -536,9 +534,7 @@ async def test_handler_worker_resolves_a_listened_update_without_the_lock() -> N
     async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
         return (msg, MessageHandler)
 
-    async def handle_update(
-        packet: object, parsed: object, handler_type: object, **kw: object
-    ) -> None:
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
         handled.append(parsed)
 
     dispatcher.update_parsers = {FakeRawUpdate: parser}
@@ -571,9 +567,7 @@ async def test_handler_worker_passes_unknown_updates_unparsed() -> None:
     packet = (FakeRawUpdate(), {}, {})
     seen: list[tuple[object, ...]] = []
 
-    async def handle_update(
-        packet: object, parsed: object, handler_type: object, **kw: object
-    ) -> None:
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
         seen.append((packet, parsed, handler_type))
 
     dispatcher.update_parsers = {}
@@ -597,9 +591,7 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
             raise ValueError(msg)
         return (update, MessageHandler)
 
-    async def handle_update(
-        packet: object, parsed: object, handler_type: object, **kw: object
-    ) -> None:
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
         handled.append(parsed)
         error = next(errors)
         if error is not None:
@@ -733,38 +725,6 @@ async def test_policy_none_lets_waits_take_every_worker() -> None:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
 
-async def test_policy_lend_on_every_wait_keeps_reading_the_queue() -> None:
-    client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.LEND, free_workers=2))
-    await _start_waits(client, 2)
-    try:
-        await _until(lambda: "ping" in results)
-
-        assert len(client.dispatcher.lent_worker_tasks) == 2
-        assert client.dispatcher.handler_waits == []
-
-        for chat in (1, 2):
-            assert await listener.resolve(make_message(chat)) is True
-        await _until(lambda: not client.dispatcher.lent_worker_tasks)
-
-        assert sorted(r for r in results if r != "ping") == [(1, "answered"), (2, "answered")]
-    finally:
-        await asyncio.wait_for(client.dispatcher.stop(), 2)
-
-
-async def test_policy_lend_by_default_lends_once_a_third_of_the_workers_is_left() -> None:
-    client, listener, results = _waiting_bot(workers=6)  # a third is 2
-    await _start_waits(client, 5)
-    try:
-        await _until(lambda: "ping" in results and len(listener.listeners) == 5)
-
-        assert len(client.dispatcher.handler_waits) == 4
-        assert len(client.dispatcher.lent_worker_tasks) == 1
-    finally:
-        await asyncio.wait_for(client.dispatcher.stop(), 2)
-        assert client.dispatcher.lent_worker_tasks == set()
-
-
 async def test_policy_reject_refuses_the_wait_that_would_take_the_last_worker() -> None:
     client, listener, results = _waiting_bot(workers=2)
     client.with_workers_policy(WorkersPolicy(WorkersBusyMode.REJECT))
@@ -821,12 +781,11 @@ async def test_policy_cancel_oldest_without_a_wait_to_evict_refuses() -> None:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
 
-async def test_init_defaults_to_lending_with_a_third_and_no_timeout() -> None:
+async def test_init_starts_with_the_default_policy_and_no_waits() -> None:
     dispatcher = make_real_dispatcher()
 
     assert dispatcher.workers_policy == WorkersPolicy()
     assert dispatcher.handler_waits == []
-    assert dispatcher.lent_worker_tasks == set()
     assert dispatcher.worker_freed is None
 
 
@@ -897,78 +856,11 @@ async def test_worker_wait_release_without_a_timed_wait_makes_no_event() -> None
     assert dispatcher.worker_freed is None
 
 
-async def test_worker_wait_release_gives_back_its_stand_in() -> None:
-    dispatcher = make_real_dispatcher()
-    wait = WorkerWait(dispatcher, MessageListener(), ListenerKey(1))
-    wait.lent = LentWorker(dispatcher)
-    await asyncio.sleep(0)
-
-    wait.release()
-    await asyncio.sleep(0.01)
-
-    assert wait.lent.task.cancelled()
-
-
-async def test_lent_worker_given_back_while_idle_stops_and_leaves_the_queue_alone() -> None:
-    dispatcher = make_real_dispatcher()
-    lent = LentWorker(dispatcher)
-    await asyncio.sleep(0)
-    assert lent.idle is True
-    assert dispatcher.lent_worker_tasks == {lent.task}
-
-    lent.give_back()
-    await asyncio.sleep(0.01)
-    dispatcher.updates_queue.put_nowait(("later", {}, {}))
-
-    assert lent.task.cancelled()
-    assert dispatcher.lent_worker_tasks == set()
-    assert dispatcher.updates_queue.qsize() == 1
-
-
-async def test_lent_worker_given_back_while_busy_finishes_its_update_first() -> None:
-    dispatcher = make_real_dispatcher()
-    gate = asyncio.Event()
-    handled: list[object] = []
-
-    async def handle_update(
-        packet: object, parsed: object, handler_type: object, **kw: object
-    ) -> None:
-        handled.append(packet)
-        await gate.wait()
-
-    dispatcher.handle_update = handle_update
-    dispatcher.update_parsers = {}
-    first, second = ("first", {}, {}), ("second", {}, {})
-    dispatcher.updates_queue.put_nowait(first)
-    dispatcher.updates_queue.put_nowait(second)
-    lent = LentWorker(dispatcher)
-    await asyncio.sleep(0.01)
-
-    lent.give_back()
-    gate.set()
-    await asyncio.wait_for(lent.task, 1)
-
-    assert handled == [first]
-    assert dispatcher.updates_queue.qsize() == 1
-
-
-async def test_lent_worker_puts_the_stop_sentinel_back_for_a_real_worker() -> None:
-    dispatcher = make_real_dispatcher()
-    dispatcher.updates_queue.put_nowait(None)
-    lent = LentWorker(dispatcher)
-
-    await asyncio.wait_for(lent.task, 1)
-
-    assert dispatcher.updates_queue.get_nowait() is None
-
-
-async def test_serve_updates_marks_the_worker_for_listen_and_clears_it_after() -> None:
+async def test_handler_worker_marks_the_worker_for_listen_and_clears_it_after() -> None:
     dispatcher = make_real_dispatcher()
     seen: list[object] = []
 
-    async def handle_update(
-        packet: object, parsed: object, handler_type: object, **kw: object
-    ) -> None:
+    async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
         seen.append(handler_worker_var.get())
 
     dispatcher.handle_update = handle_update
@@ -976,39 +868,7 @@ async def test_serve_updates_marks_the_worker_for_listen_and_clears_it_after() -
     dispatcher.updates_queue.put_nowait(("raw", {}, {}))
     dispatcher.updates_queue.put_nowait(None)
 
-    await dispatcher.serve_updates(asyncio.Lock())
+    await dispatcher.handler_worker(asyncio.Lock())
 
     assert seen == [(dispatcher, asyncio.current_task())]
     assert handler_worker_var.get() is None
-
-
-async def test_handle_update_iterates_copies_of_the_groups_for_a_stand_in() -> None:
-    dispatcher = make_real_dispatcher()
-    calls: list[tuple[object, ...]] = []
-
-    async def adds_a_group(client: object, update: object) -> None:
-        calls.append(("adder", update))
-        dispatcher.groups[9] = [MessageHandler(recording(calls, "late"))]
-
-    dispatcher.groups[0] = [MessageHandler(adds_a_group)]
-    msg = make_message()
-
-    await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler, copy_groups=True)
-
-    assert calls == [("adder", msg)]
-
-
-async def test_stop_waits_for_the_stand_in_workers() -> None:
-    client, listener, results = _waiting_bot(workers=2)
-    client.with_workers_policy(WorkersPolicy(WorkersBusyMode.LEND, free_workers=2))
-    await _start_waits(client, 2)
-    await _until(lambda: "ping" in results)
-    assert client.dispatcher.lent_worker_tasks
-
-    await asyncio.wait_for(client.dispatcher.stop(), 2)
-
-    assert client.dispatcher.lent_worker_tasks == set()
-    assert sorted(r for r in results if r != "ping") == [
-        (1, ListenerCancelled),
-        (2, ListenerCancelled),
-    ]

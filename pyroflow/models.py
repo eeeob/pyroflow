@@ -181,14 +181,13 @@ class WorkersPolicy:
         4
     """
 
-    mode: WorkersBusyMode = WorkersBusyMode.LEND
+    mode: WorkersBusyMode = WorkersBusyMode.NONE
     """What steps in; see `WorkersBusyMode` for each mode and when it fits."""
     free_workers: int | None = None
     """Fewest workers a wait may leave free before `mode` steps in; `None` is a third.
 
-    Equal to the client's `workers`, `mode` steps in on every wait: `LEND`
-    lends to each, while `REJECT` and `CANCEL_OLDEST` refuse every wait
-    inside a handler, since none ever holds a worker.
+    Equal to the client's `workers`, `REJECT` and `CANCEL_OLDEST` refuse every
+    wait inside a handler, since none ever holds a worker.
     """
     busy_timeout: float = 0
     """Seconds to wait first for a worker to free; `0` steps in at once.

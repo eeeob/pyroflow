@@ -108,24 +108,15 @@ class WorkersBusyMode(StrEnum):
     A handler that waits in `ask` or `listen` holds the worker running it, so
     enough such waits leave no worker to read the replies and the bot
     freezes. Each mode steps in once a wait would leave fewer than
-    `WorkersPolicy.free_workers` workers free (see `WorkersPolicy`).
+    `WorkersPolicy.free_workers` workers free (see `WorkersPolicy`). No mode
+    starts another worker, so every handler keeps running under its worker's
+    lock, which `add_handler` and `remove_handler` rely on.
 
     Example:
-        >>> WorkersBusyMode.LEND == "lend"
+        >>> WorkersBusyMode.REJECT == "reject"
         True
     """
 
-    LEND = auto()
-    """The wait gets a stand-in worker until it ends, so it holds no worker; the default.
-
-    With the default `free_workers` (a third of the workers) it suits most
-    bots: a few waits hold their worker and start no task, and stand-ins only
-    start as the bot nears full, so part of the workers stays free for
-    replies and new messages. With `free_workers` equal to the workers it
-    lends on every wait, for a heavy listening load such as many groups with
-    many users each in a conversation: nobody is refused, at the cost of one
-    short-lived task per open wait.
-    """
     REJECT = auto()
     """The wait does not start and raises `ListenerWorkersBusy`.
 
@@ -142,7 +133,7 @@ class WorkersBusyMode(StrEnum):
     abandoned, so ending it beats refusing a user who is there now.
     """
     NONE = auto()
-    """No step in; waits always hold their worker, which can freeze the bot.
+    """No step in, the default; waits always hold their worker, which can freeze the bot.
 
     When you manage it yourself, such as with far more `workers` than
     conversations can ever be open at once, or with no `ask` inside handlers.

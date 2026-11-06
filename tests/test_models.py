@@ -159,10 +159,10 @@ def test_models_all() -> None:
     )
 
 
-def test_workers_policy_defaults_to_lending_with_a_third_and_no_timeout() -> None:
+def test_workers_policy_defaults_to_none_with_a_third_and_no_timeout() -> None:
     policy = WorkersPolicy()
     assert (policy.mode, policy.free_workers, policy.busy_timeout) == (
-        WorkersBusyMode.LEND,
+        WorkersBusyMode.NONE,
         None,
         0,
     )

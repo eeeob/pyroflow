@@ -49,7 +49,7 @@ def test_listen_message_id_values() -> None:
 
 
 def test_workers_busy_mode_values() -> None:
-    assert [str(mode) for mode in WorkersBusyMode] == ["lend", "reject", "cancel_oldest", "none"]
+    assert [str(mode) for mode in WorkersBusyMode] == ["reject", "cancel_oldest", "none"]
 
 
 def test_enums_all() -> None:
