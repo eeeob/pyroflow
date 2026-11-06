@@ -216,6 +216,8 @@ while True:
 
 `listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does. `MessageListener` logs a warning when a non-strict filter waits on a `listen_message_id`, the first case below. Since a `Message` wait of `ask` takes only the next message by default, that warning also shows for a non-strict `listen_filters` there: pass `listen_strict=True`, or `listen_message_id=None` to wait for any message.
 
+To filter every wait that passes no `listen_filters`, give the listener a `strict_filter`, such as `MessageListener(strict_filter=~filters.command("cancel"))`. An update that fails it ends the wait with `ListenerRejected`.
+
 To react to every wait that fails, pass `on_error_func` to the listener. It gets the error and the `ListenerModel` (its key, `context`, filter) before `listen` raises:
 
 ```python

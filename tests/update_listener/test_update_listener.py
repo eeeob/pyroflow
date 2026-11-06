@@ -168,6 +168,7 @@ def test_init_defaults() -> None:
     assert lis.on_listen_func is None
     assert lis.timeout is None
     assert lis.resolve_scope is ListenerScope.FIRST
+    assert lis.strict_filter is None
     assert lis.listeners == {}
     assert lis.is_closed is False
 
@@ -180,6 +181,7 @@ def test_init_stores_arguments() -> None:
         on_listen_func=dict,
         timeout=3,
         resolve_scope=ListenerScope.ALL,
+        strict_filter=TEXT_A,
     )
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
     assert lis.extract_key_func is _key_of
@@ -187,6 +189,7 @@ def test_init_stores_arguments() -> None:
     assert lis.on_listen_func is dict
     assert lis.timeout == 3
     assert lis.resolve_scope is ListenerScope.ALL
+    assert lis.strict_filter is TEXT_A
 
 
 def test_init_passes_unknown_kwargs_up_the_mro() -> None:
@@ -548,6 +551,39 @@ async def test_listen_stores_the_filter_and_strict_on_the_model() -> None:
         await _drain(task)
 
 
+async def test_listen_without_filters_falls_back_to_strict_filter() -> None:
+    lis = _make(strict_filter=TEXT_A)
+    task = await _pending(lis, 1)
+    try:
+        listener = lis.listeners[ListenerKey(1)]
+        assert listener.filters is TEXT_A
+        assert listener.strict is True
+    finally:
+        await _drain(task)
+
+
+async def test_listen_filters_win_over_strict_filter() -> None:
+    other = filters.create(_never)
+    lis = _make(strict_filter=TEXT_A)
+    task = await _pending(lis, 1, filters=other)
+    try:
+        listener = lis.listeners[ListenerKey(1)]
+        assert listener.filters is other
+        assert listener.strict is False
+    finally:
+        await _drain(task)
+
+
+async def test_on_listen_func_sees_the_arguments_as_passed_with_strict_filter() -> None:
+    seen: list[dict[str, object]] = []
+    lis = _make(strict_filter=TEXT_A, on_listen_func=seen.append)
+
+    await _drain(await _pending(lis, 1))
+
+    assert seen[0]["filters"] is None
+    assert seen[0]["strict"] is False
+
+
 @pytest.mark.parametrize(
     ("end", "error"),
     [
@@ -775,6 +811,24 @@ async def test_resolve_strict_rejection_fails_the_listener() -> None:
         await task
     assert exc.value.value == ListenerKey(100, 7)
     assert lis.listeners == {}
+
+
+async def test_resolve_strict_filter_takes_a_passing_update() -> None:
+    lis = _make(strict_filter=TEXT_A)
+    task = await _pending(lis, 100, 7)
+    update = make_message(100, 7, 5, text="abc")
+
+    assert await lis.resolve(update) is True
+    assert await task is update
+
+
+async def test_resolve_strict_filter_rejects_a_failing_update() -> None:
+    lis = _make(strict_filter=TEXT_A)
+    task = await _pending(lis, 100, 7)
+
+    assert await lis.resolve(make_message(100, 7, 5, text="zzz")) is False
+    with pytest.raises(ListenerRejected):
+        await task
 
 
 @pytest.mark.parametrize("strict", [False, True])

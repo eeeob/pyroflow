@@ -59,6 +59,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   non-strict filter on a key with a `message_id`, which names one message and
   can leave the wait open.
 - `UpdateListener.reject(key)`: end a wait with `ListenerRejected`.
+- `UpdateListener(strict_filter=...)`: a filter for every `listen` that passes
+  no `filters`; an update that fails it ends the wait with `ListenerRejected`.
 - `UpdateListener(on_listen_func=...)`: called inline with one dict of the
   arguments of every `listen` call by name, before the wait is registered;
   an error it raises stops the wait from starting.

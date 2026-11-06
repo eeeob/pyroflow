@@ -233,6 +233,8 @@ while True:
 
 `listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر. ويسجّل `MessageListener` تحذيرًا في الـ log حين ينتظر فلتر غير صارم على `listen_message_id`، وهي الحالة الأولى أدناه. ولأن انتظار `Message` في `ask` يأخذ الرسالة التالية فقط افتراضيًا، يظهر هذا التحذير أيضًا مع `listen_filters` غير صارم هناك: مرّر `listen_strict=True`، أو `listen_message_id=None` لانتظار أي رسالة.
 
+ولفلترة كل انتظار لا يمرر `listen_filters`، أعطِ الـ listener قيمة `strict_filter`، مثل `MessageListener(strict_filter=~filters.command("cancel"))`. والـ update الذي يفشل فيه ينهي الانتظار بـ `ListenerRejected`.
+
 للتصرف عند كل انتظار يفشل، مرّر `on_error_func` إلى الـ listener. يستقبل الخطأ والـ `ListenerModel` (مفتاحه و`context` وفلتره) قبل أن يرفع `listen` الخطأ:
 
 ```python

@@ -71,6 +71,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         resolve_scope: Which matching waits `resolve` gives an update to:
             `ListenerScope.FIRST` the most specific one, `ListenerScope.ALL`
             every one.
+        strict_filter: Pyrogram filter for a `listen` that passes no
+            `filters`; an update that fails it ends the wait, as with `strict`.
         **kw: Passed to the next class in the MRO.
 
     Example:
@@ -97,6 +99,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         on_listen_func: Callable[[dict[str, object]], object] | None = None,
         timeout: Number | None = None,
         resolve_scope: ListenerScope = ListenerScope.FIRST,
+        strict_filter: Filter | None = None,
         **kw: object,
     ) -> None:
         """Initialise the listener; see the class docstring for the parameters."""
@@ -119,6 +122,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """Default seconds `listen` waits; `None` waits indefinitely."""
         self.resolve_scope = resolve_scope
         """Which matching waits `resolve` gives an update to."""
+        self.strict_filter = strict_filter
+        """Filter for a `listen` that passes no `filters`; an update that fails it ends the wait."""
 
         self.listeners: dict[ListenerKey, ListenerModel] = {}
         """Waiting listeners, by key."""
@@ -260,7 +265,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 updates, the only wait they reach; it needs `user_id`.
             context: Values attached to the listener model; `None` attaches none
                 empty `ListenerContext`.
-            filters: A Pyrogram filter the update must pass besides its key.
+            filters: A Pyrogram filter the update must pass besides its key;
+                `None` falls back to the listener's `strict_filter`.
             strict: What an update whose key matches but that fails `filters`
                 does: `True` ends the wait with `ListenerRejected`, `False`
                 skips the update and keeps waiting.
@@ -278,8 +284,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
                 waiting, including when a newer listener replaces it.
-            ListenerRejected: If `strict` is true and an update whose key
-                matches fails `filters`; it carries that update.
+            ListenerRejected: If `strict` is true, or `strict_filter` applies,
+                and an update whose key matches fails the filter; it carries
+                that update.
             ListenerEvicted: If `WorkersBusyMode.CANCEL_OLDEST` ended this
                 wait inside a handler to free its worker.
             ListenerWorkersBusy: If the wait would start inside a handler
@@ -335,6 +342,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                     "timeout": timeout,
                 }
             )
+
+        if filters is None and self.strict_filter is not None:
+            filters, strict = self.strict_filter, True
 
         dispatcher = worker = None
         holder = _HANDLER_WORKER.get()
