@@ -75,8 +75,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `resolve_scope=` on every `UpdateListener`: `ListenerScope.FIRST` (the
   default) gives an update to the most specific matching wait only, as
   before; `ListenerScope.ALL` gives it to every matching wait.
-- `pyroflow.utils.subsets_largest_first(items)`: every subset of `items`,
-  from all of them down to none.
 
 ### Changed
 

@@ -5,7 +5,6 @@ from __future__ import annotations as _annotations
 import inspect
 from abc import ABC
 from contextvars import ContextVar
-from itertools import combinations
 from typing import Generic, TypeVar, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
@@ -15,7 +14,6 @@ from ..typings import UpdateType
 
 if TYPE_CHECKING:
     import asyncio
-    from collections.abc import Iterator, Sequence
     from concurrent.futures import ThreadPoolExecutor
 
     from pytrove.typings import MaybeCoroutineCallable
@@ -166,34 +164,9 @@ async def call_maybe_async(
     return await maybe_awaitable(func, *args, executor=executor, log_exc=False)  # ty: ignore[invalid-return-type]  # `pytrove` overloads cannot resolve `MaybeCoroutineCallable[..., T]` to `T`
 
 
-_ItemT = TypeVar("_ItemT")
-"""The item type of the sequence `subsets_largest_first` takes apart."""
-
-
-def subsets_largest_first(items: Sequence[_ItemT]) -> Iterator[tuple[_ItemT, ...]]:
-    """Yield every subset of `items`, from all of them down to none.
-
-    Subsets of one size come in the order of `items`, and each keeps that
-    order, so the first item outranks the next among equal sizes.
-
-    Args:
-        items: The items to combine.
-
-    Returns:
-        An iterator over the subsets, each a tuple.
-
-    Example:
-        >>> list(subsets_largest_first(["user", "message"]))
-        [('user', 'message'), ('user',), ('message',), ()]
-    """
-    for size in range(len(items), -1, -1):
-        yield from combinations(items, size)
-
-
 __all__ = (
     "handler_worker_var",
     "UpdateBound",
     "get_update_executor",
     "call_maybe_async",
-    "subsets_largest_first",
 )

@@ -3,14 +3,13 @@
 from __future__ import annotations as _annotations
 
 import asyncio
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from pyrogram.filters import Filter
 
 from .enums import WorkersBusyMode
-from .utils import subsets_largest_first
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -45,7 +44,7 @@ class ListenerKey:
             >>> ListenerKey(1, 2).to_tuple()
             (1, 2, None)
         """
-        return tuple(getattr(self, f.name) for f in fields(self))
+        return (self.chat_id, self.user_id, self.message_id)
 
     def to_dict(self) -> dict[str, int | None]:
         """Return the key's components keyed by field name, in field order.
@@ -54,7 +53,7 @@ class ListenerKey:
             >>> ListenerKey(1, 2).to_dict()
             {'chat_id': 1, 'user_id': 2, 'message_id': None}
         """
-        return {f.name: getattr(self, f.name) for f in fields(self)}
+        return {"chat_id": self.chat_id, "user_id": self.user_id, "message_id": self.message_id}
 
     def sub_keys(self, min_dep: int = 1) -> Generator[ListenerKey, None, None]:
         """Yield every key a listener for this update could be registered under, most specific first.
@@ -80,17 +79,29 @@ class ListenerKey:
             (1, None, 3)
             (1, None, None)
         """
-        if self.chat_id is None:
+        chat_id, user_id, message_id = self.chat_id, self.user_id, self.message_id
+
+        if chat_id is None:
             msg = "ListenerKey.chat_id must not be None"
             raise AssertionError(msg)
 
-        present = [f.name for f in fields(self)[1:] if getattr(self, f.name) is not None]
+        # Written out for the three fields: this runs for every update a wait could take.
+        size = 1 + (user_id is not None) + (message_id is not None)
 
-        for kept in subsets_largest_first(present):
-            if len(kept) + 1 < min_dep:
+        if size < min_dep:
+            return
+
+        yield self
+
+        if size == 3:
+            if min_dep > 2:
                 return
 
-            yield ListenerKey(self.chat_id, **{name: getattr(self, name) for name in kept})
+            yield ListenerKey(chat_id, user_id)
+            yield ListenerKey(chat_id, None, message_id)
+
+        if size > 1 and min_dep <= 1:
+            yield ListenerKey(chat_id)
 
 
 class ListenerContext(SimpleNamespace):

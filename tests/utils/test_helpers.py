@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor`, `call_maybe_async` and `subsets_largest_first`."""
+"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor`, and `call_maybe_async`."""
 
 from __future__ import annotations as _annotations
 
@@ -16,7 +16,6 @@ from pyroflow.utils import (
     call_maybe_async,
     get_update_executor,
     helpers,
-    subsets_largest_first,
 )
 from pyrogram.types import Message
 
@@ -214,26 +213,6 @@ async def test_call_maybe_async_raises_what_the_callable_raises() -> None:
         await call_maybe_async(fail_sync)
 
 
-# --- subsets_largest_first --------------------------------------------------------
-
-
-def test_subsets_largest_first_goes_from_all_items_to_none_in_item_order() -> None:
-    assert list(subsets_largest_first("abc")) == [
-        ("a", "b", "c"),
-        ("a", "b"),
-        ("a", "c"),
-        ("b", "c"),
-        ("a",),
-        ("b",),
-        ("c",),
-        (),
-    ]
-
-
-def test_subsets_largest_first_of_nothing_is_the_empty_subset() -> None:
-    assert list(subsets_largest_first([])) == [()]
-
-
 def test_handler_worker_var_is_unset_outside_a_worker() -> None:
     assert helpers.handler_worker_var.get() is None
 
@@ -244,5 +223,4 @@ def test_module_all_lists_public_names() -> None:
         "UpdateBound",
         "get_update_executor",
         "call_maybe_async",
-        "subsets_largest_first",
     )
