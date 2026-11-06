@@ -121,6 +121,12 @@ async def test_extract_key_holds_ephemeral_instead_of_an_ephemeral_messages_id()
     assert key == ListenerKey(100, 7, EphemeralUpdates.ANY)
 
 
+async def test_extract_key_skips_an_ephemeral_message_without_a_sender() -> None:
+    update = make_message(message_id=0, ephemeral_message_id=4, from_user=None)
+
+    assert await MessageListener()._extract_key(update) is None
+
+
 def test_warn_single_update_filter_stays_quiet_for_ephemeral(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

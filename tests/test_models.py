@@ -26,6 +26,11 @@ def test_listener_key_to_dict() -> None:
     ]
 
 
+def test_listener_key_refuses_ephemeral_without_a_user() -> None:
+    with pytest.raises(ValueError, match="needs a user_id"):
+        ListenerKey(1, None, EphemeralUpdates.ANY)
+
+
 def test_listener_key_sub_keys_of_an_ephemeral_key_yield_only_itself() -> None:
     key = ListenerKey(1, 2, EphemeralUpdates.ANY)
     assert list(key.sub_keys()) == [key]

@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 class ListenerKey:
     """Identifies a listener slot: a chat, optionally narrowed to a user and/or a message.
 
+    Raises:
+        ValueError: If `message_id` is `EphemeralUpdates.ANY` without a `user_id`.
+
     Example:
         >>> ListenerKey(1, 2) == ListenerKey(chat_id=1, user_id=2, message_id=None)
         True
@@ -33,6 +36,12 @@ class ListenerKey:
     """The user the listener waits for, or `None` for any user."""
     message_id: ListenerMessageIdT | None = None
     """The id the update must carry, `EphemeralUpdates.ANY`, or `None` for any regular message."""
+
+    def __post_init__(self) -> None:
+        """Check the values; see the class docstring."""
+        if self.message_id is EphemeralUpdates.ANY and self.user_id is None:
+            msg = "Waiting on ephemeral updates needs a user_id"
+            raise ValueError(msg)
 
     def to_tuple(self) -> tuple[int, int | None, ListenerMessageIdT | None]:
         """Return the key's components, in field order.

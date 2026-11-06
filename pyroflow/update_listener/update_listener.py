@@ -19,7 +19,7 @@ from ..errors import (
     ListenerReplaced,
     ListenerTimeout,
 )
-from ..enums import DuplicatePolicy, EphemeralUpdates, ListenerScope
+from ..enums import DuplicatePolicy, ListenerScope
 from ..models import ListenerContext, ListenerKey, ListenerModel
 
 if TYPE_CHECKING:
@@ -317,10 +317,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             ListenerKey(chat_id=1, user_id=None, message_id=None)
         """
-        if message_id is EphemeralUpdates.ANY and user_id is None:
-            msg = "Waiting on ephemeral updates needs a user_id"
-            raise ValueError(msg)
-
         key = ListenerKey(chat_id, user_id, message_id)
 
         if self.is_closed:

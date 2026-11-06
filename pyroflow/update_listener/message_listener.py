@@ -82,7 +82,8 @@ class MessageListener(UpdateListener[Message]):
             The key `(chat id, sender id or None, message id)`, with
             `EphemeralUpdates.ANY` for the id of an ephemeral message, or
             `None` for outgoing, service, empty or edited messages, messages
-            sent by this account, and messages without a chat.
+            sent by this account, messages without a chat, and ephemeral
+            messages without a sender.
         """
         if (
             update.outgoing
@@ -96,10 +97,23 @@ class MessageListener(UpdateListener[Message]):
             return None
 
         # `from_user` can be `None` (an anonymous admin, a channel post).
+        user_id = getattr(update.from_user, "id", None)
+
+        if update.ephemeral_message_id is None:
+            return ListenerKey(
+                update.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
+                user_id,
+                update.id,
+            )
+
+        # A wait on ephemeral updates names a user, so one without a sender matches none.
+        if user_id is None:
+            return None
+
         return ListenerKey(
-            update.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
-            getattr(update.from_user, "id", None),
-            update.id if update.ephemeral_message_id is None else EphemeralUpdates.ANY,
+            update.chat.id,  # ty: ignore[invalid-argument-type]  # as above
+            user_id,
+            EphemeralUpdates.ANY,
         )
 
 
