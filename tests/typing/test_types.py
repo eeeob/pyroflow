@@ -42,6 +42,14 @@ if TYPE_CHECKING:
             CallbackQuery,
         )
 
+    async def _check_respond(message: Message) -> None:
+        assert_type(await message.respond("hi"), Message | None)
+        await message.respond("hi", parse_mode=None)
+
+    async def _check_respond_rejects_what_only_one_side_takes(message: Message) -> None:
+        await message.respond("hi", disable_notification=True)  # ty: ignore[unknown-argument]
+        await message.respond("hi", rich_message=None)  # ty: ignore[unknown-argument]
+
     async def _check_ask_rich_rejects(message: Message, rich: InputRichMessage) -> None:
         await message.ask_rich(rich, listen_update_type=int)  # ty: ignore[no-matching-overload]
         await message.ask_rich("hi")  # ty: ignore[invalid-argument-type]

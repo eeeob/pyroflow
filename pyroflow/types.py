@@ -22,7 +22,6 @@ from .utils import patch_cls
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
     from datetime import datetime
 
     from pyrogram.filters import Filter
@@ -577,10 +576,17 @@ class Message(PyroMessage):
             self.sender_chat, "id", None
         ) == getattr(self._client.me, "id", 0)
 
-    @property
-    def respond(self) -> Callable[..., Awaitable[PyroMessage | None]]:
+    if TYPE_CHECKING:
+        # Both signatures, straight from Pyrogram, so nothing here needs updating.
+        # `__debug__` is a `bool` checkers cannot resolve, so they keep both branches.
+        respond = PyroMessage.edit if __debug__ else PyroMessage.reply
         """`edit` if this message is `editable`, otherwise `reply`."""
-        return self.edit if self.editable else self.reply
+    else:
+
+        @property
+        def respond(self) -> Any:
+            """`edit` if this message is `editable`, otherwise `reply`."""
+            return self.edit if self.editable else self.reply
 
 
 @patch_cls
