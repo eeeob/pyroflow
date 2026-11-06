@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from .._internal import AskEditKw, AskRichEditKw, AskRichSendKw, AskSendKw
     from ..dispatcher import Dispatcher
-    from ..models import WorkersPolicy
+    from ..enums import WorkersPolicy
     from ..typings import (
         ListenMessageIdT,
         UpdateType,
@@ -73,12 +73,12 @@ class Client(PyroClient):
         It is a method rather than `Client(...)` arguments so pyroflow does
         not redeclare `pyrogram.Client.__init__`, a long signature it would
         then have to follow on every Pyrogram change. Chain it instead:
-        `Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT))`.
+        `Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.REJECT)`.
 
         Args:
-            workers_policy: The `WorkersPolicy` waits inside handlers follow,
-                see `WorkersBusyMode`. With `None` there is no policy: waits
-                hold their workers, and the bot freezes if all of them wait.
+            workers_policy: What waits inside handlers do when the workers
+                run short. With `None` there is no policy: waits hold their
+                workers, and the bot freezes if all of them wait.
             ask_context_message: Whether `ask` and `ask_rich` put the message
                 they sent or edited in the wait's `context`. Otherwise
                 `listen_context` reaches the listener as it is, and
@@ -87,17 +87,7 @@ class Client(PyroClient):
 
         Returns:
             The client itself.
-
-        Raises:
-            ValueError: If `workers_policy.free_workers` is above the client's `workers`.
         """
-        if workers_policy is not None and workers_policy.free_workers > self.workers:
-            msg = (
-                f"free_workers must not exceed workers ({self.workers}), "
-                f"got {workers_policy.free_workers}"
-            )
-            raise ValueError(msg)
-
         self.dispatcher.workers_policy = workers_policy
         self.ask_context_message = ask_context_message
         return self
@@ -282,8 +272,8 @@ class Client(PyroClient):
                 again on the message sent.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
-                too few workers free (see `WorkersPolicy`). The message is
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`). The message is
                 already sent or edited by then.
             ListenerAlreadyExists: If the listener refuses a second wait on
                 the key (`DuplicatePolicy.REJECT`). The message is already
@@ -482,8 +472,8 @@ class Client(PyroClient):
             ValueError: As in `ask`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
-                too few workers free (see `WorkersPolicy`). The message is
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`). The message is
                 already sent or edited by then.
             ListenerAlreadyExists: As in `ask`.
         """

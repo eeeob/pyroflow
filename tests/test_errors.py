@@ -13,7 +13,6 @@ from pyroflow.errors import (
     ListenerRejected,
     ListenerReplaced,
     ListenerTimeout,
-    ListenerEvictionTimeout,
     ListenerWorkersBusy,
     PyroflowError,
 )
@@ -77,11 +76,6 @@ def test_listener_cancelled_defaults() -> None:
         ),
         (ListenerWorkersBusy, ListenerError, "No free worker for a wait on 5"),
         (
-            ListenerEvictionTimeout,
-            ListenerWorkersBusy,
-            "No worker freed in time after evicting a wait for 5",
-        ),
-        (
             ListenerEvicted,
             ListenerCancelled,
             "Listener for 5 was cancelled to free the worker its handler held",
@@ -107,6 +101,5 @@ def test_errors_all() -> None:
         "ListenerTimeout",
         "ListenerEvicted",
         "ListenerWorkersBusy",
-        "ListenerEvictionTimeout",
         "ListenerAlreadyExists",
     )

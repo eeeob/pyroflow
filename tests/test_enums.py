@@ -13,7 +13,7 @@ from pyroflow.enums import (
     EphemeralUpdates,
     ListenMessageId,
     MessageListenCancelPolicy,
-    WorkersBusyMode,
+    WorkersPolicy,
     ListenerScope,
 )
 
@@ -54,7 +54,7 @@ def test_ephemeral_updates_values() -> None:
 
 
 def test_workers_busy_mode_values() -> None:
-    assert [str(mode) for mode in WorkersBusyMode] == ["reject", "cancel_oldest"]
+    assert [str(mode) for mode in WorkersPolicy] == ["reject", "cancel_oldest"]
 
 
 def test_enums_all() -> None:
@@ -64,7 +64,7 @@ def test_enums_all() -> None:
         "ListenerScope",
         "ListenMessageId",
         "EphemeralUpdates",
-        "WorkersBusyMode",
+        "WorkersPolicy",
     )
 
 

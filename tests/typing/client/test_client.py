@@ -10,11 +10,10 @@ if TYPE_CHECKING:
     from pyrogram.types import InputRichMessage
 
     from pyroflow import CallbackQuery, Client, Message
-    from pyroflow.enums import WorkersBusyMode
-    from pyroflow.models import WorkersPolicy
+    from pyroflow.enums import WorkersPolicy
 
     def _check_setup_pyroflow(client: Client) -> None:
-        policy = WorkersPolicy(WorkersBusyMode.REJECT)
+        policy = WorkersPolicy.REJECT
         assert_type(client.setup_pyroflow(workers_policy=policy), Client)
         assert_type(client.setup_pyroflow(ask_context_message=False), Client)
         assert_type(client.setup_pyroflow(), Client)

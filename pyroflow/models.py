@@ -139,15 +139,16 @@ class ListenerContext(SimpleNamespace):
     """The message `ask` sent or edited for the wait."""
 
 
-@dataclass(slots=True, frozen=True, eq=False)
+@dataclass(slots=True, eq=False)
 class ListenerModel:
     """A registered listener: its key, the future its update resolves, its context and filter.
 
     `done_callbacks` run inside `resolve` and `set_exc`, right after the future
     is set, with the model as their one argument: at once, not on the next loop
-    iteration as `asyncio.Future.add_done_callback` does. They run once, as a
-    future is set only once. A failing callback is logged, and the next one
-    still runs.
+    iteration as `asyncio.Future.add_done_callback` does. A cancelled task leaves
+    the future done without them, so `run_done_callbacks` runs them then. They
+    run once, as running drops them. A failing callback is logged, and the next
+    one still runs.
 
     Example:
         >>> async def main():

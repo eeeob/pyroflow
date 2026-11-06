@@ -20,8 +20,8 @@ from pyrogram.types import (
 )
 
 import pyroflow.client.client as client_module
-from pyroflow.enums import EphemeralUpdates, ListenMessageId, WorkersBusyMode
-from pyroflow.models import ListenerContext, WorkersPolicy
+from pyroflow.enums import EphemeralUpdates, ListenMessageId, WorkersPolicy
+from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message
 
 from ..conftest import make_message
@@ -44,7 +44,7 @@ def test_module_exports() -> None:
 
 def test_setup_pyroflow_sets_the_values_and_returns_the_client() -> None:
     c = make_client()
-    policy = WorkersPolicy(WorkersBusyMode.REJECT)
+    policy = WorkersPolicy.REJECT
 
     assert c.setup_pyroflow(workers_policy=policy, ask_context_message=True) is c
     assert c.dispatcher.workers_policy is policy
@@ -53,7 +53,7 @@ def test_setup_pyroflow_sets_the_values_and_returns_the_client() -> None:
 
 def test_setup_pyroflow_resets_what_it_leaves_out() -> None:
     c = make_client()
-    c.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT), ask_context_message=True)
+    c.setup_pyroflow(workers_policy=WorkersPolicy.REJECT, ask_context_message=True)
 
     c.setup_pyroflow()
 
@@ -63,15 +63,6 @@ def test_setup_pyroflow_resets_what_it_leaves_out() -> None:
 
 def test_ask_context_message_defaults_to_false() -> None:
     assert make_client().ask_context_message is False
-
-
-def test_setup_pyroflow_rejects_more_free_workers_than_workers() -> None:
-    c = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True, workers=4)
-
-    with pytest.raises(ValueError, match="must not exceed workers"):
-        c.setup_pyroflow(workers_policy=WorkersPolicy(WorkersBusyMode.REJECT, free_workers=5))
-
-    assert c.dispatcher.workers_policy is None
 
 
 # --- shared fakes for the rest of the module ---------------------------------

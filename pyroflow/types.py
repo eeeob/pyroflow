@@ -185,8 +185,8 @@ class Message(PyroMessage):
                 message, checked before sending and again on the message sent.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
-                too few workers free (see `WorkersPolicy`). The message is
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`). The message is
                 already sent or edited by then.
         """
         if self.service or self.empty:
@@ -368,8 +368,8 @@ class Message(PyroMessage):
                 message, checked before sending and again on the message sent.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
-            ListenerWorkersBusy: Or its subclass `ListenerEvictionTimeout`, if the wait would start inside a handler with
-                too few workers free (see `WorkersPolicy`). The message is
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`). The message is
                 already sent or edited by then.
         """
         if self.service or self.empty:

@@ -110,21 +110,25 @@ class EphemeralUpdates(StrEnum):
     """Any ephemeral message, or a press on its buttons."""
 
 
-class WorkersBusyMode(StrEnum):
-    """What a wait inside a handler does when it would leave too few workers free.
+class WorkersPolicy(StrEnum):
+    """What a wait inside a handler does when the workers run short.
 
-    A waiting handler holds its worker, so enough waits leave none to read the
-    replies and the bot freezes. Without a `WorkersPolicy`, nothing steps in.
+    A handler that waits in `ask` or `listen` holds the worker running it;
+    when too many do, no worker is left to read the replies and the bot
+    freezes. So one worker always stays out of the waits: once a wait would
+    take it, the policy steps in. Set it with `Client.setup_pyroflow`; without
+    one, nothing steps in. With one worker, every wait inside a handler is
+    refused.
 
     Example:
-        >>> WorkersBusyMode.REJECT == "reject"
+        >>> WorkersPolicy.REJECT == "reject"
         True
     """
 
     REJECT = auto()
     """The wait raises `ListenerWorkersBusy`; suits a deliberate cap on conversations."""
     CANCEL_OLDEST = auto()
-    """End the oldest wait, then start the new one once a worker frees."""
+    """End the oldest wait and take its place."""
 
 
 __all__ = (
@@ -133,5 +137,5 @@ __all__ = (
     "ListenerScope",
     "ListenMessageId",
     "EphemeralUpdates",
-    "WorkersBusyMode",
+    "WorkersPolicy",
 )

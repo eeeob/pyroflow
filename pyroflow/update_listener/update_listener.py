@@ -141,6 +141,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         for key in list(self.listeners):
             self.cancel(key)
 
+    def _cleanup_model(self, model: ListenerModel) -> None:
+        """Remove `model` from `listeners`, unless a newer wait took its key."""
+        if self.listeners.get(model.key) is model:
+            del self.listeners[model.key]
+
+    def _time_out(self, listener: ListenerModel) -> None:
+        """End `listener` with `ListenerTimeout`, unless it is done already.
+
+        Its timer may be due in the same loop iteration something else ended it.
+
+        Args:
+            listener: The wait whose `timeout` expired.
+        """
+        if not listener.done():
+            listener.set_exc(ListenerTimeout(listener.key))
+
     def cancel(self, key: ListenerKey) -> bool:
         """Cancel the listener waiting on `key`; its waiter gets `ListenerCancelled`.
 
@@ -178,7 +194,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """End the listener waiting on `key` to free the worker its handler holds.
 
         Its waiter gets `ListenerEvicted`, a `ListenerCancelled`. Used by
-        `WorkersBusyMode.CANCEL_OLDEST`.
+        `WorkersPolicy.CANCEL_OLDEST`.
 
         Args:
             key: The key identifying the listener.
@@ -254,8 +270,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Inside a handler, the wait holds the worker running it, so the
         dispatcher's `WorkersPolicy` applies first (see
-        `Client.setup_pyroflow`). That can yield before the wait is
-        registered.
+        `Client.setup_pyroflow`).
 
         Args:
             chat_id: The chat to listen in.
@@ -287,13 +302,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ListenerRejected: If `strict` is true, or `strict_filter` applies,
                 and an update whose key matches fails the filter; it carries
                 that update.
-            ListenerEvicted: If `WorkersBusyMode.CANCEL_OLDEST` ended this
-                wait inside a handler to free its worker.
+            ListenerEvicted: If `WorkersPolicy.CANCEL_OLDEST` ended this
+                wait inside a handler to give its place to a newer one.
             ListenerWorkersBusy: If the wait would start inside a handler
-                with too few workers free, under `WorkersBusyMode.REJECT`, or
-                under `WorkersBusyMode.CANCEL_OLDEST` with no wait to end.
-            ListenerEvictionTimeout: If `WorkersBusyMode.CANCEL_OLDEST` ended
-                the oldest wait but no worker freed in time.
+                with no worker to spare, under `WorkersPolicy.REJECT`, or
+                under `WorkersPolicy.CANCEL_OLDEST` with no wait to end.
 
         Warning:
             A wait that is not `strict` can stay open for good, until
@@ -343,10 +356,19 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 }
             )
 
+        current = self.listeners.get(key)
+
+        # A finished listener whose `listen` has not returned yet is no longer waiting.
+        if current is not None and current.done():
+            current = None
+
+        if current is not None and self.duplicate_policy is DuplicatePolicy.REJECT:
+            raise ListenerAlreadyExists(key)
+
         if filters is None and self.strict_filter is not None:
             filters, strict = self.strict_filter, True
 
-        dispatcher = worker = None
+        dispatcher = None
         holder = _HANDLER_WORKER.get()
 
         # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
@@ -355,80 +377,57 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             and (policy := holder[0].workers_policy) is not None
             and asyncio.current_task() is holder[1]
         ):
-            dispatcher, worker = holder
-            # An evicted handler that waits again holds its worker through the new wait.
-            dispatcher.release_evicted_worker(worker)
-            waiting = self.listeners.get(key)
+            dispatcher = holder[0]
 
-            if waiting is not None and waiting.done():
-                waiting = None
+            # A wait replacing one that holds a slot takes that slot, so it needs no check.
+            if current not in dispatcher.handler_waits:
+                dispatcher.enter_handler_wait(policy, key)
 
-            # Settled before making room: a refused wait must evict nobody, and one
-            # replacing a wait that holds a worker takes over that worker.
-            if waiting is not None and self.duplicate_policy is DuplicatePolicy.REJECT:
-                raise ListenerAlreadyExists(key)
-
-            if waiting is None or waiting.future not in dispatcher.handler_waits:
-                await dispatcher.enter_handler_wait(policy, key)
-
-                # `stop` may have run while this waited for room, and it ends only registered waits.
-                if self.is_closed:
-                    raise ListenerCancelled(key)
-
-        current = self.listeners.get(key)
-
-        # A finished listener whose `listen` has not returned yet is no longer waiting.
-        if current is not None and not current.done():
-            if self.duplicate_policy is DuplicatePolicy.REJECT:
-                raise ListenerAlreadyExists(key)
-
+        if current is not None:
             current.set_exc(ListenerReplaced(key))
 
-        future = asyncio.get_running_loop().create_future()
         self.listeners[key] = listener = ListenerModel(
             key,
-            future,
+            future := asyncio.get_running_loop().create_future(),
             context,
             filters=filters,
             strict=strict,
         )
 
-        if dispatcher is not None and worker is not None:
-            dispatcher.handler_waits[future] = (self, listener, worker)
+        listener.add_done_callback(self._cleanup_model)
+
+        if dispatcher is not None:
+            # The slot frees the moment the wait ends, not when this coroutine resumes.
+            listener.add_done_callback(dispatcher.end_handler_wait)
+            dispatcher.handler_waits[listener] = self
 
         if timeout is None:
             timeout = self.timeout
 
+        timer = (
+            asyncio.get_running_loop().call_later(timeout, self._time_out, listener)
+            if timeout is not None
+            else None
+        )
         error: ListenerError | None = None
 
         try:
-            if timeout is None:
-                return await future
-
-            return await asyncio.wait_for(future, timeout)
-        except asyncio.TimeoutError:
-            error = ListenerTimeout(key)
-            raise error from None
+            return await future
         except ListenerError as exc:
             error = exc
             raise
         finally:
-            # A newer listener may have replaced this one under `key`.
-            if self.listeners.get(key) is listener:
-                del self.listeners[key]
+            if timer is not None:
+                timer.cancel()
 
-            if dispatcher is not None:
-                dispatcher.end_handler_wait(future)
+            # A cancelled task leaves its future done without running the done callbacks.
+            listener.run_done_callbacks()
 
             if error is not None and (on_error := self.on_error_func) is not None:
                 try:
                     await call_maybe_async(on_error, error, listener)
                 except Exception:
                     log.exception("Error in on_error_func of the listener for %s", key)
-
-            if isinstance(error, ListenerTimeout):
-                # `from None` hides the `TimeoutError` but keeps it, and its traceback the task.
-                error.__context__ = None
 
             # The error's traceback keeps this frame: drop what links back to it, so the
             # wait, its message and the client are freed without waiting for the cyclic GC.
@@ -496,10 +495,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 if not passed:
                     if listener.strict:
                         self.reject(sub)
-
                     continue
 
-            del self.listeners[sub]
             listener.resolve(update)
             took = True
 

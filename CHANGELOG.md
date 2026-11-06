@@ -10,17 +10,17 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
-- `Client.setup_pyroflow(workers_policy=WorkersPolicy(...))`, `pyroflow.models.WorkersPolicy`
-  and `pyroflow.enums.WorkersBusyMode`: what a wait inside a handler does
-  once it would leave fewer than `free_workers` workers free (`1` by
-  default), after up to `busy_timeout` seconds (`5` by default): `REJECT`
-  raises the new `ListenerWorkersBusy`, and `CANCEL_OLDEST` ends the oldest
-  such wait with the new `ListenerEvicted` (a `ListenerCancelled`, through
-  the new `UpdateListener.evict`), then waits up to `evict_timeout` seconds
-  (`5` by default) for a worker to free, since the evicted handler may go on
-  working, or raises the new `ListenerEvictionTimeout` (a
-  `ListenerWorkersBusy`). Without a policy, the default, nothing steps in;
-  `setup_pyroflow()` removes one.
+- `Client.setup_pyroflow(workers_policy=...)` and `pyroflow.enums.WorkersPolicy`:
+  what a wait inside a handler does once it would take the last worker, which
+  stays out to read the replies: `REJECT` raises the new
+  `ListenerWorkersBusy`, and `CANCEL_OLDEST` ends the oldest such wait with
+  the new `ListenerEvicted` (a `ListenerCancelled`, through the new
+  `UpdateListener.evict`) and takes its place. Without a policy, the default,
+  nothing steps in; `setup_pyroflow()` removes one.
+- `ListenerModel.add_done_callback`: calls a function with the model as soon
+  as it is marked done, right after its future is set, and only once. A wait
+  inside a handler frees its worker slot this way. A failing callback is
+  logged.
 - `Client.setup_pyroflow(ask_context_message=True)`: `ask` and `ask_rich` put
   the message in `listen_context`. Off by default, so it stays as it is.
 - `pyroflow.enums.EphemeralUpdates.ANY`: waits on ephemeral updates, in `listen` and in

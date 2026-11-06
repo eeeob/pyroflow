@@ -7,8 +7,8 @@ import asyncio
 import pytest
 
 import pyroflow.models
-from pyroflow.enums import EphemeralUpdates, WorkersBusyMode
-from pyroflow.models import ListenerContext, ListenerKey, ListenerModel, WorkersPolicy
+from pyroflow.enums import EphemeralUpdates
+from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
 
 
 def test_listener_key_to_tuple() -> None:
@@ -96,6 +96,90 @@ async def test_listener_model_set_exc() -> None:
         await fut
 
 
+@pytest.mark.parametrize("end", ["resolve", "set_exc"])
+async def test_listener_model_marked_done_runs_the_callbacks_before_returning(end: str) -> None:
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    seen: list[tuple[str, bool]] = []
+    model.add_done_callback(lambda m: seen.append(("first", m.done())))
+    model.add_done_callback(lambda m: seen.append(("second", m.done())))
+
+    if end == "resolve":
+        model.resolve("update")
+    else:
+        model.set_exc(ValueError("boom"))
+        model.future.exception()
+
+    assert seen == [("first", True), ("second", True)]
+
+
+async def test_listener_model_add_done_callback_passes_the_model() -> None:
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    seen: list[ListenerModel] = []
+    model.add_done_callback(seen.append)
+
+    model.resolve("update")
+
+    assert seen == [model]
+
+
+async def test_listener_model_add_done_callback_on_a_done_model_calls_at_once() -> None:
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model.resolve("update")
+    seen: list[ListenerModel] = []
+
+    model.add_done_callback(seen.append)
+
+    assert seen == [model]
+    assert model.done_callbacks == []
+
+
+async def test_listener_model_marked_done_twice_does_not_run_the_callbacks_again() -> None:
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    seen: list[ListenerModel] = []
+    model.add_done_callback(seen.append)
+    model.resolve("update")
+
+    with pytest.raises(asyncio.InvalidStateError):
+        model.resolve("other")
+
+    with pytest.raises(asyncio.InvalidStateError):
+        model.set_exc(ValueError("boom"))
+
+    assert seen == [model]
+
+
+async def test_listener_model_failing_callback_is_logged_and_the_next_one_runs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    seen: list[ListenerModel] = []
+
+    def fail(_: ListenerModel) -> None:
+        msg = "boom"
+        raise ValueError(msg)
+
+    model.add_done_callback(fail)
+    model.add_done_callback(seen.append)
+
+    model.resolve("update")
+
+    assert seen == [model]
+    assert model.done()
+    assert "Error in a done callback" in caplog.text
+
+
+async def test_listener_model_run_done_callbacks_drops_them() -> None:
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    seen: list[ListenerModel] = []
+    model.done_callbacks.append(seen.append)
+
+    model.run_done_callbacks()
+    model.run_done_callbacks()
+
+    assert seen == [model]
+    assert model.done_callbacks == []
+
+
 async def test_models_are_slotted() -> None:
     """dataclass(slots=True) is safe unconditionally on the 3.10+ floor:
     no __dict__, unknown attributes rejected."""
@@ -133,6 +217,7 @@ async def test_listener_model_defaults() -> None:
     assert model.context is None
     assert model.filters is None
     assert model.strict is False
+    assert model.done_callbacks == []
 
 
 # --- ListenerContext ----------------------------------------------------------------
@@ -164,18 +249,4 @@ def test_models_all() -> None:
         "ListenerKey",
         "ListenerContext",
         "ListenerModel",
-        "WorkersPolicy",
     )
-
-
-def test_workers_policy_defaults_to_one_free_worker_and_five_second_timeouts() -> None:
-    policy = WorkersPolicy(WorkersBusyMode.REJECT)
-    assert (policy.free_workers, policy.busy_timeout, policy.evict_timeout) == (1, 5, 5)
-
-
-@pytest.mark.parametrize(("free", "busy", "evict"), [(0, 0, 1), (1, -1, 1), (1, 0, 0), (1, 0, -1)])
-def test_workers_policy_rejects_invalid_values(free: int, busy: float, evict: float) -> None:
-    with pytest.raises(ValueError):
-        WorkersPolicy(
-            WorkersBusyMode.REJECT, free_workers=free, busy_timeout=busy, evict_timeout=evict
-        )

@@ -123,23 +123,20 @@ A listener takes the next matching update its client receives after `listen` is 
 
 ### Waiting inside handlers
 
-A handler that waits in `ask` or `listen` holds the worker running it (Pyrogram's `workers`, by default your CPU count plus four). When every worker waits, none is left to read the replies, and the bot freezes. A `WorkersPolicy` decides what happens instead, once a wait would leave fewer than `free_workers` workers free:
+A handler that waits in `ask` or `listen` holds the worker running it (Pyrogram's `workers`, by default your CPU count plus four). When every worker waits, none is left to read the replies, and the bot freezes. A `WorkersPolicy` decides what happens instead, once a wait would take the last worker, which always stays out to read the replies:
 
 ```python
-from pyroflow.enums import WorkersBusyMode
-from pyroflow.models import WorkersPolicy
+from pyroflow.enums import WorkersPolicy
 
-client = Client("bot", workers=12).setup_pyroflow(
-    workers_policy=WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
-)
+client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.CANCEL_OLDEST)
 ```
 
-| `mode` | What happens | Fits |
+| Policy | What happens | Fits |
 |---|---|---|
 | `REJECT` | The wait raises `ListenerWorkersBusy` | A deliberate cap, such as a support bot with fixed capacity |
-| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one waits for a worker: its handler may go on working, so the new wait starts only once a worker really frees, and raises `ListenerEvictionTimeout` (a `ListenerWorkersBusy`) if none does within `evict_timeout` seconds; with no wait to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
+| `CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted` (a `ListenerCancelled`), and the new one takes its place at once. Its handler may go on working, and a new wait of its goes through the same steps; with no wait to end, it raises `ListenerWorkersBusy` | Menus and questions users often leave unanswered |
 
-Without `setup_pyroflow(workers_policy=...)` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. `setup_pyroflow()` removes a policy. Every mode keeps each handler under its worker's lock. `free_workers` defaults to `1`. `busy_timeout` (default `5`) first waits that many seconds for a worker to free, and `evict_timeout` (default `5`) is how long `CANCEL_OLDEST` then waits; meanwhile that worker reads no update, and a reply that arrives before the wait is registered goes to the handlers. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
+Without `setup_pyroflow(workers_policy=...)` nothing steps in and the bot can freeze, which is fine when `workers` is far above any number of open conversations. `setup_pyroflow()` removes a policy. Every mode keeps each handler under its worker's lock. Only waits are counted, not a handler that is simply working. A wait in a task the handler spawned holds no worker and is not counted. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
 
 ---
 

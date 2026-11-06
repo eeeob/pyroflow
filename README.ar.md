@@ -135,23 +135,20 @@ client.callback_listen   # UpdateListener[CallbackQuery]
 
 ### الانتظار داخل الـ handlers
 
-الـ handler الذي ينتظر في `ask` أو `listen` يحجز الـ worker الذي يشغّله (الـ `workers` في Pyrogram، وعددها افتراضيًا عدد أنوية المعالج زائد أربعة). فإذا انتظرت كل الـ workers، لا يبقى من يقرأ الردود، فيتجمّد البوت. يحدد `WorkersPolicy` ما يحدث بدل ذلك، عندما يترك انتظار جديد أقل من `free_workers` worker حرًا:
+الـ handler الذي ينتظر في `ask` أو `listen` يحجز الـ worker الذي يشغّله (الـ `workers` في Pyrogram، وعددها افتراضيًا عدد أنوية المعالج زائد أربعة). فإذا انتظرت كل الـ workers، لا يبقى من يقرأ الردود، فيتجمّد البوت. يحدد `WorkersPolicy` ما يحدث بدل ذلك، عندما يأخذ انتظار جديد آخر worker، وهو يبقى دائمًا لقراءة الردود:
 
 ```python
-from pyroflow.enums import WorkersBusyMode
-from pyroflow.models import WorkersPolicy
+from pyroflow.enums import WorkersPolicy
 
-client = Client("bot", workers=12).setup_pyroflow(
-    workers_policy=WorkersPolicy(WorkersBusyMode.CANCEL_OLDEST, free_workers=2, busy_timeout=1)
-)
+client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.CANCEL_OLDEST)
 ```
 
-| `mode` | ماذا يحدث | يناسب |
+| السياسة | ماذا يحدث | يناسب |
 |---|---|---|
 | `REJECT` | يرفع الانتظار `ListenerWorkersBusy` | سقف مقصود، مثل بوت دعم بطاقة ثابتة |
-| `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، وينتظر الجديد worker حراً: فقد يكمل الـ handler القديم عمله، فلا يبدأ الانتظار الجديد إلا حين يفرغ worker فعلاً، ويرفع `ListenerEvictionTimeout` (وهو `ListenerWorkersBusy`) إن لم يفرغ خلال `evict_timeout` ثانية. وإن لم يوجد انتظار يُنهى، يرفع `ListenerWorkersBusy` | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
+| `CANCEL_OLDEST` | ينتهي أقدم انتظار بـ `ListenerEvicted` (وهو `ListenerCancelled`)، ويدخل الجديد مكانه فورًا. وقد يكمل الـ handler القديم عمله، وأي انتظار جديد منه يمر بالخطوات نفسها. وإن لم يوجد انتظار يُنهى، يرفع `ListenerWorkersBusy` | قوائم وأسئلة يتركها المستخدمون كثيرًا دون رد |
 
-بلا `setup_pyroflow(workers_policy=...)` لا يحدث تدخل وقد يتجمّد البوت، وهذا مقبول حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`setup_pyroflow()` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. الافتراضي لـ `free_workers` هو `1`. و`busy_timeout` (الافتراضي `5`) ينتظر أولًا هذه المدة لعل worker يتحرر، و`evict_timeout` (الافتراضي `5`) هو ما ينتظره `CANCEL_OLDEST` بعد ذلك. ولا يقرأ ذلك الـ worker أي update خلالها، والرد الذي يصل قبل تسجيل الانتظار يذهب إلى الـ handlers. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
+بلا `setup_pyroflow(workers_policy=...)` لا يحدث تدخل وقد يتجمّد البوت، وهذا مقبول حين تكون `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`setup_pyroflow()` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. والعدّ للانتظارات فقط، لا للـ handler الذي يعمل. الانتظار في task أنشأها الـ handler لا يحجز worker ولا يُحسب. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
 
 ---
 

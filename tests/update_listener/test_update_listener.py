@@ -296,29 +296,43 @@ async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
 class _Holder:
     """Stands in for the dispatcher of a worker: records what `listen` does with it."""
 
-    def __init__(self, error: Exception | None = None, *, has_policy: bool = True) -> None:
+    def __init__(
+        self,
+        error: Exception | None = None,
+        *,
+        has_policy: bool = True,
+    ) -> None:
         self.error = error
         self.workers_policy = object() if has_policy else None
-        self.handler_waits: dict[asyncio.Future, tuple[object, ListenerModel, object]] = {}
+        self.handler_waits: dict[ListenerModel, object] = {}
         self.entered: list[ListenerKey] = []
-        self.ended: list[tuple[object, ListenerModel, object]] = []
-        self.released: list[object] = []
+        self.ended: list[tuple[object, ListenerModel]] = []
 
-    async def enter_handler_wait(self, policy: object, key: ListenerKey) -> None:
+    def enter_handler_wait(self, policy: object, key: ListenerKey) -> None:
         if self.error is not None:
             raise self.error
         self.entered.append(key)
 
-    def end_handler_wait(self, future: asyncio.Future) -> None:
-        self.ended.append(self.handler_waits.pop(future))
-
-    def release_evicted_worker(self, worker: object) -> None:
-        self.released.append(worker)
+    def end_handler_wait(self, model: ListenerModel) -> None:
+        if (listener := self.handler_waits.pop(model, None)) is not None:
+            self.ended.append((listener, model))
 
 
 def _as_worker(holder: _Holder) -> object:
     """Mark the running task as a worker of `holder`, as `Dispatcher.handler_worker` does."""
     return _HANDLER_WORKER.set((holder, asyncio.current_task()))
+
+
+async def _pending_on_a_worker(lis: MessageListener, holder: _Holder, chat_id: int) -> asyncio.Task:
+    """Start a wait in a task that is a worker of `holder`, and let it register."""
+
+    async def wait() -> object:
+        _as_worker(holder)
+        return await lis.listen(chat_id)
+
+    task = asyncio.ensure_future(wait())
+    await asyncio.sleep(0)
+    return task
 
 
 async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
@@ -332,11 +346,9 @@ async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
         _HANDLER_WORKER.reset(token)
 
     assert holder.entered == [ListenerKey(100)]
-    ((listener, model, worker),) = holder.ended
+    ((listener, model),) = holder.ended
     assert listener is lis
     assert model.key == ListenerKey(100)
-    assert worker is asyncio.current_task()
-    assert holder.released == [worker]
     assert holder.handler_waits == {}
 
 
@@ -395,12 +407,10 @@ async def test_listen_refuses_a_duplicate_before_making_room_for_it() -> None:
     assert holder.ended == []
 
 
-async def test_listen_replacing_a_wait_that_holds_a_worker_needs_no_room() -> None:
+async def test_listen_replacing_a_wait_that_holds_a_slot_skips_the_check() -> None:
     lis = _make()
-    first = await _pending(lis, 100)
-    model = lis.listeners[ListenerKey(100)]
     holder = _Holder()
-    holder.handler_waits[model.future] = (lis, model, asyncio.current_task())
+    first = await _pending_on_a_worker(lis, holder, 100)
     token = _as_worker(holder)
     try:
         with pytest.raises(ListenerTimeout):
@@ -409,7 +419,34 @@ async def test_listen_replacing_a_wait_that_holds_a_worker_needs_no_room() -> No
         _HANDLER_WORKER.reset(token)
         await _drain(first)
 
-    assert holder.entered == []
+    assert holder.entered == [ListenerKey(100)]  # the old wait's, and no other
+    assert len(holder.ended) == 2
+
+
+async def test_listen_refused_while_replacing_leaves_the_old_wait_open() -> None:
+    lis = _make()
+    first = await _pending(lis, 100)
+    token = _as_worker(_Holder(error=ListenerWorkersBusy(ListenerKey(100))))
+    try:
+        with pytest.raises(ListenerWorkersBusy):
+            await lis.listen(100)
+    finally:
+        _HANDLER_WORKER.reset(token)
+
+    assert not lis.listeners[ListenerKey(100)].done()
+
+    await _drain(first)
+
+
+async def test_listen_replacing_a_wait_outside_a_handler_registers_without_yielding() -> None:
+    lis = _make()
+    first = await _pending(lis, 100)
+    second = asyncio.ensure_future(lis.listen(100))
+    await asyncio.sleep(0)
+
+    assert not lis.listeners[ListenerKey(100)].done()
+
+    await _drain(first, second)
 
 
 async def test_listen_replacing_a_wait_that_holds_no_worker_makes_room() -> None:
@@ -427,6 +464,104 @@ async def test_listen_replacing_a_wait_that_holds_no_worker_makes_room() -> None
     assert holder.entered == [ListenerKey(100)]
 
 
+async def test_listen_on_a_worker_frees_the_slot_the_moment_the_wait_ends() -> None:
+    lis = _make()
+    holder = _Holder()
+    task = await _pending_on_a_worker(lis, holder, 100)
+
+    lis.cancel(ListenerKey(100))
+
+    assert len(holder.ended) == 1  # before `listen` resumes
+    assert not task.done()
+
+    await _drain(task)
+
+    assert len(holder.ended) == 1
+
+
+async def test_listen_outside_a_worker_adds_only_the_cleanup_callback() -> None:
+    lis = _make()
+    task = await _pending(lis, 100)
+    try:
+        assert lis.listeners[ListenerKey(100)].done_callbacks == [lis._cleanup_model]
+    finally:
+        await _drain(task)
+
+
+async def test_listen_on_a_worker_with_its_task_cancelled_frees_the_slot() -> None:
+    lis = _make()
+    holder = _Holder()
+    task = await _pending_on_a_worker(lis, holder, 100)
+
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(holder.ended) == 1
+
+
+async def test_cleanup_model_removes_the_model() -> None:
+    lis = _make()
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    lis.listeners[model.key] = model
+
+    lis._cleanup_model(model)
+
+    assert lis.listeners == {}
+
+
+async def test_cleanup_model_leaves_a_newer_model_on_the_key() -> None:
+    lis = _make()
+    loop = asyncio.get_running_loop()
+    old = ListenerModel(ListenerKey(1), loop.create_future())
+    newer = ListenerModel(ListenerKey(1), loop.create_future())
+    lis.listeners[newer.key] = newer
+
+    lis._cleanup_model(old)
+
+    assert lis.listeners == {newer.key: newer}
+
+
+async def test_time_out_ends_a_pending_wait() -> None:
+    lis = _make()
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+
+    lis._time_out(model)
+
+    assert isinstance(model.future.exception(), ListenerTimeout)
+
+
+async def test_time_out_leaves_a_finished_wait_alone() -> None:
+    lis = _make()
+    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model.resolve("update")
+
+    lis._time_out(model)
+
+    assert model.future.result() == "update"
+
+
+async def test_listen_timeout_due_in_the_iteration_the_wait_ended_changes_nothing() -> None:
+    lis = _make()
+    loop = asyncio.get_running_loop()
+    errors: list[object] = []
+    loop.set_exception_handler(lambda _, context: errors.append(context))
+    try:
+        task = asyncio.ensure_future(lis.listen(100, timeout=0))
+        await asyncio.sleep(0)
+
+        # Due before the timer, so it runs first, with the timer in the same loop iteration.
+        loop.call_at(loop.time() - 1, lis.cancel, ListenerKey(100))
+
+        with pytest.raises(ListenerCancelled):
+            await task
+    finally:
+        loop.set_exception_handler(None)
+
+    assert errors == []
+
+
 async def test_listen_without_context_attaches_none() -> None:
     lis = _make()
     task = await _pending(lis, 1)
@@ -442,7 +577,8 @@ async def test_listen_leaves_no_reference_cycle_once_the_wait_fails(end: str) ->
     lis = _make()
     gc.disable()
     try:
-        task = await _pending(lis, 1, timeout=0.02 if end == "timeout" else None)
+        # Well past the sleep of `_pending`, which a coarse clock can stretch.
+        task = await _pending(lis, 1, timeout=0.2 if end == "timeout" else None)
         future = weakref.ref(lis.listeners[ListenerKey(1)].future)
 
         if end == "cancel":
@@ -518,7 +654,7 @@ async def test_listen_timeout_carries_the_key_and_cleans_up() -> None:
     with pytest.raises(ListenerTimeout) as exc:
         await lis.listen(1, 2, timeout=0.01)
     assert exc.value.value == ListenerKey(1, 2)
-    assert exc.value.__suppress_context__ is True
+    assert exc.value.__context__ is None
     assert lis.listeners == {}
 
 
