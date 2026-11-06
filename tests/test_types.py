@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.types`: the patched `Update`, `User`, `Message` and `CallbackQuery`."""
+"""Tests for `pyroflow.types`: the patched `User`, `Message` and `CallbackQuery`."""
 
 from __future__ import annotations as _annotations
 
@@ -17,7 +17,6 @@ from pyroflow.enums import ListenMessageId
 from pyroflow.models import ListenerContext
 from pyroflow.types import CallbackQuery, Message, User
 
-from .conftest import make_callback_query
 
 ME_ID = 42
 SENTINEL = object()
@@ -50,79 +49,12 @@ def make_msg(
 
 
 def test_all_lists_the_patched_classes() -> None:
-    assert set(pf_types.__all__) == {"User", "Message", "CallbackQuery", "Update"}
+    assert set(pf_types.__all__) == {"User", "Message", "CallbackQuery"}
 
 
-@pytest.mark.parametrize("name", ["Update", "User", "Message", "CallbackQuery"])
+@pytest.mark.parametrize("name", ["User", "Message", "CallbackQuery"])
 def test_classes_patch_pyrogram_in_place(name: str) -> None:
     assert getattr(pf_types, name) is getattr(pyrogram.types, name)
-
-
-def test_callback_query_inherits_update_members() -> None:
-    cbq = make_callback_query()
-    assert cbq.with_ctx(step=1).context == {"step": 1}
-
-
-# --- Update.context -------------------------------------------------------
-
-
-def test_context_is_none_when_unset() -> None:
-    assert Message(id=1).context is None
-
-
-def test_context_setter_stores_the_same_dict() -> None:
-    m = Message(id=1)
-    ctx = {"step": 1}
-    m.context = ctx
-    assert m.context is ctx
-
-
-def test_context_setter_none_removes_it() -> None:
-    m = Message(id=1)
-    m.context = {"step": 1}
-    m.context = None
-    assert m.context is None
-
-
-def test_context_setter_none_when_unset_is_noop() -> None:
-    m = Message(id=1)
-    m.context = None
-    assert m.context is None
-
-
-def test_context_deleter_removes_it() -> None:
-    m = Message(id=1)
-    m.context = {"step": 1}
-    del m.context
-    assert m.context is None
-
-
-def test_context_deleter_raises_when_unset() -> None:
-    m = Message(id=1)
-    with pytest.raises(AttributeError):
-        del m.context
-
-
-# --- Update.with_ctx ------------------------------------------------------
-
-
-def test_with_ctx_creates_context_and_returns_self() -> None:
-    m = Message(id=1)
-    assert m.with_ctx(lang="en") is m
-    assert m.context == {"lang": "en"}
-
-
-def test_with_ctx_merges_mapping_and_kwargs() -> None:
-    assert Message(id=1).with_ctx({"step": 1}, lang="en").context == {"step": 1, "lang": "en"}
-
-
-def test_with_ctx_updates_existing_context_in_place() -> None:
-    m = Message(id=1)
-    ctx = {"step": 1, "keep": True}
-    m.context = ctx
-    m.with_ctx(step=2)
-    assert m.context is ctx
-    assert ctx == {"step": 2, "keep": True}
 
 
 # --- User.lang_code -------------------------------------------------------

@@ -27,7 +27,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   session per bot: when two overlap, such as during a rolling deploy, the one
   that stops deletes the commands the other still uses, unless it stops with
   `remove_commands=False`.
-- `Update.context`: a per-update dict for arbitrary data.
 - `pyroflow.enums.ListenMessageId` as `listen_message_id` on `ask` and
   `ask_rich`: `SENT` waits on the message `ask` sent or edited, such as a
   press on its buttons; `NEXT` waits for the message right after it.
@@ -119,8 +118,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   the id of the sent or edited message and to the message itself, each
   unless it is already set, so the id is `context.message_id` instead of
   `meta["message_id"]`. Affects code passing
-  or reading `meta`, or building `ListenerModel` itself. This `context` is
-  separate from `Update.context`.
+  or reading `meta`, or building `ListenerModel` itself.
   Migration: `listen(chat, context=ListenerContext(step=1))` instead of
   `listen(chat, {"step": 1})`, `ask(..., listen_context=ListenerContext(...))`
   instead of `ask(..., meta=...)`, read `model.context.step` instead of

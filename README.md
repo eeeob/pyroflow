@@ -233,7 +233,7 @@ def report(exc, model):
 client.register_listener(MessageListener(on_error_func=report))
 ```
 
-A wait's `context` is a `ListenerContext`: typed fields plus any values you add, all read and set as attributes. Subclass it to type your own fields. It is separate from `Update.context`.
+A wait's `context` is a `ListenerContext`: typed fields plus any values you add, all read and set as attributes. Subclass it to type your own fields.
 
 ```python
 from pyroflow.models import ListenerContext

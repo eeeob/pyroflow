@@ -255,7 +255,6 @@ client.register_listener(MessageListener(on_error_func=report))
 - فيه حقول لها أنواع، وأي قيم تضيفها أنت.
 - الكل يُقرأ ويُضبط بالنقطة (attribute).
 - لإعطاء حقولك أنواعًا، أنشئ كلاسًا فرعيًا منه.
-- هو غير `Update.context`.
 
 ```python
 from pyroflow.models import ListenerContext

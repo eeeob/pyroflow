@@ -2,18 +2,12 @@
 
 from __future__ import annotations as _annotations
 
-import sys
 from typing import (
     Any,
     Literal,
     overload,
     TYPE_CHECKING,
 )
-
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
 
 from pyrogram import types as pyro_types, enums as pyro_enums
 from pyrogram.types import (
@@ -28,7 +22,7 @@ from .utils import patch_cls
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, Iterable
+    from collections.abc import Awaitable, Callable
     from datetime import datetime
 
     from pyrogram.filters import Filter
@@ -38,73 +32,6 @@ if TYPE_CHECKING:
     from .client import Client
     from .models import ListenerContext
     from .typings import UpdateType, ListenMessageIdT
-
-
-@patch_cls
-class Update(PyroUpdate):
-    """Pyrogram `Update` extended with a per-update `context` dict."""
-
-    @property
-    def context(self) -> dict[str, Any] | None:
-        """Arbitrary data attached to this update, or `None` if none is set.
-
-        Setting it to `None` removes it.
-
-        Example:
-            >>> message = Message(id=1)
-            >>> message.context = {"step": 1}
-            >>> message.context
-            {'step': 1}
-            >>> message.context = None
-            >>> message.context is None
-            True
-        """
-        try:
-            return self.__context
-        except AttributeError:
-            return
-
-    @context.setter
-    def context(self, value: dict[str, Any] | None) -> None:
-        """Attach `value` as the context, or remove it when `value` is `None`."""
-        if value is None:
-            try:
-                del self.__context
-            except AttributeError:
-                pass
-        else:
-            self.__context = value
-
-    @context.deleter
-    def context(self) -> None:
-        """Remove the context.
-
-        Raises:
-            AttributeError: If no context is set.
-        """
-        del self.__context
-
-    @overload
-    def with_ctx(self, m: Mapping[str, object], /, **kwargs: object) -> Self: ...
-    @overload
-    def with_ctx(self, m: Iterable[tuple[str, object]], /, **kwargs: object) -> Self: ...
-    @overload
-    def with_ctx(self, **kwargs: object) -> Self: ...
-    def with_ctx(self, *args: Any, **kwargs: Any) -> Self:
-        """Merge into `context` (same arguments as `dict.update`) and return `self`.
-
-        Creates the context first if none is set.
-
-        Example:
-            >>> Message(id=1).with_ctx({"step": 1}, lang="en").context
-            {'step': 1, 'lang': 'en'}
-        """
-        context = self.context
-        if context is None:
-            self.context = context = {}
-        context.update(*args, **kwargs)
-
-        return self
 
 
 @patch_cls
@@ -125,12 +52,6 @@ class User(PyroUser):
             True
         """
         return lang.split("-")[0].lower() if (lang := self.language_code) else None
-
-
-if TYPE_CHECKING:
-
-    class User(User, Update):
-        """Typing-only view of `User` that also exposes the patched `Update` members."""
 
 
 @patch_cls
@@ -662,12 +583,6 @@ class Message(PyroMessage):
         return self.edit if self.editable else self.reply
 
 
-if TYPE_CHECKING:
-
-    class Message(Message, Update):
-        """Typing-only view of `Message` that also exposes the patched `Update` members."""
-
-
 @patch_cls
 class CallbackQuery(PyroCallbackQuery):
     """Pyrogram `CallbackQuery` with `message` and `from_user` typed as the patched classes."""
@@ -680,15 +595,8 @@ class CallbackQuery(PyroCallbackQuery):
     """User who pressed the button."""
 
 
-if TYPE_CHECKING:
-
-    class CallbackQuery(CallbackQuery, Update):
-        """Typing-only view of `CallbackQuery` that also exposes the patched `Update` members."""
-
-
 __all__ = (
     "User",
     "Message",
     "CallbackQuery",
-    "Update",
 )
