@@ -213,13 +213,8 @@ async def test_call_maybe_async_raises_what_the_callable_raises() -> None:
         await call_maybe_async(fail_sync)
 
 
-def test_handler_worker_var_is_unset_outside_a_worker() -> None:
-    assert helpers.handler_worker_var.get() is None
-
-
 def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == (
-        "handler_worker_var",
         "UpdateBound",
         "get_update_executor",
         "call_maybe_async",

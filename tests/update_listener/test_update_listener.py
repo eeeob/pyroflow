@@ -20,6 +20,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
+from pyroflow.dispatcher import _HANDLER_WORKER
 from pyroflow.enums import DuplicatePolicy, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
@@ -33,7 +34,6 @@ from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
 from pyroflow.update_listener import update_listener as update_listener_module
 from pyroflow.update_listener.update_listener import UpdateListener
 
-from pyroflow.utils import handler_worker_var
 
 from ..conftest import make_message
 
@@ -326,7 +326,7 @@ class _Holder:
 
 def _as_worker(holder: _Holder) -> object:
     """Mark the running task as a worker of `holder`, as `Dispatcher.handler_worker` does."""
-    return handler_worker_var.set((holder, asyncio.current_task()))
+    return _HANDLER_WORKER.set((holder, asyncio.current_task()))
 
 
 async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
@@ -337,7 +337,7 @@ async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
         with pytest.raises(ListenerTimeout):
             await lis.listen(100, timeout=0.01)
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
 
     assert holder.entered == [ListenerKey(100)]
     ((listener, model, worker),) = holder.ended
@@ -356,7 +356,7 @@ async def test_listen_in_a_task_the_handler_spawned_holds_no_worker() -> None:
         with pytest.raises(ListenerTimeout):
             await asyncio.create_task(lis.listen(100, timeout=0.01))
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
 
     assert holder.entered == []
 
@@ -368,7 +368,7 @@ async def test_listen_without_a_policy_leaves_the_dispatcher_alone() -> None:
         with pytest.raises(ListenerTimeout):
             await _make().listen(100, timeout=0.01)
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
 
     assert holder.entered == []
     assert holder.ended == []
@@ -381,7 +381,7 @@ async def test_listen_refused_by_the_policy_registers_nothing() -> None:
         with pytest.raises(ListenerWorkersBusy):
             await lis.listen(100)
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
 
     assert lis.listeners == {}
 
@@ -395,7 +395,7 @@ async def test_listen_refuses_a_duplicate_before_making_room_for_it() -> None:
         with pytest.raises(ListenerAlreadyExists):
             await lis.listen(100)
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
         await _drain(first)
 
     assert holder.entered == []
@@ -414,7 +414,7 @@ async def test_listen_replacing_a_wait_that_holds_a_worker_needs_no_room() -> No
         with pytest.raises(ListenerTimeout):
             await lis.listen(100, timeout=0.01)
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
         await _drain(first)
 
     assert holder.entered == []
@@ -429,7 +429,7 @@ async def test_listen_replacing_a_wait_that_holds_no_worker_makes_room() -> None
         with pytest.raises(ListenerTimeout):
             await lis.listen(100, timeout=0.01)
     finally:
-        handler_worker_var.reset(token)
+        _HANDLER_WORKER.reset(token)
         await _drain(first)
 
     assert holder.entered == [ListenerKey(100)]

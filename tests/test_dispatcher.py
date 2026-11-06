@@ -25,7 +25,7 @@ from pyrogram.types import Message
 
 import pyroflow
 from pyroflow import dispatcher as dispatcher_module
-from pyroflow.dispatcher import Dispatcher
+from pyroflow.dispatcher import _HANDLER_WORKER, Dispatcher
 from pyroflow.enums import WorkersBusyMode
 from pyroflow.errors import (
     ListenerCancelled,
@@ -36,7 +36,6 @@ from pyroflow.errors import (
 )
 from pyroflow.models import ListenerKey, ListenerModel, WorkersPolicy
 from pyroflow.update_listener import MessageListener
-from pyroflow.utils import handler_worker_var
 
 from .conftest import make_callback_query, make_message
 
@@ -1118,12 +1117,22 @@ async def test_handler_worker_releases_an_evicted_worker_after_its_handler() -> 
     assert released == [task]
 
 
+def test_handler_worker_context_is_unset_outside_a_worker_and_named_after_the_library() -> None:
+    assert _HANDLER_WORKER.get() is None
+    assert _HANDLER_WORKER.name == "pyroflow_handler_worker"
+
+
+def test_handler_worker_context_stays_out_of_the_public_names() -> None:
+    assert "_HANDLER_WORKER" not in dispatcher_module.__all__
+    assert not hasattr(pyroflow, "_HANDLER_WORKER")
+
+
 async def test_handler_worker_marks_the_worker_for_listen_and_clears_it_after() -> None:
     dispatcher = make_real_dispatcher()
     seen: list[object] = []
 
     async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
-        seen.append(handler_worker_var.get())
+        seen.append(_HANDLER_WORKER.get())
 
     dispatcher.handle_update = handle_update
     dispatcher.update_parsers = {}
@@ -1133,4 +1142,4 @@ async def test_handler_worker_marks_the_worker_for_listen_and_clears_it_after() 
     await dispatcher.handler_worker(asyncio.Lock())
 
     assert seen == [(dispatcher, asyncio.current_task())]
-    assert handler_worker_var.get() is None
+    assert _HANDLER_WORKER.get() is None

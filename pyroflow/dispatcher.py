@@ -4,7 +4,8 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import logging
-from typing import Any, cast, TYPE_CHECKING
+from contextvars import ContextVar
+from typing import Any, Final, cast, TYPE_CHECKING
 
 from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
@@ -13,7 +14,7 @@ from pytrove import gather_helper
 
 from .enums import WorkersBusyMode
 from .errors import ListenerEvictionTimeout, ListenerWorkersBusy
-from .utils import call_maybe_async, handler_worker_var, patch_cls
+from .utils import call_maybe_async, patch_cls
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -26,6 +27,11 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
+
+_HANDLER_WORKER: Final[ContextVar[tuple[Dispatcher, asyncio.Task[None]] | None]] = ContextVar(
+    "pyroflow_handler_worker", default=None
+)
+"""The dispatcher and worker task running the current handler, or `None` outside one."""
 
 
 @patch_cls(setter=setattr)
@@ -348,7 +354,7 @@ class Dispatcher(PyroDispatcher):
         """
         # Always called from a task.
         worker = cast("asyncio.Task[None]", asyncio.current_task())
-        token = handler_worker_var.set((self, worker))
+        token = _HANDLER_WORKER.set((self, worker))
 
         try:
             while True:
@@ -378,7 +384,7 @@ class Dispatcher(PyroDispatcher):
                 if self.evicted_workers:
                     self.release_evicted_worker(worker)
         finally:
-            handler_worker_var.reset(token)
+            _HANDLER_WORKER.reset(token)
 
 
 __all__ = ("Dispatcher",)

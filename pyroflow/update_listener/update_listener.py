@@ -8,7 +8,8 @@ from abc import ABC
 from typing import TYPE_CHECKING
 
 from ..typings import UpdateType
-from ..utils import UpdateBound, call_maybe_async, get_update_executor, handler_worker_var
+from ..dispatcher import _HANDLER_WORKER
+from ..utils import UpdateBound, call_maybe_async, get_update_executor
 from ..errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -334,7 +335,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             )
 
         dispatcher = worker = None
-        holder = handler_worker_var.get()
+        holder = _HANDLER_WORKER.get()
 
         # Only a wait in the worker task itself holds the worker; a task the handler spawned does not.
         if (

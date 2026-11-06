@@ -4,7 +4,6 @@ from __future__ import annotations as _annotations
 
 import inspect
 from abc import ABC
-from contextvars import ContextVar
 from typing import Generic, TypeVar, TYPE_CHECKING
 
 from pyrogram.types import Update as PyroUpdate
@@ -13,18 +12,9 @@ from pytrove import maybe_awaitable
 from ..typings import UpdateType
 
 if TYPE_CHECKING:
-    import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
     from pytrove.typings import MaybeCoroutineCallable
-
-    from ..dispatcher import Dispatcher
-
-
-handler_worker_var: ContextVar[tuple[Dispatcher, asyncio.Task[None]] | None] = ContextVar(
-    "handler_worker_var", default=None
-)
-"""The dispatcher and worker task running the current handler, or `None` outside one."""
 
 
 class UpdateBound(Generic[UpdateType]):
@@ -165,7 +155,6 @@ async def call_maybe_async(
 
 
 __all__ = (
-    "handler_worker_var",
     "UpdateBound",
     "get_update_executor",
     "call_maybe_async",
