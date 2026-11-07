@@ -42,6 +42,20 @@ def test_mark_bot_commands_stores_entries_on_message_handlers() -> None:
     assert getattr(message_handler, _BOT_COMMANDS_ATTR) == (cmd, scoped)
 
 
+def test_stacked_mark_bot_commands_keep_every_entry() -> None:
+    inner, outer = BotCommand("start", "Start"), BotCommand("help", "Help")
+    message_handler = MessageHandler(_callback)
+
+    async def func(client: Any, message: Any) -> None:  # pragma: no cover
+        pass
+
+    func.handlers = [(message_handler, 0)]  # type: ignore[attr-defined]
+
+    mark_bot_commands(outer)(mark_bot_commands(inner)(func))
+
+    assert getattr(message_handler, _BOT_COMMANDS_ATTR) == (inner, outer)
+
+
 def test_mark_bot_commands_marks_business_message_handlers() -> None:
     business_cls = getattr(handlers, "BusinessMessageHandler", None)
     if business_cls is None:  # pragma: no cover - depends on the installed fork

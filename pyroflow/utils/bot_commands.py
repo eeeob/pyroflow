@@ -60,7 +60,10 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
         for handler, _ in getattr(func, "handlers", []):
             if not isinstance(handler, _MESSAGES_HANDLER):
                 continue
-            setattr(handler, _BOT_COMMANDS_ATTR, entries)
+            # Stacked decorators add to each other.
+            setattr(
+                handler, _BOT_COMMANDS_ATTR, (*getattr(handler, _BOT_COMMANDS_ATTR, ()), *entries)
+            )
         return func
 
     return decorator
