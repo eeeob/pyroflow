@@ -438,11 +438,10 @@ async def test_rich_asks_edit_passes_the_edit_arguments(
     c, _, _, edit = _ask_client(update_type=update_type)
     when = datetime(2026, 1, 1)
 
-    await getattr(c, method)(100, object(), 5, schedule_date=when, business_connection_id="bc")
+    await getattr(c, method)(100, object(), 5, schedule_date=when)
 
     call = edit.calls[0]
     assert call["schedule_date"] is when
-    assert call["business_connection_id"] == "bc"
     assert "text" not in call
 
 

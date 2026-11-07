@@ -87,8 +87,6 @@ class AskEditKw(TypedDict, total=False):
     """Link preview options for the message."""
     schedule_date: datetime | None
     """Date to send the edited message at."""
-    business_connection_id: str | None
-    """Business connection to edit through."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram
@@ -133,8 +131,6 @@ class AskRichEditKw(TypedDict, total=False):
 
     schedule_date: datetime | None
     """Date to send the edited message at."""
-    business_connection_id: str | None
-    """Business connection to edit through."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
 
