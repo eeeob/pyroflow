@@ -10,8 +10,19 @@ from __future__ import annotations as _annotations
 
 import pyroflow  # noqa: F401 — activates the @patch_cls global monkey-patch
 
-from pyrogram.types import Message, CallbackQuery, Chat, User
+from pyrogram.types import (
+    Message,
+    CallbackQuery,
+    Chat,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    User,
+)
 from pyrogram.enums import ChatType
+
+
+CALLBACK_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton("Yes", callback_data="y")]])
+"""An inline keyboard whose button sends a callback query."""
 
 
 def make_message(
