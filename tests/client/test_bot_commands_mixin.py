@@ -55,9 +55,8 @@ class _MixinBase(pyroflow.Client):
             raise self.delete_error
         return True
 
-    async def start(self, *args: object, **kw: object) -> str:
-        self.calls.append(("start", args, kw))
-        return "started"
+    async def initialize(self) -> None:
+        self.calls.append(("initialize",))
 
     async def stop(self, *args: object, **kw: object) -> str:
         self.calls.append(("stop", args, kw))
@@ -139,7 +138,7 @@ def test_bot_commands_mixin_is_a_plain_object_at_runtime() -> None:
 
 
 def test_bot_commands_mixin_public_coroutines_carry_the_sync_wrapper() -> None:
-    for name in ("push_bot_commands", "remove_bot_commands", "start", "stop"):
+    for name in ("push_bot_commands", "remove_bot_commands", "initialize", "stop"):
         method = getattr(BotCommandsMixin, name)
         assert inspect.iscoroutinefunction(method.__wrapped__), name
 
@@ -302,25 +301,27 @@ async def test_remove_bot_commands_keeps_the_groups_when_deleting_fails() -> Non
     assert not c.bot_command_groups_lock.locked()
 
 
-async def test_start_starts_then_publishes_the_commands() -> None:
+async def test_initialize_publishes_the_commands_before_the_dispatcher_starts() -> None:
+    # Pyrogram's `initialize` starts the dispatcher, so no update sees the commands missing.
     c = _MixedFake()
     a = _cmd("a")
     _declare(c, [a])
 
-    result = await c.start(1, flag=True)
+    await c.initialize()
 
-    assert result == "started"
-    assert c.calls == [("start", (1,), {"flag": True}), ("set", [a], {})]
+    assert c.calls == [("set", [a], {}), ("initialize",)]
 
 
-async def test_start_logs_a_failed_publish_and_still_returns(
+async def test_initialize_logs_a_failed_publish_and_still_initializes(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     c = _MixedFake()
     _declare(c, [_cmd("a")])
     c.set_error = ExcA("boom")
 
-    assert await c.start() == "started"
+    await c.initialize()
+
+    assert c.calls[-1] == ("initialize",)
     assert "boom" in caplog.text
 
 

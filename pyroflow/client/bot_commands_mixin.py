@@ -41,7 +41,8 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     The commands are the ones declared with `mark_bot_commands`. Put the mixin
     first, as in `class MyClient(BotCommandsMixin, Client)`. `start` publishes
     the commands of every registered handler after connecting (so `plugins`
-    handlers are included), and `stop` deletes them before disconnecting. Each
+    handlers are included) and before the dispatcher starts (so the first
+    updates already see them), and `stop` deletes them before disconnecting. Each
     `(language_code, scope)` group is one Telegram call, so different scopes
     never overwrite each other.
 
@@ -115,7 +116,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
         Each group is sent with `set_bot_commands`, and a group sent before
         that no handler declares any more is deleted with
-        `delete_bot_commands`. Called by `start`.
+        `delete_bot_commands`. Called by `initialize`, which `start` runs.
 
         It never waits on the dispatcher's locks, so it is safe to call from a
         handler. Pyrogram places a handler in a task that waits for every
@@ -168,15 +169,17 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             )
             self.bot_command_groups.clear()
 
-    async def start(self, *args: Any, **kw: Any) -> PyroClient:
-        """Start the client as usual, then publish the commands.
+    async def initialize(self) -> None:
+        """Publish the commands, then initialize the client as usual.
 
-        A failure to publish, such as a command name Telegram rejects, is
-        logged and does not fail `start`: the client is connected by then.
+        `start` calls this once connected and its `plugins` loaded, and it
+        starts the dispatcher, so no update is handled before the commands
+        are published. A failure to publish, such as a command name Telegram
+        rejects, is logged and does not fail `start`: the client is connected
+        by then.
         """
-        result = await super().start(*args, **kw)
         await safe_await(self.push_bot_commands(), return_exc=True, log_exc=True)
-        return result
+        await super().initialize()
 
     async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
         """Delete the published commands, then stop the client as usual.

@@ -332,8 +332,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - After a `stop`, the updates the original `start` dispatches first no
   longer fail their `ask_*` with `ListenerCancelled`: the listeners start
   before it.
-- A failed bot command publish in `BotCommandsMixin.start` is logged instead
-  of failing `start` on a connected client.
+- `BotCommandsMixin` publishes the bot commands before the dispatcher starts,
+  so the first updates, such as a `registered_command` check, already see
+  them. A failed publish is logged instead of failing `start` on a connected
+  client.
 - `Dispatcher.stop` stops the listeners before it drains the workers, so a
   handler blocked in `ask_*` no longer holds up the shutdown until its timeout.
 - `MessageListener` no longer raises `AttributeError` for messages without
