@@ -778,6 +778,31 @@ async def test_listen_leaves_no_reference_cycle_once_the_wait_fails(end: str) ->
         gc.enable()
 
 
+async def test_listen_frees_the_waits_it_replaced_while_the_newest_waits() -> None:
+    # Without the cyclic GC, each replaced wait must die with its error, not chain to the next.
+    lis = _make()
+    gc.disable()
+    try:
+        first = ListenerContext(step=1)
+        freed = weakref.ref(first)
+        tasks = [await _pending(lis, MessageKey(1), context=first)]
+        del first
+        for step in (2, 3, 4):
+            tasks.append(await _pending(lis, MessageKey(1), context=ListenerContext(step=step)))
+
+        for task in tasks[:-1]:
+            with pytest.raises(ListenerCancelled):
+                await task
+        del task
+        tasks[:-1] = []
+
+        assert freed() is None
+        assert not tasks[0].done()
+    finally:
+        await _drain(*tasks)
+        gc.enable()
+
+
 async def test_listen_registers_the_listener_before_yielding() -> None:
     lis = _make()
     context = ListenerContext(step=1)

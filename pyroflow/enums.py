@@ -76,6 +76,11 @@ class WorkersPolicy(StrEnum):
     one, nothing steps in. With one worker, every wait inside a handler is
     refused.
 
+    Only a wait in the worker's own task is counted. One in another task is
+    not, though the worker waits for it: in a sync handler, in
+    `asyncio.gather`, or in `asyncio.wait_for` before Python 3.12. Bound
+    such waits with `timeout` instead.
+
     Example:
         >>> WorkersPolicy.REJECT == "reject"
         True

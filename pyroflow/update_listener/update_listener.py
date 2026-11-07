@@ -411,6 +411,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
             rejected update of the key, such as a photo while text is
             awaited; catch `ListenerRejected` to ask again.
 
+            `WorkersPolicy` counts a wait only in the worker's own task, so
+            not one in a sync handler, in `asyncio.gather`, or in
+            `asyncio.wait_for` before Python 3.12, though the worker waits
+            for it. Bound such waits with `timeout`.
+
         Example:
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
@@ -507,7 +512,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
 
             # The error's traceback keeps this frame: drop what links back to it, so the
             # wait, its message and the client are freed without waiting for the cyclic GC.
-            del future, listener, error
+            # `current`, the wait this one replaced, would chain every replaced wait.
+            del future, listener, error, current
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
