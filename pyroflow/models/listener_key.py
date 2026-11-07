@@ -18,32 +18,6 @@ if TYPE_CHECKING:
     from ..types import CallbackQuery, Message
 
 
-def _answering_user(sent: Message) -> int | None:
-    """Return the user who answers `sent`, as the message itself tells.
-
-    That is the receiver of an ephemeral `sent`, or else the sender of the
-    message `sent` replies to, unless that message is the client's own
-    (`editable`) or has no sender. Pyrogram builds both from the arguments
-    `sent` was sent with, such as `ephemeral_message_parameters` and
-    `reply_parameters`.
-
-    Args:
-        sent: The message just sent or edited.
-
-    Returns:
-        The user's id, or `None` if the message names no one.
-    """
-    if sent.receiver_user is not None:
-        return sent.receiver_user.id
-
-    replied = sent.reply_to_message
-
-    if replied is None or replied.editable:
-        return None
-
-    return getattr(replied.from_user, "id", None)
-
-
 @dataclass(frozen=True, slots=True)
 class ListenerKey:
     """Identifies what a wait takes: each field narrows it, and `None` means any value.
@@ -156,9 +130,7 @@ class MessageKey(ListenerKey):
 
         Args:
             sent: The message sent or edited.
-            user_id: The user to wait for. With `None`, the receiver of an
-                ephemeral `sent`, or the sender of the message `sent` replies
-                to unless it is the client's own; otherwise any user.
+            user_id: The user to wait for, or `None` for any user.
 
         Returns:
             The key of the answer.
@@ -170,7 +142,7 @@ class MessageKey(ListenerKey):
         """
         return cls(
             sent.chat.id,  # ty: ignore[unresolved-attribute]  # a sent message has a chat
-            _answering_user(sent) if user_id is None else user_id,
+            user_id,
             sent.message_thread_id,
             sent.direct_messages_topic_id,
             sent.ephemeral_message_id is not None,
@@ -238,9 +210,7 @@ class CallbackQueryKey(ListenerKey):
 
         Args:
             sent: The message sent or edited.
-            user_id: The user to wait for. With `None`, the receiver of an
-                ephemeral `sent`, or the sender of the message `sent` replies
-                to unless it is the client's own; otherwise any user.
+            user_id: The user to wait for, or `None` for any user.
 
         Returns:
             The key of a press on `sent`, or on any ephemeral message if
@@ -255,9 +225,6 @@ class CallbackQueryKey(ListenerKey):
             CallbackQueryKey(chat_id=1, user_id=None, message_id=5, inline_message_id=None, ephemeral=False)
         """
         chat_id = sent.chat.id  # ty: ignore[unresolved-attribute]  # a sent message has a chat
-
-        if user_id is None:
-            user_id = _answering_user(sent)
 
         if sent.ephemeral_message_id is not None:
             return cls(chat_id, user_id, ephemeral=True)
