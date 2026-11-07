@@ -316,6 +316,8 @@ def test_split_text_validation_messages() -> None:
         filters.split_text()
     with pytest.raises(ValueError, match="separator is required"):
         filters.split_text("a", "b")
+    with pytest.raises(ValueError, match="separator must not be empty"):
+        filters.split_text("a", "b", separator="")
     with pytest.raises(TypeError, match="Unsupported split_text rule"):
         filters.split_text(1.5)  # type: ignore[arg-type]
 
@@ -615,6 +617,16 @@ async def test_registered_command_get_commands_keeps_them_on_the_filter_for_this
     assert flt.fetched[bot] is commands
     assert await flt._get_commands(bot) is commands
     assert bot.fetches == 1
+
+
+async def test_registered_command_get_commands_shares_one_fetch_between_concurrent_calls() -> None:
+    flt, bot = filters.registered_command(), FakeBot("start")
+
+    results = await asyncio.gather(*(flt._get_commands(bot) for _ in range(4)))
+
+    assert bot.fetches == 1
+    assert all(result is flt.fetched[bot] for result in results)
+    assert bot not in flt.fetching
 
 
 async def test_registered_command_get_commands_fetches_again_after_a_restart() -> None:

@@ -10,6 +10,7 @@ data only; Pyrogram leaves `data` as `bytes` only when it is not valid UTF-8.
 
 from __future__ import annotations as _annotations
 
+import asyncio
 import re
 import weakref
 from typing import ClassVar, Final, NamedTuple, Protocol, AnyStr, TYPE_CHECKING
@@ -141,6 +142,10 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
         """The languages whose commands are fetched in each scope."""
         self.fetched: weakref.WeakKeyDictionary[Client, _BotCommands] = weakref.WeakKeyDictionary()
         """Per client: what its last fetch kept."""
+        self.fetching: weakref.WeakKeyDictionary[Client, asyncio.Future[_BotCommands]] = (
+            weakref.WeakKeyDictionary()
+        )
+        """Per client: the fetch in progress, which concurrent calls share."""
 
     async def __call__(self, client: Client, update: Message) -> bool:  # ty: ignore[invalid-method-override]  # pyroflow's `Client` is pyrogram's at runtime via `patch_cls`
         """Return whether the message is a command of this bot and registered.
@@ -191,7 +196,8 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
         They are returned from `fetched` while the client has not started
         again since; otherwise the commands of every scope in every language
         of this filter are fetched at once, one call each, and kept with the
-        usernames of `client.me`. A client with no `me` fetches on every call.
+        usernames of `client.me`. Calls made while a fetch runs share it. A
+        client with no `me` fetches on every call.
 
         Args:
             client: The client whose commands to return.
@@ -209,6 +215,25 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
         if entry is not None and entry.user_client is not None and entry.user_client() is me:
             return entry
 
+        fetch = self.fetching.get(client)
+
+        if fetch is None:
+            self.fetching[client] = fetch = asyncio.ensure_future(self._fetch_commands(client))
+            fetch.add_done_callback(lambda _: self.fetching.pop(client, None))
+
+        # Shielded: a cancelled caller must not cancel the fetch the others wait on.
+        return await asyncio.shield(fetch)
+
+    async def _fetch_commands(self, client: Client) -> _BotCommands:
+        """Fetch the commands for `_get_commands`, and keep them in `fetched`.
+
+        Args:
+            client: The client whose commands to fetch.
+
+        Returns:
+            The usernames and the regular and ephemeral command names.
+        """
+        me = client.me
         results = await gather_abort(
             client.get_bot_commands(scope=scope, language_code=language_code)
             for scope in self.scopes
@@ -401,14 +426,15 @@ def split_text(
         strip: Whether to strip whitespace from each part before matching.
         separator: What to split the text on, at most `len(rules) - 1`
             times. `None` (the default) is only valid with exactly one rule:
-            the whole text is then a single part.
+            the whole text is then a single part. It must not be empty.
 
     Returns:
         The filter.
 
     Raises:
         ValueError: If no rules are given, a rule resolves to an empty set of
-            strings, or more than one rule is given without a `separator`.
+            strings, more than one rule is given without a `separator`, or
+            `separator` is empty.
         TypeError: If a rule is neither a container, a string, an `Enum`
             class, a compiled pattern, nor a callable.
 
@@ -435,6 +461,10 @@ def split_text(
 
     if len(normalized_rules) > 1 and separator is None:
         msg = "separator is required when split_text is given more than one rule"
+        raise ValueError(msg)
+
+    if separator == "":
+        msg = "split_text separator must not be empty"
         raise ValueError(msg)
 
     async def caller(_: Filter, client: Client, update: Message | Query) -> bool:
