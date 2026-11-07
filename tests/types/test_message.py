@@ -25,7 +25,6 @@ EPHEMERAL_SENT = Message(
     id=0,
     chat=Chat(id=100, type=ChatType.PRIVATE),
     ephemeral_message_id=4,
-    receiver_user=User(id=7, is_self=False),
     reply_markup=CALLBACK_MARKUP,
 )
 CONTEXT = ListenerContext(step=1)
@@ -192,21 +191,31 @@ def assert_listened(m: Any, key: object, **expected: Any) -> None:
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-@pytest.mark.parametrize("field", ["service", "empty"])
-async def test_ask_rejects_service_or_empty_message(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type, field: str
+async def test_ask_rejects_an_empty_message(
+    method: str, sender: str, content: object, edit_call: Any, key_type: type
 ) -> None:
     m = make_ask_msg()
-    setattr(m, field, True)
+    m.empty = True
 
-    with pytest.raises(ValueError, match="service or empty"):
+    with pytest.raises(ValueError, match="on an empty message"):
         await getattr(m, method)(content)
 
     getattr(m, sender).assert_not_awaited()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_replies_when_not_editable_and_waits_on_the_sender(
+async def test_ask_takes_a_service_message(
+    method: str, sender: str, content: object, edit_call: Any, key_type: type
+) -> None:
+    m = make_ask_msg()
+    m.service = True
+
+    assert await getattr(m, method)(content) is SENTINEL
+    getattr(m, sender).assert_awaited_once()
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_replies_when_not_editable_and_waits_on_any_user(
     method: str, sender: str, content: object, edit_call: Any, key_type: type
 ) -> None:
     m = make_ask_msg()
@@ -224,7 +233,7 @@ async def test_ask_replies_when_not_editable_and_waits_on_the_sender(
     m.edit.assert_not_awaited()
     assert_listened(
         m,
-        key_type.from_sent(SENT, 7),
+        key_type.from_sent(SENT),
         context=ListenerContext(step=1, message=SENT),
         filters=pyrogram.filters.text,
         strict=True,
@@ -259,7 +268,7 @@ async def test_ask_force_send_replies_even_when_editable(
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 @pytest.mark.parametrize("is_self", [False, True])
-async def test_ask_waits_on_listen_user_id_over_the_default_user(
+async def test_ask_waits_on_listen_user_id(
     method: str, sender: str, content: object, edit_call: Any, key_type: type, is_self: bool
 ) -> None:
     m = make_ask_msg(is_self=is_self)
@@ -303,7 +312,7 @@ async def test_ask_message_keys_the_answer_by_the_topics_of_the_sent_message(
     )
     await getattr(m, method)(content)
 
-    assert wait_of(m).await_args.args == (MessageKey(-1001, 7, 3, 4),)
+    assert wait_of(m).await_args.args == (MessageKey(-1001, None, 3, 4),)
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS[2:])
@@ -313,7 +322,7 @@ async def test_ask_callback_query_keys_the_press_by_the_sent_message(
     m = make_ask_msg()
     await getattr(m, method)(content)
 
-    assert wait_of(m).await_args.args == (CallbackQueryKey(100, 7, 9),)
+    assert wait_of(m).await_args.args == (CallbackQueryKey(100, None, 9),)
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
@@ -357,39 +366,15 @@ def make_ephemeral_msg(*, is_self: bool = False) -> Any:
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_replying_to_an_ephemeral_message_waits_on_its_sender_ephemerally(
+async def test_ask_replying_to_an_ephemeral_message_waits_ephemerally_on_any_user(
     method: str, sender: str, content: object, edit_call: Any, key_type: type
 ) -> None:
     m = make_ephemeral_msg()
     await getattr(m, method)(content)
 
     key = wait_of(m).await_args.args[0]
-    assert key == key_type.from_sent(EPHEMERAL_SENT, 7)
-    assert (key.user_id, key.ephemeral) == (7, True)
-
-
-@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_editing_an_ephemeral_message_waits_on_its_receiver(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
-) -> None:
-    m = make_ephemeral_msg(is_self=True)
-    await getattr(m, method)(content)
-
-    m.edit.assert_awaited_once()
-    key = wait_of(m).await_args.args[0]
-    assert (key.user_id, key.ephemeral) == (7, True)
-
-
-@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_on_an_ephemeral_message_without_a_sender_waits_on_the_receiver(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
-) -> None:
-    m = make_ephemeral_msg()
-    m.from_user = None
-    await getattr(m, method)(content)
-
-    key = wait_of(m).await_args.args[0]
-    assert (key.user_id, key.ephemeral) == (7, True)
+    assert key == key_type.from_sent(EPHEMERAL_SENT)
+    assert (key.user_id, key.ephemeral) == (None, True)
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)

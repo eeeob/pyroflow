@@ -111,17 +111,13 @@ class Message(PyroMessage):
         with `edit`; otherwise a new message is sent with `reply`. Pyrogram
         fills in the topic, the business connection and the rest, as for any
         call of those methods. The answer is awaited on `MessageKey.from_sent`
-        of the message sent or edited: from `listen_user_id`, or without it
-        from this message's sender, or from any user when this message is the
-        client's own (`editable`).
+        of the message sent or edited: from `listen_user_id`, or from any user
+        without it.
 
         Args:
             text: The text to send or edit.
             force_send: Send a new reply even if this message is `editable`.
-            listen_user_id: The user to wait for. With `None`, this message's
-                sender, or when this message is the client's own
-                (`editable`) or has no sender, the user the message sent or
-                edited names (see `Client.ask`), or else anyone.
+            listen_user_id: The user to wait for, or `None` for any user.
             listen_context: Values attached to the listener; see
                 `Client.ask`.
             listen_filters: A Pyrogram filter the answer must pass besides
@@ -137,8 +133,7 @@ class Message(PyroMessage):
 
         Raises:
             RuntimeError: If no listener is registered for `Message`.
-            ValueError: If this is a service or empty message. Checked
-                before sending.
+            ValueError: If this is an empty message. Checked before sending.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: If the wait would start inside a handler with
@@ -148,8 +143,8 @@ class Message(PyroMessage):
                 the key (`DuplicatePolicy.REJECT`). The message is already
                 sent or edited by then.
         """
-        if self.service or self.empty:
-            msg = "Cannot call 'ask' on a service or empty message."
+        if self.empty:
+            msg = "Cannot call 'ask' on an empty message."
             raise ValueError(msg)
 
         listener = self._client.get_listener(Message)
@@ -161,12 +156,6 @@ class Message(PyroMessage):
             )
             raise RuntimeError(msg)
 
-        user_id = listen_user_id
-
-        # Anyone may answer the client's own message, whose sender is the client itself.
-        if user_id is None and not self.editable:
-            user_id = getattr(self.from_user, "id", None)
-
         m = cast(
             "Message",
             await (
@@ -176,7 +165,7 @@ class Message(PyroMessage):
             ),
         )
 
-        key = MessageKey.from_sent(m, user_id)
+        key = MessageKey.from_sent(m, listen_user_id)
         context = listen_context
 
         if self._client.ask_context_message:
@@ -260,8 +249,8 @@ class Message(PyroMessage):
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
-        if self.service or self.empty:
-            msg = "Cannot call 'ask_rich' on a service or empty message."
+        if self.empty:
+            msg = "Cannot call 'ask_rich' on an empty message."
             raise ValueError(msg)
 
         listener = self._client.get_listener(Message)
@@ -273,12 +262,6 @@ class Message(PyroMessage):
             )
             raise RuntimeError(msg)
 
-        user_id = listen_user_id
-
-        # Anyone may answer the client's own message, whose sender is the client itself.
-        if user_id is None and not self.editable:
-            user_id = getattr(self.from_user, "id", None)
-
         m = cast(
             "Message",
             await (
@@ -288,7 +271,7 @@ class Message(PyroMessage):
             ),
         )
 
-        key = MessageKey.from_sent(m, user_id)
+        key = MessageKey.from_sent(m, listen_user_id)
         context = listen_context
 
         if self._client.ask_context_message:
@@ -372,8 +355,8 @@ class Message(PyroMessage):
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
-        if self.service or self.empty:
-            msg = "Cannot call 'ask_callback_query' on a service or empty message."
+        if self.empty:
+            msg = "Cannot call 'ask_callback_query' on an empty message."
             raise ValueError(msg)
 
         listener = self._client.get_listener(CallbackQuery)
@@ -385,12 +368,6 @@ class Message(PyroMessage):
             )
             raise RuntimeError(msg)
 
-        user_id = listen_user_id
-
-        # Anyone may answer the client's own message, whose sender is the client itself.
-        if user_id is None and not self.editable:
-            user_id = getattr(self.from_user, "id", None)
-
         m = cast(
             "Message",
             await (
@@ -400,7 +377,7 @@ class Message(PyroMessage):
             ),
         )
 
-        key = CallbackQueryKey.from_sent(m, user_id)
+        key = CallbackQueryKey.from_sent(m, listen_user_id)
         context = listen_context
 
         if self._client.ask_context_message:
@@ -484,8 +461,8 @@ class Message(PyroMessage):
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
-        if self.service or self.empty:
-            msg = "Cannot call 'ask_callback_query_rich' on a service or empty message."
+        if self.empty:
+            msg = "Cannot call 'ask_callback_query_rich' on an empty message."
             raise ValueError(msg)
 
         listener = self._client.get_listener(CallbackQuery)
@@ -498,12 +475,6 @@ class Message(PyroMessage):
             )
             raise RuntimeError(msg)
 
-        user_id = listen_user_id
-
-        # Anyone may answer the client's own message, whose sender is the client itself.
-        if user_id is None and not self.editable:
-            user_id = getattr(self.from_user, "id", None)
-
         m = cast(
             "Message",
             await (
@@ -513,7 +484,7 @@ class Message(PyroMessage):
             ),
         )
 
-        key = CallbackQueryKey.from_sent(m, user_id)
+        key = CallbackQueryKey.from_sent(m, listen_user_id)
         context = listen_context
 
         if self._client.ask_context_message:

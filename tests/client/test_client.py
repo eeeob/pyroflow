@@ -14,7 +14,6 @@ import pytest
 from pyrogram import filters as pyro_filters
 from pyrogram.types import (
     BotCommand,
-    User,
     InlineKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -327,22 +326,6 @@ async def test_ask_callback_query_keys_the_press_by_the_sent_message(
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_waits_on_the_sender_of_the_message_it_replies_to(
-    method: str, sender: str, content_arg: str, update_type: type, key_type: type
-) -> None:
-    replied = make_message(chat_id=100, user_id=9, message_id=3)
-    sent = make_message(
-        chat_id=100, message_id=5, reply_markup=CALLBACK_MARKUP, reply_to_message=replied
-    )
-    c, listener, _, _ = _ask_client(sent, update_type=update_type)
-    replied._client = c
-
-    await getattr(c, method)(100, "hi", reply_parameters=object())
-
-    assert listener.calls[0]["key"].user_id == 9
-
-
-@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_waits_on_listen_user_id(
     method: str, sender: str, content_arg: str, update_type: type, key_type: type
 ) -> None:
@@ -352,25 +335,6 @@ async def test_ask_waits_on_listen_user_id(
 
     assert listener.calls[0]["key"] == key_type.from_sent(getattr(c, sender).result, 7)
     assert listener.calls[0]["key"].user_id == 7
-
-
-@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_waits_on_the_receiver_of_an_ephemeral_message(
-    method: str, sender: str, content_arg: str, update_type: type, key_type: type
-) -> None:
-    sent = make_message(
-        chat_id=100,
-        message_id=0,
-        reply_markup=CALLBACK_MARKUP,
-        ephemeral_message_id=4,
-        receiver_user=User(id=9),
-    )
-    c, listener, _, _ = _ask_client(sent, update_type=update_type)
-
-    await getattr(c, method)(100, "hi", ephemeral_message_parameters=object())
-
-    key = listener.calls[0]["key"]
-    assert (key.user_id, key.ephemeral) == (9, True)
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)

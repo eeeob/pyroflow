@@ -262,16 +262,13 @@ class Client(PyroClient):
         With `message_id` the message is edited with `edit_message_text`,
         otherwise a new one is sent with `send_message`. The answer is then
         awaited on `MessageKey.from_sent` of that message: from
-        `listen_user_id`, or without it from the user the message names, the
-        receiver of an ephemeral one or the sender of the message it replies
-        to, or else from any user.
+        `listen_user_id`, or from any user without it.
 
         Args:
             chat_id: Chat to send to, or that holds the message to edit.
             text: The text to send or edit.
             message_id: If provided, edit this message instead of sending a new one.
-            listen_user_id: The user to wait for. With `None`, the user the
-                message sent or edited names (see above), or else any user.
+            listen_user_id: The user to wait for, or `None` for any user.
             listen_context: Values attached to the listener. With
                 `ask_context_message` on (see `setup_pyroflow`), it gets the
                 sent or edited message as `message`, on a copy, unless it
