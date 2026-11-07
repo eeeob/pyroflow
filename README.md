@@ -64,13 +64,15 @@ async def on_start(client, message):
     if message.text != "/start":
         return
 
-    answer = await message.ask("What is your name?", listen_timeout=60)
+    answer = await message.ask(
+        "What is your name?", listen_user_id=message.from_user.id, listen_timeout=60
+    )
     await answer.reply(f"Hello, {answer.text}!")
 
 client.run()
 ```
 
-`message.ask` replies to the message, then waits for the next message from its sender in the same chat and topic.
+`message.ask` replies to the message, then waits for the next message from `listen_user_id`, here its sender, in the same chat and topic.
 
 ---
 
@@ -175,7 +177,7 @@ callback = await client.ask_callback_query(
 )
 ```
 
-Every `ask_*` takes `listen_user_id`, the user to wait for. Without it, the wait is on the user the message sent or edited names: the receiver of an ephemeral message (`ephemeral_message_parameters`), or the sender of the message it replies to (`reply_parameters`), unless that message is the client's own; with neither, on anyone in the chat, and in a private chat the user is the only one who can answer. `Message.ask_*` replies to the message, or edits it when it is the client's own (`editable`), and without `listen_user_id` waits for its sender first.
+Every `ask_*` takes `listen_user_id`, the user to wait for. Without it, anyone in the chat answers; in a private chat the user is the only one who can. pyroflow never guesses the user. `Message.ask_*` replies to the message, or edits it when it is the client's own (`editable`).
 
 **Parameters:**
 
@@ -279,7 +281,7 @@ async def drop_question(exc, model):
         await model.context.message.delete()
 ```
 
-To end a question from a button's handler, such as a "back" button on it, cancel its wait by its key, which raises `ListenerCancelled` in `ask`: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, query.from_user.id))` after `message.ask` on the user's message, or with `None` as the user after `client.ask`, or after `message.ask` on the client's own (`editable`) message, such as `query.message`.
+To end a question from a button's handler, such as a "back" button on it, cancel its wait by its key, which raises `ListenerCancelled` in `ask`: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, query.from_user.id))`, with the `listen_user_id` the `ask` was given, or `None` without one.
 
 > ⚠️ **A wait that never ends.** Without `listen_strict`, a wait stays open until `listen_timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The filter can never pass that update type, such as `filters.photo` while waiting for a `CallbackQuery`.
@@ -300,7 +302,7 @@ answer = await client.ask_rich(
 )
 ```
 
-Ephemeral messages have ids that do not follow each other and can be reused, so no key holds one. `ephemeral=True` on `listen` waits on ephemeral updates. Only such a wait receives them, and a regular update never reaches it. `Message.ask_*` on an ephemeral message waits this way for its sender. `Client.ask_*` knows no user, so it raises `ValueError` for `ephemeral_message_parameters` before sending. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
+Ephemeral messages have ids that do not follow each other and can be reused, so no key holds one. `ephemeral=True` on `listen` waits on ephemeral updates. Only such a wait receives them, and a regular update never reaches it. An `ask_*` on or with an ephemeral message waits this way, for its `listen_user_id` when given. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
 
 ---
 

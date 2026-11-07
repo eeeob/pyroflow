@@ -68,13 +68,15 @@ async def on_start(client, message):
     if message.text != "/start":
         return
 
-    answer = await message.ask("What is your name?", listen_timeout=60)
+    answer = await message.ask(
+        "What is your name?", listen_user_id=message.from_user.id, listen_timeout=60
+    )
     await answer.reply(f"Hello, {answer.text}!")
 
 client.run()
 ```
 
-`message.ask` ترد على الرسالة، ثم تنتظر الرسالة التالية من مرسلها في نفس المحادثة والـ topic.
+`message.ask` ترد على الرسالة، ثم تنتظر الرسالة التالية من `listen_user_id`، وهو هنا مرسلها، في نفس المحادثة والـ topic.
 
 ---
 
@@ -195,8 +197,8 @@ callback = await client.ask_callback_query(
 ```
 
 - كل `ask_*` تأخذ `listen_user_id`، المستخدم المطلوب انتظاره.
-- بدونه يكون الانتظار على المستخدم الذي تسمّيه الرسالة المرسلة أو المعدّلة: مستقبل الرسالة المؤقتة (`ephemeral_message_parameters`)، أو مرسل الرسالة التي ترد عليها (`reply_parameters`) إلا إن كانت رسالة الـ client نفسه. وإن لم يوجد أيهما فعلى أي مستخدم في المحادثة، وفي المحادثة الخاصة لا يجيب إلا المستخدم نفسه.
-- `Message.ask_*` ترد على الرسالة، أو تعدّلها إن كانت رسالة الـ client نفسه (`editable`). وبدون `listen_user_id` تنتظر مرسلها أولًا.
+- بدونه يجيب أي مستخدم في المحادثة، وفي المحادثة الخاصة لا يجيب إلا المستخدم نفسه. ولا تخمّن pyroflow المستخدم أبدًا.
+- `Message.ask_*` ترد على الرسالة، أو تعدّلها إن كانت رسالة الـ client نفسه (`editable`).
 
 **المعاملات:**
 
@@ -307,7 +309,7 @@ async def drop_question(exc, model):
         await model.context.message.delete()
 ```
 
-لإنهاء سؤال من handler زر، مثل زر "رجوع" عليه، ألغِ انتظاره بمفتاحه، فترفع `ask` الخطأ `ListenerCancelled`: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, query.from_user.id))` بعد `message.ask` على رسالة المستخدم، أو مع `None` مكان المستخدم بعد `client.ask`، أو بعد `message.ask` على رسالة الـ client نفسه (`editable`)، مثل `query.message`.
+لإنهاء سؤال من handler زر، مثل زر "رجوع" عليه، ألغِ انتظاره بمفتاحه، فترفع `ask` الخطأ `ListenerCancelled`: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, query.from_user.id))`، مع `listen_user_id` الذي أُعطي للسؤال، أو `None` إن لم يُعطَ.
 
 > ⚠️ **انتظار لا ينتهي.** بلا `listen_strict`، يبقى الانتظار مفتوحًا حتى `listen_timeout`، أو إلى الأبد بلا `listen_timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - الفلتر لا يمكن أن يقبل هذا النوع أصلًا، مثل `filters.photo` أثناء انتظار `CallbackQuery`.
@@ -336,8 +338,7 @@ answer = await client.ask_rich(
 معرّفات الرسائل المؤقتة لا تتسلسل وقد يُعاد استعمالها، فلا يحمل أي مفتاح رقمها:
 
 - `ephemeral=True` في `listen` ينتظر التحديثات المؤقتة. هذا الانتظار وحده يستقبلها، ولا يصله تحديث عادي.
-- `Message.ask_*` على رسالة مؤقتة تنتظر مرسلها بهذه الطريقة.
-- `Client.ask_*` لا تعرف مستخدمًا، فترفع `ValueError` مع `ephemeral_message_parameters` قبل الإرسال.
+- `ask_*` على رسالة مؤقتة أو برسالة مؤقتة تنتظر بهذه الطريقة، على `listen_user_id` إن أُعطي.
 - رسالتان مؤقتتان للمستخدم نفسه تشتركان في المفتاح، ففرّق بينهما بـ `listen_filters`.
 
 ---

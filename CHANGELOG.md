@@ -22,12 +22,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `reply_rich`/`edit`), then wait for a press on the buttons of the message
   sent or edited, where `ask` and `ask_rich` wait for the next message. The key comes from that message:
   its chat and topics, and for a press its id. Every `ask_*` takes
-  `listen_user_id`, the user to wait for. Without it, `Message.ask_*` waits
-  for the sender of the message it is called on; otherwise, as in
-  `Client.ask_*`, the user the message sent or edited names (the receiver
-  of an ephemeral message, or the sender of the message it replies to unless
-  it is the client's own), or else anyone. `MessageKey.from_sent` and
-  `CallbackQueryKey.from_sent` name that user the same way.
+  `listen_user_id`, the user to wait for; without it, any user answers.
 - `pyroflow.models.MessageKey` (`chat_id`, `user_id`, `message_thread_id`,
   `direct_messages_topic_id`, `ephemeral`) and
   `pyroflow.models.CallbackQueryKey` (`chat_id`, `user_id`, `message_id`,
@@ -76,10 +71,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `CallbackQueryListener.listen` (the `ephemeral` field of the keys): waits on
   ephemeral updates. Ephemeral ids do not follow each other
   and can be reused, so no key holds one, an ephemeral update reaches only
-  such a wait, and a regular update never does. `Message.ask_*` on an
-  ephemeral message waits this way for its sender; `Client.ask_*` knows no
-  user, so it raises `ValueError` for `ephemeral_message_parameters` before
-  sending.
+  such a wait, and a regular update never does. An `ask_*` on or with an
+  ephemeral message waits this way, for its `listen_user_id` when given.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
@@ -124,12 +117,14 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `ask_callback_query` asks for a press, on `Client` and `Message`.
   `update_type` and `listen_message_id` are gone: the key comes from
   the message sent or edited, and a message answer is no longer matched by
-  its id. `listen_user_id` stays; without it the user is the one the message
-  sent or edited names, or on `Message`, the sender of the message it is
-  called on. Affects `ask` calls passing `update_type` or
-  `listen_message_id`.
+  its id. `listen_user_id` stays, and without it any user answers:
+  `Message.ask` no longer waits for the sender of the message it is called
+  on by default. Affects `ask` calls passing `update_type` or
+  `listen_message_id`, and `Message.ask` calls without `listen_user_id`.
   Migration:
   - Drop `listen_message_id` from `ask`.
+  - `message.ask("Name?", listen_user_id=message.from_user.id)` to wait for
+    the sender, as `message.ask("Name?")` did.
   - `client.ask_callback_query(chat_id, "Pick one:", reply_markup=keyboard)`
     instead of `client.ask(..., update_type=CallbackQuery)`, and drop
     `listen_message_id`: the press is awaited on the message sent or edited.
@@ -239,8 +234,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   whose buttons on an `ask` message were meant to end it.
   Migration: cancel the wait in the button's handler, by the key it waits
   on: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, user_id))`,
-  with the user the `ask` waits for, such as `query.from_user.id`,
-  or `None` after `Client.ask`.
+  with the `listen_user_id` the `ask` was given, or `None` without one.
 - **BREAKING:** `Client.listeners`, `Client.message_listen` and
   `Client.callback_listen` are gone. Affects code that reads them, and their
   `KeyError` when no listener is registered.
