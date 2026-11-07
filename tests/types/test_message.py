@@ -92,10 +92,15 @@ def test_not_editable_for_other_user() -> None:
     assert make_msg().editable is False
 
 
-def test_editable_when_sender_chat_is_me() -> None:
-    m = make_msg(sender_chat=Chat(id=ME_ID, type=ChatType.CHANNEL))
+def test_editable_when_outgoing_without_a_sender() -> None:
+    # The client's own channel post: no `from_user`, and the channel's id is no user's.
+    m = make_msg(sender_chat=Chat(id=-1001, type=ChatType.CHANNEL), outgoing=True)
     m.from_user = None
     assert m.editable is True
+
+
+def test_not_editable_when_ephemeral_even_if_sent_by_self() -> None:
+    assert make_msg(is_self=True, ephemeral_message_id=3).editable is False
 
 
 def test_not_editable_when_sender_chat_is_another_chat() -> None:
@@ -363,6 +368,17 @@ def make_ephemeral_msg(*, is_self: bool = False) -> Any:
     m.edit.return_value = EPHEMERAL_SENT
     m.reply_rich.return_value = EPHEMERAL_SENT
     return m
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_on_the_clients_own_ephemeral_message_replies_instead_of_editing(
+    method: str, sender: str, content: object, edit_call: Any, key_type: type
+) -> None:
+    m = make_ephemeral_msg(is_self=True)
+    await getattr(m, method)(content)
+
+    getattr(m, sender).assert_awaited_once()
+    m.edit.assert_not_awaited()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)

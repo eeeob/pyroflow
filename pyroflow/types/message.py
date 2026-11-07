@@ -505,10 +505,14 @@ class Message(PyroMessage):
 
     @property
     def editable(self) -> bool:
-        """`True` if this message was sent by the client itself, so it can be edited."""
-        return getattr(self.from_user, "is_self", False) or getattr(
-            self.sender_chat, "id", None
-        ) == getattr(self._client.me, "id", 0)
+        """`True` if this message was sent by the client itself, so it can be edited.
+
+        An ephemeral message is never editable here: its `id` is `0`, and
+        Pyrogram cannot edit it.
+        """
+        return self.ephemeral_message_id is None and (
+            bool(self.outgoing) or getattr(self.from_user, "is_self", False)
+        )
 
     if TYPE_CHECKING:
         # Both signatures, straight from Pyrogram, so nothing here needs updating.
