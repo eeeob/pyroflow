@@ -414,6 +414,22 @@ async def test_raw_handler_receives_the_raw_packet() -> None:
     assert calls == [("raw", *RAW_PACKET)]
 
 
+async def test_raw_handler_whose_check_fails_is_skipped() -> None:
+    dispatcher = make_real_dispatcher()
+    calls: list[tuple[object, ...]] = []
+    msg = make_message()
+    raw = RawUpdateHandler(recording(calls, "raw"))
+
+    async def check(client: object, update: object) -> bool:
+        return False
+
+    raw.check = check
+    dispatcher.groups[0] = [raw, MessageHandler(recording(calls, "next"))]
+
+    assert await dispatcher.handle_update(RAW_PACKET, msg, MessageHandler) is None
+    assert calls == [("next", msg)]
+
+
 async def test_handle_update_leaves_the_listener_alone() -> None:
     dispatcher = make_real_dispatcher()
     calls: list[tuple[object, ...]] = []
