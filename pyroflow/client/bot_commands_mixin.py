@@ -8,6 +8,7 @@ from typing import Any, TYPE_CHECKING
 
 from pyrogram import Client as PyroClient
 from pyrogram.sync import wrap as async_to_sync
+from pyrogram.types import BotCommandScopeDefault
 from pytrove import (
     to_list,
     dedupe,
@@ -86,6 +87,10 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     def _declared_bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
         """Group the commands every handler in `dispatcher.groups` declares.
 
+        Entries Telegram files under the same list share a group: no scope
+        and `BotCommandScopeDefault()` are both `None`, and no language and
+        `""` are both `None`.
+
         Returns:
             `((language_code, scope), commands)` pairs, each group deduplicated
             and non-empty, in dispatcher order.
@@ -96,7 +101,11 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             for handler in handlers:
                 for entry in getattr(handler, _BOT_COMMANDS_ATTR, ()):
                     language_code, scope, commands = split_bot_command_entry(entry)
-                    key = (language_code, scope)
+                    # Telegram reads no scope as the default scope, and no language as "".
+                    key = (
+                        language_code or None,
+                        None if isinstance(scope, BotCommandScopeDefault) else scope,
+                    )
                     group = next((_commands for _key, _commands in declared if _key == key), None)
 
                     if group is None:

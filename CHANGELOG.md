@@ -336,6 +336,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
   so the first updates, such as a `registered_command` check, already see
   them. A failed publish is logged instead of failing `start` on a connected
   client.
+- `BotCommandsMixin` sends one call per Telegram command list: commands
+  declared with no scope and with `BotCommandScopeDefault()`, or with no
+  language and `""`, used to go out in separate calls to the same list, and
+  only the last to land was kept.
 - `Dispatcher.stop` stops the listeners before it drains the workers, so a
   handler blocked in `ask_*` no longer holds up the shutdown until its timeout.
 - `MessageListener` no longer raises `AttributeError` for messages without

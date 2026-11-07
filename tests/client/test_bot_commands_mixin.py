@@ -180,10 +180,19 @@ def test_declared_bot_command_groups_groups_dedupes_and_drops_empty_groups() -> 
     ]
 
 
+def test_declared_bot_command_groups_merges_the_entries_of_the_same_telegram_list() -> None:
+    # No scope is the default scope and no language is "" for Telegram: one list, one call.
+    c = _MixedFake()
+    start, help_, menu = _cmd("start"), _cmd("help"), _cmd("menu")
+    _declare(c, start, (BotCommandScopeDefault(), [help_]), ("", BotCommandScopeDefault(), [menu]))
+
+    assert c._declared_bot_command_groups() == [((None, None), [start, help_, menu])]
+
+
 async def test_push_bot_commands_sends_each_declared_group() -> None:
     c = _MixedFake()
     a, b, d = _cmd("a"), _cmd("b"), _cmd("d")
-    scope = BotCommandScopeDefault()
+    scope = BotCommandScopeAllGroupChats()
     _declare(c, [a, b], ("en", scope, [d]))
 
     await c.push_bot_commands()
