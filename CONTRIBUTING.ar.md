@@ -142,7 +142,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **2.3 نوع الـ update الجديد يحصل على listener.** دعمه هو `XListener` مربوط بالنوع عبر `__update_type__`.
 
-**2.4 الأخطاء.** كل خطأ جديد يُعرَّف في `pyroflow.errors` ويرث عائلته: `ListenerError` للانتظار و`ask`، أو `PyroflowError` إن لم يناسبها. الـ `docstring` الخاص بالكلاس هو قالب الرسالة، ويُملأ بالقيمة لحظة رفع الخطأ.
+**2.4 الأخطاء.** كل خطأ جديد يُعرَّف في `pyroflow.errors` ويرث عائلته: `ListenerError` للانتظار ودوال `ask_*`، أو `PyroflowError` إن لم يناسبها. الـ `docstring` الخاص بالكلاس هو قالب الرسالة، ويُملأ بالقيمة لحظة رفع الخطأ.
 
 ### الأولوية 3 — الاعتماديات
 

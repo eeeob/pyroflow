@@ -10,6 +10,42 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
+- `Client` and `Message` `ask_message`, `ask_message_rich`,
+  `ask_callback_query` and `ask_callback_query_rich`: send or edit a text
+  (`send_message`/`edit_message_text`, or `reply`/`edit` on `Message`) or a
+  rich message (`send_rich_message`/`edit_message_text(rich_message=...)`, or
+  `reply_rich`/`edit`), then wait for the next message, or for a press on the
+  buttons of the message sent or edited. The key comes from that message:
+  its chat and topics, and for a press its id. `Message.ask_*` waits for the
+  sender of the message it is called on, or for anyone when that message is
+  the client's own (`editable`); `Client.ask_*` waits for anyone, so narrow
+  it with `listen_filters`. `ask_callback_query*` raises `ValueError` when the
+  message sent or edited has no button that sends a callback query
+  (`callback_data` or `callback_game`); the message is already sent or
+  edited by then.
+- `pyroflow.models.MessageKey` (`chat_id`, `user_id`, `message_thread_id`,
+  `direct_messages_topic_id`, `ephemeral`) and
+  `pyroflow.models.CallbackQueryKey` (`chat_id`, `user_id`, `message_id`,
+  `inline_message_id`, `ephemeral`), the keys of `MessageListener` and
+  `CallbackQueryListener`. Every field but `ephemeral` defaults to `None`,
+  which matches any value; `ephemeral` defaults to `False` and is always
+  compared. A key holds the values as given: a `user_id` alone waits for
+  that user in any chat, inline-mode presses included, and a private chat is
+  `chat_id` set to the user's id. `exact` in a field's metadata lets a custom
+  key class declare such a field; `ListenerKey.key_fields` and
+  `exact_fields` read the fields once per class. `MessageKey.from_message`,
+  `CallbackQueryKey.from_callback_query` and `from_sent` on both build a key
+  from an update, or from a message just sent.
+- Waits by topic: `message_thread_id` (a forum topic) and
+  `direct_messages_topic_id` (a topic of a channel's direct messages chat) on
+  `MessageListener.listen`. `ask_message` waits in the topic of the message
+  it sent or edited.
+- Presses on messages sent in inline mode: `inline_message_id` on
+  `CallbackQueryListener.listen`. Such a press is keyed by its user and
+  `inline_message_id`.
+- `pyroflow.ListenKw`, the `TypedDict` of the wait arguments every `listen`
+  takes (`context`, `filters`, `strict`, `timeout`), and `pyroflow.typings.KeyT`,
+  the key type a listener is generic on.
 - `pyroflow.filters.registered_command()`: passes a message whose text or
   caption is a command registered for this bot, with or without arguments,
   from `get_bot_commands()` in the given `scopes` and `language_codes`.
@@ -29,13 +65,16 @@ Every breaking change lists what changed, who is affected and how to migrate.
   as it is marked done, right after its future is set, and only once. A wait
   inside a handler frees its worker slot this way. A failing callback is
   logged.
-- `Client.setup_pyroflow(ask_context_message=True)`: `ask` and `ask_rich` put
+- `Client.setup_pyroflow(ask_context_message=True)`: the `ask_*` methods put
   the message in `listen_context`. Off by default, so it stays as it is.
-- `pyroflow.enums.EphemeralUpdates.ANY`: waits on ephemeral updates, in `listen` and in
-  `listen_message_id` of `ask`. It needs a user. Ephemeral ids do not follow
-  each other and can be reused, so no key holds one, an ephemeral update reaches
-  only such a wait, and a regular update never does. After an ephemeral `ask`,
-  `SENT` and `NEXT` raise `ValueError`; pass `EphemeralUpdates.ANY` for the answer.
+- `ephemeral=True` on `MessageListener.listen` and
+  `CallbackQueryListener.listen` (the `ephemeral` field of the keys): waits on
+  ephemeral updates. Ephemeral ids do not follow each other
+  and can be reused, so no key holds one, an ephemeral update reaches only
+  such a wait, and a regular update never does. `Message.ask_*` on an
+  ephemeral message waits this way for its sender; `Client.ask_*` knows no
+  user, so it raises `ValueError` for `ephemeral_message_parameters` before
+  sending.
 - `ListenerReplaced`, a `ListenerCancelled`: a newer wait took the same key.
 - `pyroflow.filters`: text-matching filters such as `split_text`.
 - `BotCommandsMixin` and `mark_bot_commands`: an opt-in `Client` mixin that
@@ -43,9 +82,6 @@ Every breaking change lists what changed, who is affected and how to migrate.
   session per bot: when two overlap, such as during a rolling deploy, the one
   that stops deletes the commands the other still uses, unless it stops with
   `remove_commands=False`. A class without `Client` after it gets `TypeError`.
-- `pyroflow.enums.ListenMessageId` as `listen_message_id` on `ask` and
-  `ask_rich`: `SENT` waits on the message `ask` sent or edited, such as a
-  press on its buttons; `NEXT` waits for the message right after it.
 - `User.lang_code` and `Message.editable`.
 - `py.typed`: the package ships its type hints.
 - `ListenerKey.to_dict()`: the key's fields by name.
@@ -54,63 +90,104 @@ Every breaking change lists what changed, who is affected and how to migrate.
 - `pyroflow.utils.get_update_executor(update)`: the executor of the client an
   update is bound to, or `None`.
 - `PyroflowError`, the root of every pyroflow error.
-- `Client.ask_rich` and `Message.ask_rich`: `ask` for rich messages, sent with
-  `send_rich_message` or edited with `edit_message_text(rich_message=...)`.
 - `UpdateListener.is_closed`: whether `stop` ran since the last `start`;
   `listen` raises `ListenerCancelled` while it is.
 - `filters=` and `strict=` on `listen` (`listen_filters=` and
-  `listen_strict=` on `ask` and `ask_rich`): a Pyrogram filter the awaited
+  `listen_strict=` on the `ask_*` methods): a Pyrogram filter the awaited
   update must pass besides its key. An update whose key
   matches but that fails the filter is skipped and the listener keeps
   waiting, or, with `strict=True`, the wait ends with the new
-  `ListenerRejected` (a `ListenerCancelled`). `MessageListener`'s default `on_listen_func` logs a warning for a
-  non-strict filter on a key with a `message_id`, which names one message and
-  can leave the wait open.
+  `ListenerRejected` (a `ListenerCancelled`).
 - `UpdateListener.reject(key)`: end a wait with `ListenerRejected`.
 - `UpdateListener(strict_filter=...)`: a filter for every `listen` that passes
   no `filters`; an update that fails it ends the wait with `ListenerRejected`.
-- `UpdateListener(on_listen_func=...)`: called inline with one dict of the
-  arguments of every `listen` call by name, before the wait is registered;
-  an error it raises stops the wait from starting.
 - `UpdateListener(on_error_func=...)`: called with the error and the
   `ListenerModel` when a `ListenerError` ends a wait (a timeout, a
   cancellation or a strict rejection), before `listen` raises it. A failing callback is logged and never hides the error.
 - `pyroflow.models.ListenerContext`, the type of a wait's `context`: a
-  `SimpleNamespace` with the typed fields `message_id` and `message`, plus
+  `SimpleNamespace` with the typed field `message`, plus
   any value the caller adds. Declared and added values are both read and set
   as attributes; subclass it to type fields of your own.
-- `MessageListenCancellingCallbackQueryListener`: a `CallbackQueryListener`
-  whose presses that no callback wait takes cancel the message listen tied
-  to the pressed message (see the Changed entry below): every wait whose
-  `context.message` is that message, which `ask` sets with
-  `ask_context_message` on. Its `cancel_policy=` (the new
-  `pyroflow.enums.MessageListenCancelPolicy`) sets which presses cancel:
-  `ALWAYS`, `UNRESOLVED` (the default) or `RESOLVED`; its `cancel_scope=`
-  (the new `pyroflow.enums.ListenerScope`) how many tied waits:
-  `ALL` (the default) or `FIRST`, the most specific.
-- `resolve_scope=` on every `UpdateListener`: `ListenerScope.FIRST` (the
-  default) gives an update to the most specific matching wait only, as
-  before; `ListenerScope.ALL` gives it to every matching wait.
+- `resolve_scope=` on every `UpdateListener` (the new
+  `pyroflow.enums.ListenerScope`): `ListenerScope.FIRST` (the default) gives
+  an update to the most specific matching wait only, as before;
+  `ListenerScope.ALL` gives it to every matching wait.
 
 ### Changed
 
-- **BREAKING:** `ask` and `ask_rich` hand the Pyrogram arguments to Pyrogram as
-  they are. `Client.ask` no longer ignores arguments the chosen mode does not
+- **BREAKING:** `ask` is gone: `ask_message` asks for a message and
+  `ask_callback_query` for a press, on `Client` and `Message`.
+  `update_type` is gone with it, and so are `listen_user_id` and
+  `listen_message_id`: the key comes from the message sent or edited, and a
+  message answer is no longer matched by its id. `Message.ask_*` waits for the
+  sender of the message it is called on, or for anyone when that message is
+  the client's own; `Client.ask_*` waits for anyone in the chat. Affects every
+  `ask` call.
+  Migration:
+  - `client.ask_message(chat_id, "Name?", listen_filters=filters.user(user_id))`
+    instead of `client.ask(chat_id, "Name?", listen_user_id=user_id)`; in a
+    private chat the user is the only one who can answer, so the filter can go.
+  - `message.ask_message("Name?")` instead of
+    `message.ask("Name?", listen_user_id=message.from_user.id)`.
+  - `client.ask_callback_query(chat_id, "Pick one:", reply_markup=keyboard)`
+    instead of `client.ask(..., update_type=CallbackQuery)`, and drop
+    `listen_message_id`: the press is awaited on the message sent or edited,
+    which must have a callback button.
+- **BREAKING:** `listen` takes the fields of its listener's key, each `None`
+  (any value) by default: `MessageListener.listen(chat_id, user_id,
+  message_thread_id, direct_messages_topic_id, ephemeral)`,
+  `CallbackQueryListener.listen(chat_id, user_id, message_id,
+  inline_message_id, ephemeral)`. `UpdateListener.listen(key)` takes the
+  whole key instead, and raises `TypeError` for a key that is not its
+  `__key_type__`. The wait arguments (`context`, `filters`, `strict`,
+  `timeout`) are keyword-only. `MessageListener` no longer keys a message by
+  its id. Affects code that calls `listen` with a `message_id` on a message
+  wait, passes the wait arguments by position, or calls `listen` on a custom
+  `UpdateListener` subclass.
+  Migration: `listen(chat_id, user_id)` still works on `MessageListener` and
+  `CallbackQueryListener`. Drop a third argument to `MessageListener.listen`:
+  by position it is now `message_thread_id`, not a message id. Pass `meta` as
+  `context=` (see below). On a custom listener, pass a key:
+  `listener.listen(MyKey(chat_id))`.
+- **BREAKING:** `ListenerKey` is the base of the keys and holds only
+  `chat_id`, `None` by default. `MessageKey` and `CallbackQueryKey` add the
+  fields of their update type, and a key equals only a key of its own class.
+  `ListenerKey.sub_keys` is gone: `resolve` looks up one key for each shape
+  (set of fields) of the open waits, most fields first, then by field order,
+  so `(chat, user)` comes before `(chat, topic)`, which comes before `(chat)`.
+  Affects code that builds or reads keys, such as
+  `ListenerKey(chat_id, user_id) in listener.listeners`, or calls `sub_keys`.
+  Migration: `MessageKey(chat_id, user_id)` or
+  `CallbackQueryKey(chat_id, user_id, message_id)` instead of
+  `ListenerKey(chat_id, user_id, message_id)`.
+- **BREAKING:** `UpdateListener` is generic on its key class too, and a
+  subclass sets `__key_type__`. `extract_key` and `extract_key_func` are sync
+  and return a `__key_type__` or `None`; anything else raises `TypeError`.
+  Affects custom listeners, annotations such as `UpdateListener[Message]`,
+  and code passing an async `extract_key_func` or awaiting `extract_key`.
+  Migration: `UpdateListener[Message, MessageKey]`, set
+  `__key_type__ = MessageKey` (or your own `ListenerKey` subclass) on a
+  custom listener, make `extract_key_func` a plain function that returns
+  such a key, and call `extract_key` without `await`.
+- **BREAKING:** the `ask_*` methods hand the Pyrogram arguments to Pyrogram as
+  they are. `Client.ask_*` no longer ignores arguments the chosen mode does not
   take, and neither `Client` nor `Message` raises `ValueError` for a
   `reply_markup` other than `InlineKeyboardMarkup` when editing, or for send
   arguments on an edit. Affects code that relied on those. Migration: pass only
   what the mode takes; the type hints show it, and Pyrogram raises `TypeError`
   for anything else.
-- **BREAKING:** `Message.ask` and `Message.ask_rich` call the message's own
+- **BREAKING:** the `Message.ask_*` methods call the message's own
   `reply`, `reply_rich` and `edit` instead of `Client.ask`, so Pyrogram handles
   replies in topics, business chats and ephemeral messages, and they accept
   only what those methods accept. That leaves out `reply_parameters`,
   `message_thread_id` and `direct_messages_topic_id` on a reply, and
-  `schedule_date` on an edit. Migration: call `client.ask` with those arguments.
+  `schedule_date` on an edit. Affects calls on a `Message` that pass those.
+  Migration: call the `Client.ask_*` method with
+  those arguments.
 - **BREAKING:** pyroflow needs `kurigram>=2.2.26`, the first version with
   `Message.edit(rich_message=...)`. Migration: upgrade kurigram.
 - Faster dispatch: `UpdateListener.resolve` returns at once when no wait is
-  open, and listener filters, `extract_key_func`, `on_error_func`, handler
+  open, and listener filters, `on_error_func`, handler
   callbacks and `split_text` rules that are coroutine functions are awaited
   directly (the new `pyroflow.utils.call_maybe_async`). A listener filter
   no longer captures the caller's stack on every call. An error in a
@@ -136,34 +213,34 @@ Every breaking change lists what changed, who is affected and how to migrate.
   Migration: return `None` from `extract_key_func` where `is_listenable_func`
   returned `False`.
 - **BREAKING:** `meta` is renamed `context` on `listen` and
-  `listen_context` on `ask` and `ask_rich`, and is a `ListenerContext`, no
+  `listen_context` on the `ask_*` methods, and is a `ListenerContext`, no
   longer a value of any type or a dict; it is keyword-only, and
   `ListenerModel.meta` is `ListenerModel.context`, `None` unless one was passed.
   `ListenerModel` takes its `future` as the second field, with no default.
-  With `ask_context_message` on, `ask` puts the sent or edited message in the
+  With `ask_context_message` on, `ask_*` puts the sent or edited message in the
   context as `message`, on a copy, unless it holds one, so the id is
   `context.message.id` instead of
   `meta["message_id"]`. Affects code passing
   or reading `meta`, or building `ListenerModel` itself.
   Migration: `listen(chat, context=ListenerContext(step=1))` instead of
-  `listen(chat, {"step": 1})`, `ask(..., listen_context=ListenerContext(...))`
-  instead of `ask(..., meta=...)`, read `model.context.step` instead of
+  `listen(chat, {"step": 1})`,
+  `ask_message(..., listen_context=ListenerContext(...))` instead of
+  `ask(..., meta=...)`, read `model.context.step` instead of
   `model.meta["step"]`, and build models as
   `ListenerModel(key, loop.create_future())`.
-- **BREAKING:** every listen parameter of `ask` and `ask_rich` (on `Client`
-  and `Message`) starts with `listen_`: `timeout` is `listen_timeout` and
-  `update_type` is `listen_update_type`. Affects every call passing them.
-  Migration: `ask(..., listen_timeout=30, listen_update_type=CallbackQuery)`
-  instead of `ask(..., timeout=30, update_type=CallbackQuery)`.
-- **BREAKING:** `CallbackQueryListener` no longer cancels message waits. A
-  press that no callback wait takes cancels the message listen tied to the
-  pressed message (the `ask` that sent it) only with the new
-  `MessageListenCancellingCallbackQueryListener`; the wait is found from the
-  presser and the pressed message, so a wait aimed at another user is left
-  alone. Affects bots whose buttons on an `ask` message were meant to end it.
-  Migration: register
-  `MessageListenCancellingCallbackQueryListener()` instead of
-  `CallbackQueryListener()`.
+- **BREAKING:** every listen parameter of the `ask_*` methods (on `Client`
+  and `Message`) starts with `listen_`: `timeout` is `listen_timeout`.
+  Affects every call passing it.
+  Migration: `ask_message(..., listen_timeout=30)` instead of
+  `ask(..., timeout=30)`.
+- **BREAKING:** `CallbackQueryListener` no longer cancels message waits: a
+  press that no callback wait takes no longer ends the `ask` that sent the
+  pressed message, and nothing in pyroflow does it instead. Affects bots
+  whose buttons on an `ask` message were meant to end it.
+  Migration: cancel the wait in the button's handler, by the key it waits
+  on: `client.message_listen.cancel(MessageKey.from_sent(query.message, user_id))`,
+  with the user the `ask_message` waits for, such as `query.from_user.id`,
+  or `None` after `Client.ask_message`.
 - **BREAKING:** `ListenerKey.to_tuple` is a method. Affects code reading
   `key.to_tuple` as a property.
   Migration: call `key.to_tuple()`.
@@ -221,7 +298,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   a history or read its records.
   Migration: carry the step a button leads back to in its `callback_data`
   (such as `back:menu`), which survives restarts, or keep a conversation's
-  state in one `ask()` flow.
+  state in one `ask_message()` flow.
 - **BREAKING:** the general-purpose helpers in `pyroflow.utils` are gone,
   together with the modules `pyroflow.utils.async_tools`,
   `pyroflow.utils.iter_tools`, `pyroflow.utils.validate_tools` and
@@ -252,18 +329,17 @@ Every breaking change lists what changed, who is affected and how to migrate.
 ### Fixed
 
 - After a `stop`, the updates the original `start` dispatches first no
-  longer fail their `ask` with `ListenerCancelled`: the listeners start
+  longer fail their `ask_*` with `ListenerCancelled`: the listeners start
   before it.
 - A failed bot command publish in `BotCommandsMixin.start` is logged instead
   of failing `start` on a connected client.
 - `Dispatcher.stop` stops the listeners before it drains the workers, so a
-  handler blocked in `ask` no longer holds up the shutdown until its timeout.
+  handler blocked in `ask_*` no longer holds up the shutdown until its timeout.
 - `MessageListener` no longer raises `AttributeError` for messages without
   `from_user` (anonymous admins, channel posts); the listener key's user is `None`.
 - A registered listener with no pending `listen` no longer swallows every
   update of its type: handlers used to be skipped while the listener held no
-  waiters. `CallbackQueryListener` also cancels the ask on a pressed button's
-  message when no callback listener is pending.
+  waiters.
 
 ## [0.2.1] - 2026-07-26
 

@@ -27,7 +27,7 @@ Branch from `main`, one cohesive change per branch, ending in its own pull reque
 | Support for a new update type | a listener in `pyroflow.update_listener` | 2.3 |
 | An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` (created with the first one) | 1.4, 2.4 |
 | A helper | `pyroflow.utils` when sections share it, the section's `_internal.py` when one section uses it; `pytrove` first | 1.5 |
-| Type hints of the Pyrogram arguments `ask` takes | `pyroflow._internal`, never exported | 1.7–1.9 |
+| Type hints of the Pyrogram arguments the `ask_*` methods take | `pyroflow._internal`, never exported | 1.7–1.9 |
 | A dependency | an extra, unless every feature needs it | 3.1–3.3 |
 | A test | the `tests/` path that mirrors the module; static type tests in `tests/typing/` | 0.1 |
 
@@ -116,7 +116,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **2.3 A new update type gets its listener.** Support for it is an `XListener` bound to the type with `__update_type__`.
 
-**2.4 Errors.** A new error lives in `pyroflow.errors` and subclasses its family: `ListenerError` for waiting and `ask`, or `PyroflowError` when it does not fit. Its class docstring is the message template, formatted with the value at raise time.
+**2.4 Errors.** A new error lives in `pyroflow.errors` and subclasses its family: `ListenerError` for waiting and the `ask_*` methods, or `PyroflowError` when it does not fit. Its class docstring is the message template, formatted with the value at raise time.
 
 ### Priority 3 — Dependencies
 

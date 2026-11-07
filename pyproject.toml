@@ -43,7 +43,7 @@ classifiers = [
 # Every dependency has a floor and, by default, no ceiling; the reason for each
 # bound sits beside it.
 dependencies = [
-    # `Message.ask_rich` calls `Message.reply_rich` and `Message.edit(rich_message=...)`,
+    # `Message.ask_message_rich` calls `Message.reply_rich` and `Message.edit(rich_message=...)`,
     # and `ephemeral_message_parameters` is new in this version.
     "kurigram>=2.2.26",
     # yield_control is a pytrove 2.0 API.
@@ -164,7 +164,7 @@ required-imports = ["from __future__ import annotations as _annotations"]
 
 [tool.ruff.lint.flake8-type-checking]
 # Dataclass annotations stay real imports, because `dataclasses` reads
-# `ClassVar` on class creation (pyroflow/models.py defines dataclasses).
+# `ClassVar` on class creation (pyroflow/models/ defines dataclasses).
 runtime-evaluated-decorators = ["dataclasses.dataclass"]
 # `typing_extensions` is the backport of `typing`, imported in the same
 # `sys.version_info` branches.
