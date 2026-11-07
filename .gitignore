@@ -126,6 +126,11 @@ venv.bak/
 .claude/
 CLAUDE.md
 AGENTS.md
+.agents/
+skills-lock.json
 
 # Personal Claude Code notes
 CLAUDE.local.md
+
+
+graphify-out/
