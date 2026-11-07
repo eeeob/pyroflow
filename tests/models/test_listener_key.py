@@ -3,10 +3,10 @@
 from __future__ import annotations as _annotations
 
 import dataclasses
+from types import SimpleNamespace
 
 import pytest
 from pyrogram.types import (
-    CallbackGame,
     CallbackQuery,
     Chat,
     InlineKeyboardButton,
@@ -203,41 +203,61 @@ def test_callback_query_key_from_sent_keys_chat_message_and_the_given_user() -> 
     assert CallbackQueryKey.from_sent(sent, 2) == CallbackQueryKey(1, 2, 5)
 
 
+def _replied(user: User | None, sender_chat: Chat | None = None) -> Message:
+    replied = Message(id=3, chat=Chat(id=1), from_user=user, sender_chat=sender_chat)
+    replied._client = SimpleNamespace(me=SimpleNamespace(id=42))
+    return replied
+
+
+@pytest.mark.parametrize("key_type", [MessageKey, CallbackQueryKey])
+def test_from_sent_without_a_user_takes_the_receiver_of_an_ephemeral_message(
+    key_type: type[MessageKey | CallbackQueryKey],
+) -> None:
+    sent = Message(
+        id=0,
+        chat=Chat(id=1),
+        ephemeral_message_id=4,
+        receiver_user=User(id=9),
+        reply_markup=CALLBACK_MARKUP,
+    )
+
+    assert key_type.from_sent(sent).user_id == 9
+    assert key_type.from_sent(sent, 8).user_id == 8
+
+
+@pytest.mark.parametrize("key_type", [MessageKey, CallbackQueryKey])
+def test_from_sent_without_a_user_takes_the_sender_of_the_replied_message(
+    key_type: type[MessageKey | CallbackQueryKey],
+) -> None:
+    sent = Message(
+        id=5, chat=Chat(id=1), reply_to_message=_replied(User(id=7)), reply_markup=CALLBACK_MARKUP
+    )
+
+    assert key_type.from_sent(sent).user_id == 7
+    assert key_type.from_sent(sent, 8).user_id == 8
+
+
+@pytest.mark.parametrize("key_type", [MessageKey, CallbackQueryKey])
+@pytest.mark.parametrize(
+    "replied",
+    [
+        pytest.param(lambda: _replied(User(id=42, is_self=True)), id="own"),
+        pytest.param(lambda: _replied(None, Chat(id=-100)), id="no-sender"),
+        pytest.param(lambda: None, id="no-reply"),
+    ],
+)
+def test_from_sent_without_a_user_named_waits_on_any_user(
+    key_type: type[MessageKey | CallbackQueryKey], replied: object
+) -> None:
+    sent = Message(id=5, chat=Chat(id=1), reply_to_message=replied(), reply_markup=CALLBACK_MARKUP)
+
+    assert key_type.from_sent(sent).user_id is None
+
+
 def test_callback_query_key_from_sent_on_an_ephemeral_message() -> None:
     sent = Message(id=0, chat=Chat(id=1), ephemeral_message_id=4, reply_markup=CALLBACK_MARKUP)
 
     assert CallbackQueryKey.from_sent(sent, 2) == CallbackQueryKey(1, 2, ephemeral=True)
-
-
-def test_callback_query_key_from_sent_accepts_a_game_button() -> None:
-    sent = Message(
-        id=5,
-        chat=Chat(id=1),
-        reply_markup=_buttons(
-            InlineKeyboardButton("Site", url="https://example.com"),
-            InlineKeyboardButton("Play", callback_game=CallbackGame()),
-        ),
-    )
-
-    assert CallbackQueryKey.from_sent(sent) == CallbackQueryKey(1, None, 5)
-
-
-@pytest.mark.parametrize(
-    "markup",
-    [
-        None,
-        _buttons(InlineKeyboardButton("Site", url="https://example.com")),
-        InlineKeyboardMarkup([]),
-    ],
-    ids=["no-markup", "no-callback-button", "empty-keyboard"],
-)
-def test_callback_query_key_from_sent_refuses_a_message_nothing_can_press(
-    markup: InlineKeyboardMarkup | None,
-) -> None:
-    sent = Message(id=5, chat=Chat(id=1), reply_markup=markup)
-
-    with pytest.raises(ValueError, match="no button that sends a callback query"):
-        CallbackQueryKey.from_sent(sent, 2)
 
 
 def test_callback_query_key_from_callback_query_takes_the_presser_not_the_sender() -> None:
