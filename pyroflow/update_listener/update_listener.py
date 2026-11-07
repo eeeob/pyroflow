@@ -1,13 +1,13 @@
-"""Base class for per-update-type listeners that back `ask` and `listen`."""
+"""Base class for per-update-type listeners that back the `ask_*` methods and `listen`."""
 
 from __future__ import annotations as _annotations
 
 import asyncio
 import logging
 from abc import ABC
-from typing import TYPE_CHECKING
+from typing import Any, Generic, TYPE_CHECKING, TypedDict
 
-from ..typings import ListenerMessageIdT, UpdateType
+from ..typings import KeyT, UpdateType
 from ..dispatcher import _HANDLER_WORKER
 from ..utils import UpdateBound, call_maybe_async, get_update_executor
 from ..errors import (
@@ -20,7 +20,7 @@ from ..errors import (
     ListenerTimeout,
 )
 from ..enums import DuplicatePolicy, ListenerScope
-from ..models import ListenerContext, ListenerKey, ListenerModel
+from ..models import ListenerModel
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,18 +28,34 @@ if TYPE_CHECKING:
     from pyrogram.filters import Filter
     from pytrove.typings import MaybeCoroutineCallable, Number
 
+    from ..models import ListenerContext
+
 
 log = logging.getLogger(__name__)
 """Logger for errors of listener filters and `on_error_func`."""
 
 
-class UpdateListener(ABC, UpdateBound[UpdateType]):
-    """Abstract base that waits for updates of one Pyrogram type, keyed by `ListenerKey`.
+class ListenKw(TypedDict, total=False):
+    """The arguments of a wait that every `listen` accepts besides its key fields."""
 
-    A subclass binds the update type with `__update_type__`. It decides how to
-    key updates, and which ones to skip by returning `None`, either by
-    overriding `extract_key` or through `extract_key_func`. A sync `*_func`
-    runs in a thread, on the client's executor when it has one.
+    context: ListenerContext | None
+    """Values attached to the wait; `None` attaches none."""
+    filters: Filter | None
+    """A Pyrogram filter the update must pass besides its key."""
+    strict: bool
+    """Whether an update that matches the key but fails `filters` ends the wait."""
+    timeout: Number | None
+    """Seconds to wait; `None` falls back to the listener's own `timeout`."""
+
+
+class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
+    """Abstract base that waits for updates of one Pyrogram type, keyed by a `ListenerKey` class.
+
+    A subclass binds the update type with `__update_type__` and the key class
+    with `__key_type__`. It decides how to key updates, and which ones to skip
+    by returning `None`, either by overriding `extract_key` or through
+    `extract_key_func`. A subclass whose key class adds fields overrides
+    `listen` to take them.
 
     Every waiting listener lives in this process: an update is matched only
     against the listeners of the client that received it.
@@ -52,8 +68,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     Args:
         duplicate_policy: What `listen` does when the key already has a
             waiting listener; `DuplicatePolicy.REPLACE` if `None`.
-        extract_key_func: `(update) -> ListenerKey | None`, sync or async,
-            used by `extract_key`; `None` skips the update.
+        extract_key_func: `(update) -> key | None`, sync, used by
+            `extract_key`; `None` skips the update. It runs inline on the
+            event loop, so it must be fast.
         on_error_func: `(exc, listener_model) -> object`, sync or async,
             called when a `ListenerError` ends a wait (a timeout, a
             cancellation, an eviction or a strict rejection), after the wait
@@ -61,29 +78,25 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             before a wait starts, `ListenerAlreadyExists` and
             `ListenerWorkersBusy`, are not reported. A failing callback is
             logged and never hides the error.
-        on_listen_func: `(listen_kwargs) -> object`, called by `listen` with
-            one dict of its arguments by name (`chat_id`, `user_id`,
-            `message_id`, `context`, `filters`, `strict` and `timeout`, as
-            passed) before the wait is registered; its result is ignored. It must be sync and
-            fast, as it runs inline on the event loop; an error it raises
-            propagates from `listen` and no wait starts.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         resolve_scope: Which matching waits `resolve` gives an update to:
-            `ListenerScope.FIRST` the most specific one, `ListenerScope.ALL`
-            every one.
+            `ListenerScope.FIRST` the first in priority order,
+            `ListenerScope.ALL` every one.
         strict_filter: Pyrogram filter for a `listen` that passes no
             `filters`; an update that fails it ends the wait, as with `strict`.
         **kw: Passed to the next class in the MRO.
 
     Example:
         >>> from pyrogram.types import Chat, Message
-        >>> class ChatListener(UpdateListener[Message]):
+        >>> from pyroflow.models import ListenerKey
+        >>> class ChatListener(UpdateListener[Message, ListenerKey]):
         ...     __update_type__ = Message
+        ...     __key_type__ = ListenerKey
         >>> async def main():
         ...     listener = ChatListener(
         ...         extract_key_func=lambda update: ListenerKey(update.chat.id),
         ...     )
-        ...     waiter = asyncio.create_task(listener.listen(1))
+        ...     waiter = asyncio.create_task(listener.listen(ListenerKey(1)))
         ...     await asyncio.sleep(0)
         ...     resolved = await listener.resolve(Message(id=7, chat=Chat(id=1)))
         ...     return resolved, (await waiter).id
@@ -91,12 +104,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         (True, 7)
     """
 
+    __key_type__: type[KeyT]
+    """The `ListenerKey` class the waits of this listener are keyed by."""
+
     def __init__(
         self,
         duplicate_policy: DuplicatePolicy | None = None,
-        extract_key_func: MaybeCoroutineCallable[[UpdateType], ListenerKey | None] | None = None,
+        extract_key_func: Callable[[UpdateType], KeyT | None] | None = None,
         on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
-        on_listen_func: Callable[[dict[str, object]], object] | None = None,
         timeout: Number | None = None,
         resolve_scope: ListenerScope = ListenerScope.FIRST,
         strict_filter: Filter | None = None,
@@ -115,8 +130,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """Optional key extractor behind `extract_key`."""
         self.on_error_func = on_error_func
         """Optional callback for the `ListenerError` that ends a wait."""
-        self.on_listen_func = on_listen_func
-        """Optional callback that sees the arguments of every `listen` call."""
 
         self.timeout = timeout
         """Default seconds `listen` waits; `None` waits indefinitely."""
@@ -125,10 +138,102 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self.strict_filter = strict_filter
         """Filter for a `listen` that passes no `filters`; an update that fails it ends the wait."""
 
-        self.listeners: dict[ListenerKey, ListenerModel] = {}
-        """Waiting listeners, by key."""
+        self.listeners: dict[KeyT, ListenerModel[KeyT]] = {}
+        """Waiting listeners, by key; changed only through `_add` and `_remove`."""
         self.is_closed = False
         """Whether `stop` ran since the last `start`; `listen` refuses to wait while it is."""
+
+        key_fields = self.__key_type__.key_fields
+        self._exact_mask = sum(
+            1 << key_fields.index(name) for name in self.__key_type__.exact_fields
+        )
+        """The bits of the key fields marked `exact`, in `key_fields` order."""
+        self._shapes: dict[int, int] = {}
+        """How many waits are registered with each shape, a bitmask of the fields their key sets."""
+        self._shape_order: tuple[int, ...] = ()
+        """The shapes of `_shapes` in the order `resolve` tries them."""
+
+    def _shape_of(self, values: tuple[object, ...]) -> int:
+        """Return the shape of a key's values: a bitmask of those set, `exact` fields aside.
+
+        Args:
+            values: The key's values, as `ListenerKey.to_tuple` returns them.
+
+        Returns:
+            Bit `i` set for each field `i` that is not `None` and not `exact`.
+        """
+        shape = 0
+
+        for bit, value in enumerate(values):
+            if value is not None:
+                shape |= 1 << bit
+
+        return shape & ~self._exact_mask
+
+    def _order_shapes(self) -> None:
+        """Sort `_shapes` into `_shape_order`: more fields first, then by field order."""
+        fields = range(len(self.__key_type__.key_fields))
+
+        self._shape_order = tuple(
+            sorted(
+                self._shapes,
+                key=lambda shape: (-shape.bit_count(), tuple(b for b in fields if shape >> b & 1)),
+            )
+        )
+
+    def _add(self, model: ListenerModel[KeyT]) -> None:
+        """Register `model` under its key, in place of any model there, and count its shape.
+
+        Args:
+            model: The wait to register.
+        """
+        self._remove(model.key)
+        self.listeners[model.key] = model
+
+        shape = self._shape_of(model.key.to_tuple())
+        count = self._shapes.get(shape, 0)
+        self._shapes[shape] = count + 1
+
+        if not count:
+            self._order_shapes()
+
+    def _remove(self, key: KeyT) -> ListenerModel[KeyT] | None:
+        """Unregister the model under `key`, and uncount its shape.
+
+        Args:
+            key: The key the model is registered under.
+
+        Returns:
+            The removed model, or `None` if none was registered.
+        """
+        model = self.listeners.pop(key, None)
+
+        if model is not None:
+            shape = self._shape_of(key.to_tuple())
+
+            if count := self._shapes[shape] - 1:
+                self._shapes[shape] = count
+            else:
+                del self._shapes[shape]
+                self._order_shapes()
+
+        return model
+
+    def _cleanup_model(self, model: ListenerModel[KeyT]) -> None:
+        """Remove `model` from `listeners`, unless a newer wait took its key."""
+        if self.listeners.get(model.key) is model:
+            self._remove(model.key)
+
+    def _time_out(self, listener: ListenerModel[KeyT]) -> None:
+        """End `listener` with `ListenerTimeout`, unless it is done already.
+
+        Its timer may be due in the same loop iteration something else ended it.
+
+        Args:
+            listener: The wait whose `timeout` expired.
+        """
+        if not listener.done():
+            listener.set_exc(ListenerTimeout(listener.key))
 
     async def start(self) -> None:
         """Accept `listen` calls again after a `stop`."""
@@ -141,23 +246,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         for key in list(self.listeners):
             self.cancel(key)
 
-    def _cleanup_model(self, model: ListenerModel) -> None:
-        """Remove `model` from `listeners`, unless a newer wait took its key."""
-        if self.listeners.get(model.key) is model:
-            del self.listeners[model.key]
-
-    def _time_out(self, listener: ListenerModel) -> None:
-        """End `listener` with `ListenerTimeout`, unless it is done already.
-
-        Its timer may be due in the same loop iteration something else ended it.
-
-        Args:
-            listener: The wait whose `timeout` expired.
-        """
-        if not listener.done():
-            listener.set_exc(ListenerTimeout(listener.key))
-
-    def cancel(self, key: ListenerKey) -> bool:
+    def cancel(self, key: KeyT) -> bool:
         """Cancel the listener waiting on `key`; its waiter gets `ListenerCancelled`.
 
         Args:
@@ -167,12 +256,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             Whether a listener was cancelled.
 
         Example:
+            >>> from pyroflow.models import MessageKey
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
             ...     listener = MessageListener()
-            ...     waiter = asyncio.create_task(listener.listen(1))
+            ...     waiter = asyncio.create_task(listener.listen(chat_id=1))
             ...     await asyncio.sleep(0)
-            ...     cancelled = listener.cancel(ListenerKey(1))
+            ...     cancelled = listener.cancel(MessageKey(1))
             ...     try:
             ...         await waiter
             ...     except ListenerCancelled:
@@ -180,7 +270,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             True
         """
-        listener = self.listeners.pop(key, None)
+        listener = self._remove(key)
 
         if listener is None:
             return False
@@ -190,7 +280,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return True
 
-    def evict(self, key: ListenerKey, *, model: ListenerModel | None = None) -> bool:
+    def evict(self, key: KeyT, *, model: ListenerModel[KeyT] | None = None) -> bool:
         """End the listener waiting on `key` to free the worker its handler holds.
 
         Its waiter gets `ListenerEvicted`, a `ListenerCancelled`. Used by
@@ -209,14 +299,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if listener is None or (model is not None and listener is not model):
             return False
 
-        del self.listeners[key]
+        self._remove(key)
 
         if not listener.done():
             listener.set_exc(ListenerEvicted(key))
 
         return True
 
-    def reject(self, key: ListenerKey) -> bool:
+    def reject(self, key: KeyT) -> bool:
         """End the listener waiting on `key` because an update failed its filter.
 
         Its waiter gets `ListenerRejected`.
@@ -228,12 +318,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             Whether a listener was rejected.
 
         Example:
+            >>> from pyroflow.models import MessageKey
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
             ...     listener = MessageListener()
-            ...     waiter = asyncio.create_task(listener.listen(1))
+            ...     waiter = asyncio.create_task(listener.listen(chat_id=1))
             ...     await asyncio.sleep(0)
-            ...     rejected = listener.reject(ListenerKey(1))
+            ...     rejected = listener.reject(MessageKey(1))
             ...     try:
             ...         await waiter
             ...     except ListenerRejected:
@@ -241,7 +332,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             True
         """
-        listener = self.listeners.pop(key, None)
+        listener = self._remove(key)
 
         if listener is None:
             return False
@@ -253,31 +344,30 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
     async def listen(
         self,
-        chat_id: int,
-        user_id: int | None = None,
-        message_id: ListenerMessageIdT | None = None,
+        key: KeyT,
         *,
         context: ListenerContext | None = None,
         filters: Filter | None = None,
         strict: bool = False,
         timeout: Number | None = None,
     ) -> UpdateType:
-        """Wait for the next update matching the given key.
+        """Wait for the next update matching `key`.
 
         The listener is registered before this coroutine first yields, so it
         takes the first matching update the dispatcher handles after the
         call. Also callable as `listener(...)`.
+
+        A subclass overrides it to take its key fields as arguments, with
+        `**kw: Unpack[ListenKw]` for the rest, then builds the key and passes
+        it here with `super().listen(key, **kw)`.
 
         Inside a handler, the wait holds the worker running it, so the
         dispatcher's `WorkersPolicy` applies first (see
         `Client.setup_pyroflow`).
 
         Args:
-            chat_id: The chat to listen in.
-            user_id: The user to wait for; `None` matches any user.
-            message_id: The message to wait on; `None` matches any regular
-                message. `EphemeralUpdates.ANY` waits on ephemeral
-                updates, the only wait they reach; it needs `user_id`.
+            key: The key to wait on, a `__key_type__`; a `None` field matches
+                any value.
             context: Values attached to the listener model; `None` attaches none.
             filters: A Pyrogram filter the update must pass besides its key;
                 `None` falls back to the listener's `strict_filter`.
@@ -291,8 +381,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             The matching Pyrogram update.
 
         Raises:
-            ValueError: If `message_id` is `EphemeralUpdates.ANY` without a
-                `user_id`.
+            TypeError: If `key` is not exactly a `__key_type__`; a subclass
+                key would never match the lookups `resolve` builds.
             ListenerAlreadyExists: If a listener already waits on the key and
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
@@ -311,10 +401,6 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             `timeout` or forever without one, when every update its key can
             still match fails `filters`:
 
-            - The key names one update. A `MessageListener` key with a
-              `message_id` names a single incoming message; if the filter
-              rejects it, no other update can match. `MessageListener` logs a
-              warning for such a wait through its default `on_listen_func`.
             - The filter cannot pass this update type at all, such as a
               photo filter on a `CallbackQueryListener`.
             - The user keeps sending updates the filter rejects.
@@ -329,30 +415,21 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
             ...     try:
-            ...         await MessageListener().listen(1, timeout=0.01)
+            ...         await MessageListener().listen(chat_id=1, timeout=0.01)
             ...     except ListenerTimeout as e:
             ...         return e.value
             >>> asyncio.run(main())
-            ListenerKey(chat_id=1, user_id=None, message_id=None)
+            MessageKey(chat_id=1, user_id=None, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
         """
-        key = ListenerKey(chat_id, user_id, message_id)
+        if type(key) is not self.__key_type__:
+            msg = (
+                f"{self.__class__.__name__}.listen needs exactly a {self.__key_type__.__name__}, "
+                f"not {type(key).__name__}"
+            )
+            raise TypeError(msg)
 
         if self.is_closed:
             raise ListenerCancelled(key)
-
-        if self.on_listen_func is not None:
-            # Inline, not through `maybe_awaitable`: yielding here could let the awaited update slip past.
-            self.on_listen_func(
-                {
-                    "chat_id": chat_id,
-                    "user_id": user_id,
-                    "message_id": message_id,
-                    "context": context,
-                    "filters": filters,
-                    "strict": strict,
-                    "timeout": timeout,
-                }
-            )
 
         current = self.listeners.get(key)
 
@@ -384,13 +461,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if current is not None:
             current.set_exc(ListenerReplaced(key))
 
-        self.listeners[key] = listener = ListenerModel(
+        listener = ListenerModel(
             key,
             future := asyncio.get_running_loop().create_future(),
             context,
             filters=filters,
             strict=strict,
         )
+        self._add(listener)
 
         listener.add_done_callback(self._cleanup_model)
 
@@ -437,9 +515,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     async def resolve(self, update: UpdateType) -> bool:
         """Give the update to the waiting listeners it matches, as `resolve_scope` says.
 
-        Candidates are tried in the order of `ListenerKey.sub_keys`, from
-        `(chat_id, user_id, message_id)` down to `(chat_id)`. A waiting
-        listener whose filter passes takes the update: with
+        Only the shapes of the open waits are tried: for each, the update's
+        key keeps the fields the shape sets and the `exact` ones, and loses
+        the rest. A shape that sets a field the update lacks is skipped. The
+        shapes go most fields first, then by field order, so `(chat, user)`
+        comes before `(chat, topic)`, which comes before `(chat)`, which
+        comes before `(user)`.
+
+        A waiting listener whose filter passes takes the update: with
         `ListenerScope.FIRST` only the first one does, with `ListenerScope.ALL`
         every one does. A listener whose filter fails, or raises (logged), is
         skipped and keeps waiting, or, when `strict`, fails with
@@ -461,14 +544,28 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if not self.listeners:
             return False
 
-        key = await self.extract_key(update)
+        key = self.extract_key(update)
 
         if key is None:
             return False
 
+        key_type = self.__key_type__
+        names = key_type.key_fields
+        values = key.to_tuple()
+        present = self._shape_of(values)
         took = False
 
-        for sub in key.sub_keys():
+        for shape in self._shape_order:
+            if shape & ~present:
+                continue
+
+            keep = shape | self._exact_mask
+
+            kept: dict[str, Any] = {
+                name: values[bit] for bit, name in enumerate(names) if keep >> bit & 1
+            }
+
+            sub = key_type(**kept)
             listener = self.listeners.get(sub)
 
             if listener is None or listener.done():
@@ -503,27 +600,28 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         return took
 
-    async def extract_key(self, update: UpdateType) -> ListenerKey | None:
+    def extract_key(self, update: UpdateType) -> KeyT | None:
         """Extract the listener key of the update.
 
         Args:
             update: The incoming update object.
 
         Returns:
-            The most specific key of the update, or `None` if it should not be
-            listened to.
+            The key of the update, or `None` if it should not be listened to.
 
         Raises:
             NotImplementedError: If neither this method is overridden nor
                 `extract_key_func` was provided.
-            TypeError: If `update` is not an instance of `__update_type__`.
+            TypeError: If `update` is not an instance of `__update_type__`,
+                or `extract_key_func` returns something other than exactly a
+                `__key_type__` or `None`.
 
         Example:
             >>> from pyrogram.types import Chat, Message, User
             >>> from pyroflow.update_listener import MessageListener
             >>> update = Message(id=5, chat=Chat(id=1), from_user=User(id=2))
-            >>> asyncio.run(MessageListener().extract_key(update))
-            ListenerKey(chat_id=1, user_id=2, message_id=5)
+            >>> MessageListener().extract_key(update)
+            MessageKey(chat_id=1, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
         """
         if self.extract_key_func is None:
             msg = (
@@ -533,10 +631,19 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             raise NotImplementedError(msg)
 
         self.validate_update(update)
+        key = self.extract_key_func(update)
 
-        return await call_maybe_async(
-            self.extract_key_func, update, executor=get_update_executor(update)
-        )
+        if key is not None and type(key) is not self.__key_type__:
+            msg = (
+                f"{self.__class__.__name__}.extract_key_func must return exactly a "
+                f"{self.__key_type__.__name__} or None, not {type(key).__name__}"
+            )
+            raise TypeError(msg)
+
+        return key
 
 
-__all__ = ("UpdateListener",)
+__all__ = (
+    "ListenKw",
+    "UpdateListener",
+)

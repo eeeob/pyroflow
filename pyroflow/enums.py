@@ -52,22 +52,6 @@ class DuplicatePolicy(StrEnum):
     """Cancel the existing listener, then register the new one."""
 
 
-class MessageListenCancelPolicy(StrEnum):
-    """When a press on a message cancels the message listen tied to it.
-
-    Example:
-        >>> MessageListenCancelPolicy.UNRESOLVED == "unresolved"
-        True
-    """
-
-    ALWAYS = auto()
-    """On every press, whether or not a callback wait took it."""
-    UNRESOLVED = auto()
-    """Only on a press that no callback wait took."""
-    RESOLVED = auto()
-    """Only on a press that a callback wait took."""
-
-
 class ListenerScope(StrEnum):
     """How many of the waits that match an update an action applies to.
 
@@ -79,39 +63,13 @@ class ListenerScope(StrEnum):
     ALL = auto()
     """Every matching wait."""
     FIRST = auto()
-    """Only the most specific one, the first in `ListenerKey.sub_keys` order."""
-
-
-class ListenMessageId(StrEnum):
-    """A `listen_message_id` of `ask` that stands for a message only known once it is sent.
-
-    Example:
-        >>> ListenMessageId.NEXT == "next"
-        True
-    """
-
-    SENT = auto()
-    """The message `ask` sent or edited; for a `CallbackQuery`, a press on its buttons."""
-    NEXT = auto()
-    """The message right after the one `ask` sent or edited."""
-
-
-class EphemeralUpdates(StrEnum):
-    """Takes the place of a message id to wait on ephemeral updates, whose ids can repeat.
-
-    Example:
-        >>> EphemeralUpdates.ANY == "any"
-        True
-    """
-
-    ANY = auto()
-    """Any ephemeral message, or a press on its buttons."""
+    """Only the first one, in the priority order of `UpdateListener.resolve`."""
 
 
 class WorkersPolicy(StrEnum):
     """What a wait inside a handler does when the workers run short.
 
-    A handler that waits in `ask` or `listen` holds the worker running it;
+    A handler that waits in an `ask_*` method or `listen` holds the worker running it;
     when too many do, no worker is left to read the replies and the bot
     freezes. So one worker always stays out of the waits: once a wait would
     take it, the policy steps in. Set it with `Client.setup_pyroflow`; without
@@ -149,10 +107,7 @@ class CommandUsernamePolicy(StrEnum):
 
 __all__ = (
     "DuplicatePolicy",
-    "MessageListenCancelPolicy",
     "ListenerScope",
-    "ListenMessageId",
-    "EphemeralUpdates",
     "WorkersPolicy",
     "CommandUsernamePolicy",
 )

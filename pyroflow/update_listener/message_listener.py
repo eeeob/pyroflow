@@ -2,20 +2,25 @@
 
 from __future__ import annotations as _annotations
 
-import logging
 from typing import TYPE_CHECKING
 
-from ..enums import EphemeralUpdates
-from ..models import ListenerKey
+from ..models import MessageKey
 from ..types import Message
 from .update_listener import UpdateListener
 
+if TYPE_CHECKING:
+    import sys
 
-log = logging.getLogger(__name__)
+    if sys.version_info >= (3, 11):
+        from typing import Unpack
+    else:
+        from typing_extensions import Unpack
+
+    from .update_listener import ListenKw
 
 
-class MessageListener(UpdateListener[Message]):
-    """Listener keyed by the chat, sender and id of incoming messages.
+class MessageListener(UpdateListener[Message, MessageKey]):
+    """Listener keyed by the chat, sender and topic of incoming messages.
 
     Example:
         >>> import asyncio
@@ -23,7 +28,7 @@ class MessageListener(UpdateListener[Message]):
         >>> async def main():
         ...     listener = MessageListener()
         ...     await listener.start()
-        ...     waiter = asyncio.create_task(listener.listen(1, 2))
+        ...     waiter = asyncio.create_task(listener.listen(chat_id=1, user_id=2))
         ...     await asyncio.sleep(0)
         ...     await listener.resolve(Message(id=5, chat=Chat(id=1), from_user=User(id=2)))
         ...     answer = await waiter
@@ -35,11 +40,13 @@ class MessageListener(UpdateListener[Message]):
 
     __update_type__ = Message
     """The Pyrogram update class this listener waits for."""
+    __key_type__ = MessageKey
+    """The key class of the waits of this listener."""
 
     if not TYPE_CHECKING:
 
         def __init__(self, *args: object, **kw: object) -> None:
-            """Initialize the listener, defaulting to the built-in key and listen functions.
+            """Initialize the listener, defaulting to the built-in key function.
 
             Args:
                 *args: Passed to `UpdateListener`.
@@ -50,40 +57,57 @@ class MessageListener(UpdateListener[Message]):
             if self.extract_key_func is None:
                 self.extract_key_func = self._extract_key
 
-            if self.on_listen_func is None:
-                self.on_listen_func = self._warn_single_update_filter
+    async def listen(  # ty: ignore[invalid-method-override]  # takes the key fields; `UpdateListener.listen` takes the whole key
+        self,
+        chat_id: int | None = None,
+        user_id: int | None = None,
+        message_thread_id: int | None = None,
+        direct_messages_topic_id: int | None = None,
+        ephemeral: bool = False,
+        **kw: Unpack[ListenKw],
+    ) -> Message:
+        """Wait for the next message matching the given fields; `None` matches any value.
 
-    def _warn_single_update_filter(self, listen_kwargs: dict[str, object]) -> None:
-        """Default `on_listen_func`: warn of a wait a rejected message would leave open.
-
-        A key's `message_id` is the incoming message's own id, so it names a
-        single message; if a non-strict filter rejects it, no other message
-        can match and the wait stays open until its timeout.
+        Also callable as `listener(...)`. See `UpdateListener.listen` for the
+        arguments of the wait and the errors.
 
         Args:
-            listen_kwargs: The arguments of the `listen` call, by name.
+            chat_id: The chat to listen in; a user's private chat has the
+                user's id.
+            user_id: The sender to wait for.
+            message_thread_id: The forum topic to listen in.
+            direct_messages_topic_id: The topic of a channel's direct messages
+                chat to listen in.
+            ephemeral: Wait on ephemeral messages, the only wait they reach.
+            **kw: The arguments of the wait, as `UpdateListener.listen` takes them.
+
+        Returns:
+            The matching message.
         """
-        kw = listen_kwargs
+        return await super().listen(
+            self.__key_type__(
+                chat_id=chat_id,
+                user_id=user_id,
+                message_thread_id=message_thread_id,
+                direct_messages_topic_id=direct_messages_topic_id,
+                ephemeral=ephemeral,
+            ),
+            **kw,
+        )
 
-        if isinstance(kw["message_id"], int) and kw["filters"] is not None and not kw["strict"]:
-            log.warning(
-                "Listener for %s waits for a single update with a non-strict filter; "
-                "if the filter rejects it, the wait stays open until its timeout",
-                ListenerKey(kw["chat_id"], kw["user_id"], kw["message_id"]),  # ty: ignore[invalid-argument-type]  # `listen` passes them with its own types
-            )
+    __call__ = listen  # ty: ignore[invalid-method-override]  # takes the key fields; `UpdateListener.listen` takes the whole key
+    """Alias of `listen`, so the listener can be awaited as `listener(...)`."""
 
-    async def _extract_key(self, update: Message) -> ListenerKey | None:
-        """Default `extract_key_func`: key the message by chat, sender and id.
+    def _extract_key(self, update: Message) -> MessageKey | None:
+        """Default `extract_key_func`: key the message with `MessageKey.from_message`.
 
         Args:
             update: The incoming message.
 
         Returns:
-            The key `(chat id, sender id or None, message id)`, with
-            `EphemeralUpdates.ANY` for the id of an ephemeral message, or
-            `None` for outgoing, service, empty or edited messages, messages
-            sent by this account, messages without a chat, and ephemeral
-            messages without a sender.
+            The key of the message, or `None` for outgoing, service, empty or
+            edited messages, messages sent by this account, and messages
+            without a chat.
         """
         if (
             update.outgoing
@@ -96,25 +120,7 @@ class MessageListener(UpdateListener[Message]):
         ):
             return None
 
-        # `from_user` can be `None` (an anonymous admin, a channel post).
-        user_id = getattr(update.from_user, "id", None)
-
-        if update.ephemeral_message_id is None:
-            return ListenerKey(
-                update.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
-                user_id,
-                update.id,
-            )
-
-        # A wait on ephemeral updates names a user, so one without a sender matches none.
-        if user_id is None:
-            return None
-
-        return ListenerKey(
-            update.chat.id,  # ty: ignore[invalid-argument-type]  # as above
-            user_id,
-            EphemeralUpdates.ANY,
-        )
+        return self.__key_type__.from_message(update)
 
 
 __all__ = ("MessageListener",)

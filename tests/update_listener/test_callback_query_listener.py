@@ -1,13 +1,14 @@
-"""Tests for `CallbackQueryListener`: its defaults and key extraction."""
+"""Tests for `CallbackQueryListener`: its defaults, `listen` and key extraction."""
 
 from __future__ import annotations as _annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 
+import pyroflow.update_listener.callback_query_listener as callback_query_listener_module
 from pyroflow import CallbackQueryListener
-from pyroflow.enums import EphemeralUpdates
-from pyroflow.models import ListenerKey
+from pyroflow.models import CallbackQueryKey, ListenerContext
 
 from ..conftest import make_callback_query
 
@@ -18,44 +19,148 @@ if TYPE_CHECKING:
 # --- class / __init__ --------------------------------------------------------
 
 
-def test_init_defaults_to_builtin_key_functions() -> None:
+def test_module_exports() -> None:
+    assert callback_query_listener_module.__all__ == ("CallbackQueryListener",)
+
+
+def test_key_type_is_callback_query_key() -> None:
+    assert CallbackQueryListener.__key_type__ is CallbackQueryKey
+
+
+def test_init_defaults_to_callback_query_key_from_callback_query() -> None:
     lis = CallbackQueryListener()
-    assert lis.extract_key_func == lis._extract_key
+    assert lis.extract_key_func == CallbackQueryKey.from_callback_query
     assert lis.on_error_func is None
-    assert lis.on_listen_func is None
 
 
-def test_init_keeps_given_functions_and_forwards_kwargs() -> None:
-    def extract_key(update: CallbackQuery) -> ListenerKey:
-        return ListenerKey(1)
+def test_init_keeps_a_given_function_and_forwards_kwargs() -> None:
+    def extract_key(update: CallbackQuery) -> CallbackQueryKey:
+        return CallbackQueryKey(1)
 
     lis = CallbackQueryListener(extract_key_func=extract_key, timeout=3)
     assert lis.extract_key_func is extract_key
     assert lis.timeout == 3
 
 
-# --- _extract_key -----------------------------------------------------------------
+# --- listen -----------------------------------------------------------------------
 
 
-async def test_extract_key_uses_message_chat_sender_and_message_id() -> None:
+async def test_listen_waits_on_the_key_of_its_fields() -> None:
+    lis = CallbackQueryListener()
+    context = ListenerContext(step=1)
+    task = asyncio.ensure_future(lis.listen(chat_id=1, user_id=2, message_id=3, context=context))
+    await asyncio.sleep(0)
+    try:
+        assert lis.listeners[CallbackQueryKey(1, 2, 3)].context is context
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_listen_takes_the_key_fields_by_position() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(1, 2, 3))
+    await asyncio.sleep(0)
+    try:
+        assert CallbackQueryKey(1, 2, 3) in lis.listeners
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_listen_on_ephemeral_takes_a_press_on_an_ephemeral_message() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(chat_id=100, user_id=7, ephemeral=True))
+    await asyncio.sleep(0)
+    regular = make_callback_query(message_id=5)
+    ephemeral = make_callback_query(message_id=0)
+    ephemeral.message.ephemeral_message_id = 4
+
+    assert await lis.resolve(regular) is False
+    assert await lis.resolve(ephemeral) is True
+    assert await task is ephemeral
+
+
+async def test_listen_on_a_message_takes_only_a_press_on_it() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(chat_id=100, message_id=5))
+    await asyncio.sleep(0)
+
+    assert await lis.resolve(make_callback_query(message_id=6)) is False
+    press = make_callback_query(user_id=99, message_id=5)
+    assert await lis.resolve(press) is True
+    assert await task is press
+
+
+async def test_listen_on_an_inline_message_takes_only_a_press_on_it() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(inline_message_id="im"))
+    await asyncio.sleep(0)
+
+    assert await lis.resolve(make_callback_query(message=None, inline_message_id="other")) is False
+    assert await lis.resolve(make_callback_query()) is False
+    press = make_callback_query(user_id=99, message=None, inline_message_id="im")
+    assert await lis.resolve(press) is True
+    assert await task is press
+
+
+async def test_listen_on_an_inline_message_for_a_user_skips_other_users() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(user_id=7, inline_message_id="im"))
+    await asyncio.sleep(0)
+
+    assert (
+        await lis.resolve(make_callback_query(user_id=8, message=None, inline_message_id="im"))
+        is False
+    )
+    press = make_callback_query(user_id=7, message=None, inline_message_id="im")
+    assert await lis.resolve(press) is True
+    assert await task is press
+
+
+async def test_listen_for_a_user_takes_their_inline_press() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(user_id=7))
+    await asyncio.sleep(0)
+    press = make_callback_query(user_id=7, message=None, inline_message_id="im")
+
+    assert await lis.resolve(press) is True
+    assert await task is press
+
+
+async def test_listen_in_a_private_chat_skips_an_inline_press() -> None:
+    lis = CallbackQueryListener()
+    task = asyncio.ensure_future(lis.listen(chat_id=7))
+    await asyncio.sleep(0)
+
+    try:
+        press = make_callback_query(user_id=7, message=None, inline_message_id="im")
+        assert await lis.resolve(press) is False
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+def test_call_is_listen() -> None:
+    assert CallbackQueryListener.__call__ is CallbackQueryListener.listen
+
+
+# --- extract_key -----------------------------------------------------------------
+
+
+def test_extract_key_uses_message_chat_presser_and_message_id() -> None:
     cbq = make_callback_query(chat_id=-100, user_id=9, message_id=42)
-    assert await CallbackQueryListener()._extract_key(cbq) == ListenerKey(-100, 9, 42)
+    assert CallbackQueryListener().extract_key(cbq) == CallbackQueryKey(-100, 9, 42)
 
 
-async def test_extract_key_is_none_for_a_callback_without_message() -> None:
-    assert await CallbackQueryListener()._extract_key(make_callback_query(message=None)) is None
+def test_extract_key_is_none_for_a_callback_without_message() -> None:
+    assert CallbackQueryListener().extract_key(make_callback_query(message=None)) is None
 
 
-async def test_extract_key_is_none_for_a_message_without_chat() -> None:
-    cbq = make_callback_query()
-    cbq.message.chat = None
-    assert await CallbackQueryListener()._extract_key(cbq) is None
-
-
-async def test_extract_key_holds_ephemeral_instead_of_an_ephemeral_messages_id() -> None:
+def test_extract_key_marks_a_press_on_an_ephemeral_message() -> None:
     update = make_callback_query(message_id=0)
     update.message.ephemeral_message_id = 4
 
-    key = await CallbackQueryListener()._extract_key(update)
+    key = CallbackQueryListener().extract_key(update)
 
-    assert key == ListenerKey(100, 7, EphemeralUpdates.ANY)
+    assert key == CallbackQueryKey(100, 7, ephemeral=True)

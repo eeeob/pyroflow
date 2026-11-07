@@ -2,24 +2,27 @@
 
 from __future__ import annotations as _annotations
 
-from typing import get_args, get_origin
+from typing import ForwardRef, get_args, get_origin
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
-from pyroflow.enums import EphemeralUpdates, ListenMessageId
 from pyroflow.typings import (
     BotCommandEntryT,
     BotCommandGroupKeyT,
     BotCommandPartsT,
-    ListenMessageIdT,
-    ListenerMessageIdT,
+    KeyT,
     UpdateType,
 )
 
 
 def test_update_type_is_bound_to_pyrogram_update() -> None:
     assert UpdateType.__bound__ is PyroUpdate
+
+
+def test_key_type_is_bound_to_listener_key() -> None:
+    assert isinstance(KeyT.__bound__, ForwardRef)
+    assert KeyT.__bound__.__forward_arg__ == "ListenerKey"
 
 
 def test_bot_command_entry_shapes() -> None:
@@ -34,20 +37,11 @@ def test_bot_command_parts_and_group_key() -> None:
     assert get_args(BotCommandGroupKeyT) == (str | None, BotCommandScope | None)
 
 
-def test_listen_message_id_is_int_or_the_sentinel_enum() -> None:
-    assert get_args(ListenMessageIdT) == (int, ListenMessageId, EphemeralUpdates)
-
-
-def test_listener_message_id_alias_takes_an_id_or_ephemeral() -> None:
-    assert get_args(ListenerMessageIdT) == (int, EphemeralUpdates)
-
-
 def test_typings_all() -> None:
     assert set(pyroflow.typings.__all__) == {
         "UpdateType",
+        "KeyT",
         "BotCommandEntryT",
         "BotCommandPartsT",
         "BotCommandGroupKeyT",
-        "ListenMessageIdT",
-        "ListenerMessageIdT",
     }

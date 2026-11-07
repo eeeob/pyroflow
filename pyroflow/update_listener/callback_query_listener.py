@@ -4,13 +4,22 @@ from __future__ import annotations as _annotations
 
 from typing import TYPE_CHECKING
 
-from ..enums import EphemeralUpdates
-from ..models import ListenerKey
+from ..models import CallbackQueryKey
 from ..types import CallbackQuery
 from .update_listener import UpdateListener
 
+if TYPE_CHECKING:
+    import sys
 
-class CallbackQueryListener(UpdateListener[CallbackQuery]):
+    if sys.version_info >= (3, 11):
+        from typing import Unpack
+    else:
+        from typing_extensions import Unpack
+
+    from .update_listener import ListenKw
+
+
+class CallbackQueryListener(UpdateListener[CallbackQuery, CallbackQueryKey]):
     """Listener keyed by the chat, user and message a callback query belongs to.
 
     Example:
@@ -18,7 +27,7 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
         >>> from pyrogram.types import Chat, Message, User
         >>> async def main():
         ...     listener = CallbackQueryListener()
-        ...     waiter = asyncio.create_task(listener.listen(1, 2, 3))
+        ...     waiter = asyncio.create_task(listener.listen(chat_id=1, user_id=2, message_id=3))
         ...     await asyncio.sleep(0)
         ...     message = Message(id=3, chat=Chat(id=1))
         ...     query = CallbackQuery(
@@ -32,11 +41,13 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
 
     __update_type__ = CallbackQuery
     """The Pyrogram update class this listener waits for."""
+    __key_type__ = CallbackQueryKey
+    """The key class of the waits of this listener."""
 
     if not TYPE_CHECKING:
 
         def __init__(self, *args: object, **kw: object) -> None:
-            """Initialize the listener, defaulting to the built-in key functions.
+            """Initialize the listener, defaulting to `CallbackQueryKey.from_callback_query`.
 
             Args:
                 *args: Passed to `UpdateListener`.
@@ -45,29 +56,49 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
             super().__init__(*args, **kw)
 
             if self.extract_key_func is None:
-                self.extract_key_func = self._extract_key
+                self.extract_key_func = self.__key_type__.from_callback_query
 
-    async def _extract_key(self, update: CallbackQuery) -> ListenerKey | None:
-        """Default `extract_key_func`: key the callback by chat, user and message.
+    async def listen(  # ty: ignore[invalid-method-override]  # takes the key fields; `UpdateListener.listen` takes the whole key
+        self,
+        chat_id: int | None = None,
+        user_id: int | None = None,
+        message_id: int | None = None,
+        inline_message_id: str | None = None,
+        ephemeral: bool = False,
+        **kw: Unpack[ListenKw],
+    ) -> CallbackQuery:
+        """Wait for the next press matching the given fields; `None` matches any value.
+
+        Also callable as `listener(...)`. See `UpdateListener.listen` for the
+        arguments of the wait and the errors.
 
         Args:
-            update: The incoming callback query.
+            chat_id: The chat to listen in; a user's private chat has the
+                user's id. A press on an inline-mode message has no chat.
+            user_id: The user to wait for.
+            message_id: The message whose buttons to wait on.
+            inline_message_id: The inline-mode message whose buttons to wait
+                on.
+            ephemeral: Wait on presses on ephemeral messages, the only wait
+                they reach.
+            **kw: The arguments of the wait, as `UpdateListener.listen` takes them.
 
         Returns:
-            The key `(message chat id, sender id, message id)`, with
-            `EphemeralUpdates.ANY` for the id of an ephemeral message, or
-            `None` if the callback has no message or its message has no chat.
+            The matching callback query.
         """
-        m = update.message
-
-        if m is None or m.chat is None:
-            return None
-
-        return ListenerKey(
-            m.chat.id,  # ty: ignore[invalid-argument-type]  # pyrogram types `Chat.id` as `int | None`; a received chat always has an id
-            update.from_user.id,
-            m.id if m.ephemeral_message_id is None else EphemeralUpdates.ANY,
+        return await super().listen(
+            self.__key_type__(
+                chat_id=chat_id,
+                user_id=user_id,
+                message_id=message_id,
+                inline_message_id=inline_message_id,
+                ephemeral=ephemeral,
+            ),
+            **kw,
         )
+
+    __call__ = listen  # ty: ignore[invalid-method-override]  # takes the key fields; `UpdateListener.listen` takes the whole key
+    """Alias of `listen`, so the listener can be awaited as `listener(...)`."""
 
 
 __all__ = ("CallbackQueryListener",)

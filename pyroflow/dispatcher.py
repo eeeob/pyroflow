@@ -61,7 +61,7 @@ class Dispatcher(PyroDispatcher):
         """
         self.old__init__(*args, **kw)
 
-        self.listeners: dict[type[PyroUpdate], UpdateListener[Any]] = {}
+        self.listeners: dict[type[PyroUpdate], UpdateListener[Any, Any]] = {}
         """Registered listener per update type."""
 
         self.is_started = False
@@ -69,7 +69,7 @@ class Dispatcher(PyroDispatcher):
 
         self.workers_policy: WorkersPolicy | None = None
         """What a wait inside a handler does when the workers run short; `None` does nothing."""
-        self.handler_waits: dict[ListenerModel, UpdateListener[Any]] = {}
+        self.handler_waits: dict[ListenerModel, UpdateListener[Any, Any]] = {}
         """The waits inside handlers that hold their worker, oldest first."""
         self.running_workers = 0
         """How many `handler_worker` tasks run now; one stays out of the waits to read the replies."""
@@ -99,7 +99,7 @@ class Dispatcher(PyroDispatcher):
         """Stop the listeners, then the original dispatcher.
 
         The listeners go first: their waiters fail, so a handler blocked in
-        `ask` returns and the original `stop` can drain the workers.
+        `ask_*` method returns and the original `stop` can drain the workers.
 
         Args:
             *args: Passed directly to the original dispatcher.
@@ -156,7 +156,7 @@ class Dispatcher(PyroDispatcher):
         """
         self.handler_waits.pop(listener_model, None)
 
-    def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
+    def register_listener(self, listener: UpdateListener[UpdateType, Any]) -> None:
         """Register a listener for its declared update type.
 
         Only one listener per update type, and only before the dispatcher starts.

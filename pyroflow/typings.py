@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 from typing import (
+    TYPE_CHECKING,
     TypeVar,
     TypeAlias,
 )
@@ -10,11 +11,16 @@ from typing import (
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 from pytrove.typings import MaybeList
 
-from .enums import EphemeralUpdates, ListenMessageId
+if TYPE_CHECKING:
+    from .models import ListenerKey
 
 
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
 """The Pyrogram update class a generic listener is bound to."""
+
+# A forward reference: `pyroflow.models` imports this module, so it cannot be imported back here.
+KeyT = TypeVar("KeyT", bound="ListenerKey")
+"""The `ListenerKey` class a generic listener or listener model is keyed by."""
 
 BotCommandEntryT: TypeAlias = (
     MaybeList[BotCommand]
@@ -29,18 +35,11 @@ BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeLis
 BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 """The key a collected command group is filed under by `BotCommandsMixin`."""
 
-ListenMessageIdT: TypeAlias = int | ListenMessageId | EphemeralUpdates
-"""A message id, a `ListenMessageId`, or `EphemeralUpdates`."""
-
-ListenerMessageIdT: TypeAlias = int | EphemeralUpdates
-"""What a listener key holds for a message: its id, or `EphemeralUpdates`."""
-
 
 __all__ = (
     "UpdateType",
+    "KeyT",
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",
-    "ListenMessageIdT",
-    "ListenerMessageIdT",
 )

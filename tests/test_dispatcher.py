@@ -38,7 +38,7 @@ from pyroflow.errors import (
     ListenerTimeout,
     ListenerWorkersBusy,
 )
-from pyroflow.models import ListenerKey, ListenerModel
+from pyroflow.models import CallbackQueryKey, ListenerKey, ListenerModel, MessageKey
 from pyroflow.update_listener import CallbackQueryListener, MessageListener
 
 from .conftest import make_callback_query, make_message
@@ -201,7 +201,7 @@ async def test_stop_lets_a_handler_waiting_in_listen_finish_before_draining() ->
     dispatcher = make_real_dispatcher()
     listener = MessageListener()
     dispatcher.register_listener(listener)
-    waiter = asyncio.create_task(listener.listen(100, 7))
+    waiter = asyncio.create_task(listener.listen(chat_id=100, user_id=7))
     await asyncio.sleep(0.01)
 
     async def oldstop() -> None:
@@ -625,7 +625,7 @@ async def test_a_listened_reply_skips_the_handlers_and_the_next_one_reaches_them
     dispatcher.register_listener(listener)
     calls: list[tuple[object, ...]] = []
     dispatcher.groups[0] = [MessageHandler(recording(calls, "handler"))]
-    waiter = asyncio.create_task(listener.listen(100, 7))
+    waiter = asyncio.create_task(listener.listen(chat_id=100, user_id=7))
     await asyncio.sleep(0)
     reply, later = make_message(100, 7, 5), make_message(100, 7, 6)
     parsed = iter([reply, later])
@@ -652,7 +652,7 @@ async def test_listen_inside_a_handler_of_the_same_chat_does_not_deadlock() -> N
 
     async def asks_again(client: object, update: Message) -> None:
         try:
-            await listener.listen(update.chat.id, update.from_user.id, timeout=0.05)
+            await listener.listen(chat_id=update.chat.id, user_id=update.from_user.id, timeout=0.05)
         except BaseException as e:  # noqa: BLE001  # the test records what `listen` raised
             errors.append(e)
 
@@ -690,7 +690,7 @@ def _waiting_bot(workers: int) -> tuple[pyroflow.Client, MessageListener, list[o
 
         chat = next(chats)
         try:
-            await listener.listen(chat, timeout=5)
+            await listener.listen(chat_id=chat, timeout=5)
             results.append((chat, "answered"))
         except Exception as e:  # noqa: BLE001  # the test records how each wait ended
             results.append((chat, type(e)))
@@ -736,7 +736,7 @@ async def test_policy_reject_refuses_the_wait_that_would_take_the_last_worker() 
         await _until(lambda: "ping" in results)
 
         assert (2, ListenerWorkersBusy) in results
-        assert list(listener.listeners) == [ListenerKey(1)]
+        assert list(listener.listeners) == [MessageKey(1)]
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
@@ -747,11 +747,11 @@ async def test_policy_cancel_oldest_evicts_the_oldest_wait() -> None:
     await _start_waits(client, 2)
     try:
         await _until(
-            lambda: (1, ListenerEvicted) in results and ListenerKey(2) in listener.listeners
+            lambda: (1, ListenerEvicted) in results and MessageKey(2) in listener.listeners
         )
 
         waits = client.dispatcher.handler_waits
-        assert [model.key for model in waits] == [ListenerKey(2)]
+        assert [model.key for model in waits] == [MessageKey(2)]
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
@@ -773,7 +773,7 @@ def _stubborn_bot(
     async def handler(client: object, update: object, users: object, chats_: object) -> None:
         chat = next(chats)
         try:
-            await listener.listen(chat, timeout=5)
+            await listener.listen(chat_id=chat, timeout=5)
         except ListenerEvicted:
             results.append((chat, "evicted"))
             await finish.wait()
@@ -790,7 +790,7 @@ async def test_policy_cancel_oldest_starts_the_new_wait_while_the_evicted_handle
     try:
         await _until(lambda: (1, "evicted") in results)
 
-        assert ListenerKey(2) in listener.listeners
+        assert MessageKey(2) in listener.listeners
         assert len(client.dispatcher.handler_waits) == 1
     finally:
         finish.set()
@@ -811,9 +811,9 @@ async def test_an_evicted_handler_that_waits_again_evicts_the_next_oldest() -> N
         chat = next(chats)
         try:
             try:
-                await listener.listen(chat, timeout=5)
+                await listener.listen(chat_id=chat, timeout=5)
             except ListenerEvicted:
-                await listener.listen(chat + 10, timeout=5)
+                await listener.listen(chat_id=chat + 10, timeout=5)
         except Exception as e:  # noqa: BLE001  # the test records how each wait ended
             results.append((chat, type(e)))
 
@@ -823,7 +823,7 @@ async def test_an_evicted_handler_that_waits_again_evicts_the_next_oldest() -> N
         await _until(lambda: (1, ListenerEvicted) in results)
 
         waits = client.dispatcher.handler_waits
-        assert [model.key for model in waits] == [ListenerKey(12), ListenerKey(13)]
+        assert [model.key for model in waits] == [MessageKey(12), MessageKey(13)]
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
@@ -919,8 +919,8 @@ async def test_enter_handler_wait_with_no_worker_to_spare_refuses(
 def _hold_a_worker(dispatcher: Dispatcher, chat_id: int = 1) -> ListenerModel:
     """Take a slot and track a wait as `UpdateListener.listen` does, and return its model."""
     listener = MessageListener()
-    model = ListenerModel(ListenerKey(chat_id), asyncio.get_running_loop().create_future())
-    listener.listeners[model.key] = model
+    model = ListenerModel(MessageKey(chat_id), asyncio.get_running_loop().create_future())
+    listener._add(model)
     model.add_done_callback(dispatcher.end_handler_wait)
     dispatcher.handler_waits[model] = listener
     return model
@@ -978,7 +978,7 @@ async def test_enter_handler_wait_takes_the_slot_of_a_wait_that_just_ended(
 ) -> None:
     dispatcher = await _started_dispatcher(workers=3)
     ended, pending = _hold_a_worker(dispatcher, 1), _hold_a_worker(dispatcher, 2)
-    del dispatcher.handler_waits[ended].listeners[ended.key]
+    dispatcher.handler_waits[ended]._remove(ended.key)
     ended.resolve("update")
 
     dispatcher.enter_handler_wait(mode, ListenerKey(3))
@@ -1035,7 +1035,7 @@ async def test_a_wait_replacing_one_takes_its_slot_with_no_slot_free() -> None:
     async def wait() -> object:
         token = _HANDLER_WORKER.set((dispatcher, asyncio.current_task()))
         try:
-            return await listener.listen(1)
+            return await listener.listen(chat_id=1)
         finally:
             _HANDLER_WORKER.reset(token)
 
@@ -1049,7 +1049,7 @@ async def test_a_wait_replacing_one_takes_its_slot_with_no_slot_free() -> None:
 
     assert len(dispatcher.handler_waits) == 1
 
-    listener.cancel(ListenerKey(1))
+    listener.cancel(MessageKey(1))
 
     with pytest.raises(ListenerCancelled):
         await second
@@ -1062,15 +1062,15 @@ async def test_a_wait_replacing_one_that_holds_no_slot_is_refused_with_no_slot_f
     dispatcher.workers_policy = WorkersPolicy.REJECT
     listener = MessageListener()
     _hold_a_worker(dispatcher, 9)
-    old = asyncio.ensure_future(listener.listen(1))  # outside a worker, so it holds no slot
+    old = asyncio.ensure_future(listener.listen(chat_id=1))  # outside a worker, so it holds no slot
     await asyncio.sleep(0)
 
     with pytest.raises(ListenerWorkersBusy):
-        await _on_a_worker(dispatcher, lambda: listener.listen(1))
+        await _on_a_worker(dispatcher, lambda: listener.listen(chat_id=1))
 
     assert not old.done()
 
-    listener.cancel(ListenerKey(1))
+    listener.cancel(MessageKey(1))
 
     with pytest.raises(ListenerCancelled):
         await old
@@ -1184,7 +1184,9 @@ class _Bot:
         async def script() -> None:
             outcome: object
             try:
-                outcome = await self.listener.listen(chat_id, user_id, timeout=timeout)
+                outcome = await self.listener.listen(
+                    chat_id=chat_id, user_id=user_id, timeout=timeout
+                )
             except ListenerError as e:
                 outcome = type(e)
             self.outcomes.append((chat_id, outcome))
@@ -1240,7 +1242,7 @@ async def test_stress_each_reply_reaches_only_its_own_wait(seed: int) -> None:
 
         def wait_for_reply(key: tuple[int, int]) -> None:
             async def script() -> None:
-                got[key] = await bot.listener.listen(*key, timeout=5)
+                got[key] = await bot.listener.listen(chat_id=key[0], user_id=key[1], timeout=5)
 
             bot.run(script)
 
@@ -1294,7 +1296,7 @@ async def test_stress_cancel_oldest_evicts_strictly_oldest_first() -> None:
     async with _running(bot):
         for chat in range(1, 13):
             bot.wait_on(chat)
-            await _until(lambda chat=chat: ListenerKey(chat) in bot.listener.listeners)
+            await _until(lambda chat=chat: MessageKey(chat) in bot.listener.listeners)
 
         await _until(lambda: len(bot.outcomes) == 9)
 
@@ -1353,18 +1355,18 @@ async def test_stress_waits_racing_for_one_key_leave_one_owner(
     dispatcher = await _started_dispatcher(workers=3)
     dispatcher.workers_policy = WorkersPolicy.CANCEL_OLDEST
     listener = MessageListener(duplicate_policy=duplicates)
-    owner = _on_a_worker(dispatcher, lambda: listener.listen(1))
+    owner = _on_a_worker(dispatcher, lambda: listener.listen(chat_id=1))
     await asyncio.sleep(0.01)
 
-    racing = [_on_a_worker(dispatcher, lambda: listener.listen(1)) for _ in range(6)]
+    racing = [_on_a_worker(dispatcher, lambda: listener.listen(chat_id=1)) for _ in range(6)]
     tasks = [owner, *racing]
 
     await _until(lambda: sum(not task.done() for task in tasks) == 1)
 
-    assert list(listener.listeners) == [ListenerKey(1)]
+    assert list(listener.listeners) == [MessageKey(1)]
     assert len(dispatcher.handler_waits) == 1
 
-    listener.cancel(ListenerKey(1))
+    listener.cancel(MessageKey(1))
     outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
     assert sum(isinstance(e, lost) for e in outcomes) >= 6
@@ -1376,16 +1378,16 @@ async def test_stress_cancelling_the_task_of_a_wait_frees_its_slot() -> None:
     dispatcher = await _started_dispatcher(workers=3)
     dispatcher.workers_policy = WorkersPolicy.REJECT
     listener = MessageListener()
-    holders = [_on_a_worker(dispatcher, lambda c=c: listener.listen(c)) for c in (1, 2)]
+    holders = [_on_a_worker(dispatcher, lambda c=c: listener.listen(chat_id=c)) for c in (1, 2)]
     await asyncio.sleep(0.01)
 
     holders[0].cancel()
     await asyncio.sleep(0.01)
 
-    late = _on_a_worker(dispatcher, lambda: listener.listen(3))
+    late = _on_a_worker(dispatcher, lambda: listener.listen(chat_id=3))
     await asyncio.sleep(0.01)
 
-    assert ListenerKey(3) in listener.listeners
+    assert MessageKey(3) in listener.listeners
 
     for key in list(listener.listeners):
         listener.cancel(key)
@@ -1411,7 +1413,9 @@ async def test_stress_random_traffic_keeps_every_guarantee(
         async def script() -> None:
             for _ in range(rng.randrange(1, 3)):
                 try:
-                    update = await bot.listener.listen(*key, timeout=rng.uniform(0.001, 0.01))
+                    update = await bot.listener.listen(
+                        chat_id=key[0], user_id=key[1], timeout=rng.uniform(0.001, 0.01)
+                    )
                 except ListenerError:
                     continue
                 delivered.append((key, update))
@@ -1428,7 +1432,7 @@ async def test_stress_random_traffic_keeps_every_guarantee(
             elif roll < 0.8:
                 bot.reply(make_message(*key, message_id=number))
             elif roll < 0.9:
-                bot.listener.cancel(ListenerKey(*key))
+                bot.listener.cancel(MessageKey(*key))
 
             for _ in range(rng.randrange(3)):
                 await asyncio.sleep(0)
@@ -1468,7 +1472,7 @@ async def test_stress_stop_under_load_then_a_clean_second_run() -> None:
         assert bot.dispatcher.handler_waits == {}
 
         bot.wait_on(1)
-        await _until(lambda: ListenerKey(1) in bot.listener.listeners)
+        await _until(lambda: MessageKey(1) in bot.listener.listeners)
         answer = make_message(1)
         bot.reply(answer)
         await bot.settle()
@@ -1487,14 +1491,14 @@ async def test_stress_listeners_of_two_types_share_the_slots_and_keep_their_upda
 
         async def wait_for_query() -> None:
             try:
-                query_outcome.append(await queries.listen(1, 7, timeout=5))
+                query_outcome.append(await queries.listen(chat_id=1, user_id=7, timeout=5))
             except ListenerError as e:
                 query_outcome.append(type(e))
 
         bot.run(wait_for_query)
-        await _until(lambda: ListenerKey(1, 7) in queries.listeners)
+        await _until(lambda: CallbackQueryKey(1, 7) in queries.listeners)
         bot.wait_on(1, 7)
-        await _until(lambda: ListenerKey(1, 7) in bot.listener.listeners)
+        await _until(lambda: MessageKey(1, 7) in bot.listener.listeners)
 
         # A query with no wait of its type left stays out of the message wait on the same key.
         bot.wait_on(2)
@@ -1502,7 +1506,7 @@ async def test_stress_listeners_of_two_types_share_the_slots_and_keep_their_upda
         bot.reply(make_callback_query(1, 7), CallbackQueryHandler)
         await asyncio.sleep(0.02)
 
-        assert ListenerKey(1, 7) in bot.listener.listeners
+        assert MessageKey(1, 7) in bot.listener.listeners
 
         answers = {1: make_message(1, 7), 2: make_message(2)}
         for answer in answers.values():
@@ -1520,9 +1524,9 @@ async def test_stress_two_clients_share_no_slots() -> None:
 
     async with _running(full), _running(free):
         full.wait_on(1)
-        await _until(lambda: ListenerKey(1) in full.listener.listeners)
+        await _until(lambda: MessageKey(1) in full.listener.listeners)
         free.wait_on(1)
-        await _until(lambda: ListenerKey(1) in free.listener.listeners)
+        await _until(lambda: MessageKey(1) in free.listener.listeners)
 
         answer = make_message(1)
         free.reply(answer)
@@ -1530,9 +1534,9 @@ async def test_stress_two_clients_share_no_slots() -> None:
 
         assert free.outcomes == [(1, answer)]
         assert full.outcomes == []
-        assert ListenerKey(1) in full.listener.listeners
+        assert MessageKey(1) in full.listener.listeners
 
-        full.listener.cancel(ListenerKey(1))
+        full.listener.cancel(MessageKey(1))
         await full.settle()
 
 
@@ -1551,10 +1555,12 @@ async def test_stress_two_replies_at_once_give_a_wait_exactly_one(
         got: list[object] = []
 
         async def wait_with_a_filter() -> None:
-            got.append(await bot.listener.listen(1, timeout=5, filters=filters.create(slow_filter)))
+            got.append(
+                await bot.listener.listen(chat_id=1, timeout=5, filters=filters.create(slow_filter))
+            )
 
         bot.run(wait_with_a_filter)
-        await _until(lambda: ListenerKey(1) in bot.listener.listeners)
+        await _until(lambda: MessageKey(1) in bot.listener.listeners)
 
         replies = [make_message(1, message_id=i) for i in (1, 2, 3)]
         for reply in replies:
