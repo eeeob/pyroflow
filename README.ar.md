@@ -31,7 +31,7 @@ pip install pyroflow
 | المشكلة | حل pyroflow |
 |---|---|
 | انتظار رد محدد | `UpdateListener`: انتظر بـ `await` الـ update التالية من مستخدم |
-| طرح سؤال وانتظار جوابه | `ask_message()` / `ask_callback_query()`: أرسل رسالة أو عدّلها، ثم انتظر الرد أو الضغطة بـ `await` |
+| طرح سؤال وانتظار جوابه | `ask()` / `ask_callback_query()`: أرسل رسالة أو عدّلها، ثم انتظر الرد أو الضغطة بـ `await` |
 
 ---
 
@@ -68,13 +68,13 @@ async def on_start(client, message):
     if message.text != "/start":
         return
 
-    answer = await message.ask_message("What is your name?", listen_timeout=60)
+    answer = await message.ask("What is your name?", listen_timeout=60)
     await answer.reply(f"Hello, {answer.text}!")
 
 client.run()
 ```
 
-`message.ask_message` ترد على الرسالة، ثم تنتظر الرسالة التالية من مرسلها في نفس المحادثة والـ topic.
+`message.ask` ترد على الرسالة، ثم تنتظر الرسالة التالية من مرسلها في نفس المحادثة والـ topic.
 
 ---
 
@@ -118,14 +118,15 @@ async def on_confirm(client, message):
 client.run()
 ```
 
-اختصارات لأكثر نوعين شيوعًا من الـ listeners:
+ويستطيع الـ client أن ينتظر أيضًا، على الـ listener المسجَّل لنوع الـ update:
 
 ```python
-client.message_listen    # UpdateListener[Message, MessageKey]
-client.callback_listen   # UpdateListener[CallbackQuery, CallbackQueryKey]
+code_msg = await client.listen_message(chat_id=chat_id, user_id=user_id, timeout=120)
+press = await client.listen_callback_query(chat_id=chat_id, message_id=message_id)
+client.get_listener(Message)   # the registered listener, or None
 ```
 
-نوعهما هو `UpdateListener` الأساسي، و`listen` فيه تأخذ المفتاح كاملًا، أما `MessageListener.listen` فتأخذ حقول المفتاح. لذلك احتفظ بالـ listener الذي تسجّله لتستدعي `listen` عليه كما في المثال أعلاه، واستعمل الاختصارين للبحث عن الانتظارات أو إنهائها، مثل `client.message_listen.cancel(key)`.
+`listen_message` و`listen_callback_query` تأخذان حقول مفتاحهما ومعاملات الانتظار، وترفعان `RuntimeError` إن لم يُسجَّل listener لنوعهما. أما `get_listener` فتُرجع `None` بدل رفع خطأ؛ واستعمل الـ listener الذي تُرجعه للبحث عن الانتظارات أو إنهائها، مثل `client.get_listener(Message).cancel(key)`.
 
 كل listener ينتظر على مفاتيح من كلاسه الخاص، من `pyroflow.models`، و`listen` فيه تأخذ الحقول نفسها:
 
@@ -134,7 +135,7 @@ client.callback_listen   # UpdateListener[CallbackQuery, CallbackQueryKey]
 
 الحقل المتروك `None` يطابق أي قيمة، فـ `messages.listen()` تأخذ الرسالة التالية في أي مكان، و`messages.listen(user_id=7)` تأخذ المستخدم 7 في أي محادثة. والمفتاح يحفظ القيم كما مُرِّرت، فللانتظار في المحادثة الخاصة مع مستخدم مرِّر `chat_id`: معرّف المحادثة الخاصة هو معرّف المستخدم. و`inline_message_id` ينتظر ضغطة على رسالة أُرسلت في الـ inline mode؛ وهذه الضغطة بلا محادثة، فتصل إلى انتظار على مستخدمها، ولا تصل أبدًا إلى انتظار على محادثة.
 
-**الـ topics.** `message_thread_id` ينتظر في topic واحد من منتدى، أو في topic من محادثة خاصة للبوت. و`direct_messages_topic_id` ينتظر في topic واحد من محادثة الرسائل المباشرة لقناة. و`ask_message` تنتظر في topic الرسالة التي أرسلتها أو عدّلتها. ويترك Kurigram الحقل `message_thread_id` فارغًا في topic الـ General، فالسؤال المطروح هناك ينتظر على المحادثة كلها.
+**الـ topics.** `message_thread_id` ينتظر في topic واحد من منتدى، أو في topic من محادثة خاصة للبوت. و`direct_messages_topic_id` ينتظر في topic واحد من محادثة الرسائل المباشرة لقناة. و`ask` تنتظر في topic الرسالة التي أرسلتها أو عدّلتها. ويترك Kurigram الحقل `message_thread_id` فارغًا في topic الـ General، فالسؤال المطروح هناك ينتظر على المحادثة كلها.
 
 الـ listener يأخذ أول update مطابق يستقبله الـ client بعد استدعاء `listen`.
 
@@ -161,13 +162,13 @@ client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.C
 
 ---
 
-### ask_message() وask_callback_query()
+### ask() وask_callback_query()
 
 دوال `ask_*` أغلفة عالية المستوى حول الـ listeners.
 
 ترسل رسالة (أو تعدّلها)، ثم تتوقف حتى يصل الجواب، وكل ذلك في `await` واحد:
 
-- `ask_message` تنتظر الرسالة التالية.
+- `ask` تنتظر الرسالة التالية.
 - `ask_callback_query` تنتظر ضغطة على أزرار الرسالة التي أرسلتها أو عدّلتها.
 
 الدوال موجودة على `Client` وعلى `Message`، وكلها تأخذ المفتاح من الرسالة المرسلة أو المعدّلة: محادثتها والـ topic، ورقمها في حالة الضغطة.
@@ -176,7 +177,7 @@ client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.C
 from pyrogram import filters
 
 # Send a new message, then wait for the user's next message in the chat
-answer = await client.ask_message(
+answer = await client.ask(
     chat_id,
     "What is your name?",
     listen_filters=filters.user(user_id),
@@ -193,8 +194,9 @@ callback = await client.ask_callback_query(
 )
 ```
 
-- `Client.ask_*` تنتظر أي مستخدم في المحادثة، فضيّقها بـ `listen_filters`. وفي المحادثة الخاصة لا يجيب إلا المستخدم نفسه.
-- `Message.ask_*` ترد على الرسالة، أو تعدّلها إن كانت رسالة الـ client نفسه (`editable`). وتنتظر مرسلها، أو أي مستخدم إن كانت رسالة الـ client نفسه.
+- كل `ask_*` تأخذ `listen_user_id`، المستخدم المطلوب انتظاره.
+- بدونه يكون الانتظار على المستخدم الذي تسمّيه الرسالة المرسلة أو المعدّلة: مستقبل الرسالة المؤقتة (`ephemeral_message_parameters`)، أو مرسل الرسالة التي ترد عليها (`reply_parameters`) إلا إن كانت رسالة الـ client نفسه. وإن لم يوجد أيهما فعلى أي مستخدم في المحادثة، وفي المحادثة الخاصة لا يجيب إلا المستخدم نفسه.
+- `Message.ask_*` ترد على الرسالة، أو تعدّلها إن كانت رسالة الـ client نفسه (`editable`). وبدون `listen_user_id` تنتظر مرسلها أولًا.
 
 **المعاملات:**
 
@@ -217,9 +219,8 @@ callback = await client.ask_callback_query(
 - `ListenerReplaced`: أخذ انتظار أحدث المفتاح نفسه (وهو `ListenerCancelled`).
 - `ListenerRejected`: مع `listen_strict=True`، رفض `listen_filters` update (وهو `ListenerCancelled`).
 - `ListenerAlreadyExists`: مع `DuplicatePolicy.REJECT` على الـ listener، يوجد انتظار على المفتاح نفسه. يكون السؤال قد أُرسل.
-- `ValueError`: أرسلت `ask_callback_query*` أو عدّلت رسالة ليس فيها زر يرسل callback query (`callback_data` أو `callback_game`). تكون الرسالة قد أُرسلت أو عُدّلت.
 
-وللفحص قبل الإرسال، ابحث عن المفتاح بنفسك كما يبنيه الانتظار: `MessageKey(chat_id, user_id) in client.message_listen.listeners` لـ `message.ask_message` في محادثة بلا topics، مع `None` مكان `user_id` إن كانت الرسالة رسالة الـ client نفسه (`editable`). أما `client.ask_message` فتنتظر بلا `user_id`.
+وللفحص قبل الإرسال، ابحث عن المفتاح بنفسك كما يبنيه الانتظار: `MessageKey(chat_id, user_id) in client.get_listener(Message).listeners` لـ `message.ask` في محادثة بلا topics، مع `None` مكان `user_id` إن كانت الرسالة رسالة الـ client نفسه (`editable`). أما `client.ask` فتنتظر بلا `user_id`.
 
 **الفلاتر.** `listen_filters` يضيف filter من Pyrogram يجب أن يجتازه الـ update المنتظَر، إضافة إلى مفتاحه.
 
@@ -231,7 +232,7 @@ from pyrogram import filters
 from pyroflow.errors import ListenerRejected
 
 # Wait for text; a /cancel command ends the question.
-answer = await message.ask_message(
+answer = await message.ask(
     "What is your name?",
     listen_filters=filters.text & ~filters.command("cancel"),
     listen_strict=True,
@@ -240,7 +241,7 @@ answer = await message.ask_message(
 # Ask again until the answer passes the filter.
 while True:
     try:
-        answer = await message.ask_message("Send a number:", listen_filters=filters.regex(r"^\d+$"), listen_strict=True)
+        answer = await message.ask("Send a number:", listen_filters=filters.regex(r"^\d+$"), listen_strict=True)
         break
     except ListenerRejected:
         await message.reply("That is not a number.")
@@ -265,7 +266,7 @@ client.register_listener(MessageListener(strict_filter=~filters.registered_comma
 ```python
 from pyrogram import filters as pyrogram_filters
 
-name = await message.ask_message(
+name = await message.ask(
     "Your name?",
     listen_filters=pyrogram_filters.text & ~filters.registered_command(),
     listen_strict=True,
@@ -295,7 +296,7 @@ from pyroflow.models import ListenerContext
 class OrderContext(ListenerContext):
     step: int = 0
 
-answer = await message.ask_message("Your name?", listen_context=OrderContext(step=1, note="signup"))
+answer = await message.ask("Your name?", listen_context=OrderContext(step=1, note="signup"))
 ```
 
 مع `setup_pyroflow(ask_context_message=True)` تضع دوال `ask_*` الرسالة التي أرسلها أو عدّلها في `listen_context` باسم `message`، على نسخة منه، إلا إذا ضبطتها أنت مسبقًا. وبدونه يصل `listen_context` إلى الـ listener كما هو. بالرسالة تستطيع `on_error_func` تنظيف السؤال:
@@ -306,7 +307,7 @@ async def drop_question(exc, model):
         await model.context.message.delete()
 ```
 
-لإنهاء سؤال من handler زر، مثل زر "رجوع" عليه، ألغِ انتظاره بمفتاحه، فترفع `ask_message` الخطأ `ListenerCancelled`: `client.message_listen.cancel(MessageKey.from_sent(query.message, query.from_user.id))` بعد `message.ask_message` على رسالة المستخدم، أو مع `None` مكان المستخدم بعد `client.ask_message`، أو بعد `message.ask_message` على رسالة الـ client نفسه (`editable`)، مثل `query.message`.
+لإنهاء سؤال من handler زر، مثل زر "رجوع" عليه، ألغِ انتظاره بمفتاحه، فترفع `ask` الخطأ `ListenerCancelled`: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, query.from_user.id))` بعد `message.ask` على رسالة المستخدم، أو مع `None` مكان المستخدم بعد `client.ask`، أو بعد `message.ask` على رسالة الـ client نفسه (`editable`)، مثل `query.message`.
 
 > ⚠️ **انتظار لا ينتهي.** بلا `listen_strict`، يبقى الانتظار مفتوحًا حتى `listen_timeout`، أو إلى الأبد بلا `listen_timeout`، إذا رفض الفلتر كل update ما زال يمكن أن يطابق المفتاح:
 > - الفلتر لا يمكن أن يقبل هذا النوع أصلًا، مثل `filters.photo` أثناء انتظار `CallbackQuery`.
@@ -315,7 +316,7 @@ async def drop_question(exc, model):
 > أعطِ هذا الانتظار مهلة (`listen_timeout` في `ask_*`، أو `timeout` في `listen` أو على الـ listener)، أو استعمل `listen_strict=True` (`strict=True` في `listen`) إن كان أول update مرفوض يجب أن ينهي الانتظار، أو أنهِه بنفسك بـ `listener.cancel(key)`. وانتبه: `listen_strict=True` ينهي الانتظار عند **أي** update مرفوض من نفس المفتاح، مثل صورة أثناء انتظار نص.
 
 
-`ask_message_rich()` و`ask_callback_query_rich()` تفعلان الشيء نفسه مع rich message:
+`ask_rich()` و`ask_callback_query_rich()` تفعلان الشيء نفسه مع rich message:
 
 - ترسلان عبر `send_rich_message`.
 - أو تعدّلان عبر `edit_message_text(rich_message=...)` إن أُعطي `message_id`.
@@ -325,7 +326,7 @@ async def drop_question(exc, model):
 ```python
 from pyrogram.types import InputRichMessage
 
-answer = await client.ask_message_rich(
+answer = await client.ask_rich(
     chat_id,
     InputRichMessage(html="Pick a <b>name</b>:"),
     listen_timeout=30,
@@ -355,7 +356,7 @@ await client.unregister_listener(Message)
 from pyroflow.errors import ListenerTimeout, ListenerCancelled
 
 try:
-    reply = await client.ask_message(chat_id, "Your input?", listen_timeout=30)
+    reply = await client.ask(chat_id, "Your input?", listen_timeout=30)
 except ListenerTimeout:
     await client.send_message(chat_id, "You took too long. Try again.")
 except ListenerCancelled:

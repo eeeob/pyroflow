@@ -10,19 +10,24 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
-- `Client` and `Message` `ask_message`, `ask_message_rich`,
-  `ask_callback_query` and `ask_callback_query_rich`: send or edit a text
+- `Client.listen_message` and `Client.listen_callback_query`: wait on the
+  listener registered for `Message` or `CallbackQuery`, with the fields of
+  its key and the wait arguments; `RuntimeError` when none is registered.
+  `Client.get_listener(update_type)` returns the registered listener, or
+  `None`.
+- `Client` and `Message` `ask_rich`, `ask_callback_query` and
+  `ask_callback_query_rich`: like `ask`, send or edit a text
   (`send_message`/`edit_message_text`, or `reply`/`edit` on `Message`) or a
   rich message (`send_rich_message`/`edit_message_text(rich_message=...)`, or
-  `reply_rich`/`edit`), then wait for the next message, or for a press on the
-  buttons of the message sent or edited. The key comes from that message:
-  its chat and topics, and for a press its id. `Message.ask_*` waits for the
-  sender of the message it is called on, or for anyone when that message is
-  the client's own (`editable`); `Client.ask_*` waits for anyone, so narrow
-  it with `listen_filters`. `ask_callback_query*` raises `ValueError` when the
-  message sent or edited has no button that sends a callback query
-  (`callback_data` or `callback_game`); the message is already sent or
-  edited by then.
+  `reply_rich`/`edit`), then wait for a press on the buttons of the message
+  sent or edited, where `ask` and `ask_rich` wait for the next message. The key comes from that message:
+  its chat and topics, and for a press its id. Every `ask_*` takes
+  `listen_user_id`, the user to wait for. Without it, `Message.ask_*` waits
+  for the sender of the message it is called on; otherwise, as in
+  `Client.ask_*`, the user the message sent or edited names (the receiver
+  of an ephemeral message, or the sender of the message it replies to unless
+  it is the client's own), or else anyone. `MessageKey.from_sent` and
+  `CallbackQueryKey.from_sent` name that user the same way.
 - `pyroflow.models.MessageKey` (`chat_id`, `user_id`, `message_thread_id`,
   `direct_messages_topic_id`, `ephemeral`) and
   `pyroflow.models.CallbackQueryKey` (`chat_id`, `user_id`, `message_id`,
@@ -38,7 +43,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   from an update, or from a message just sent.
 - Waits by topic: `message_thread_id` (a forum topic) and
   `direct_messages_topic_id` (a topic of a channel's direct messages chat) on
-  `MessageListener.listen`. `ask_message` waits in the topic of the message
+  `MessageListener.listen`. `ask` waits in the topic of the message
   it sent or edited.
 - Presses on messages sent in inline mode: `inline_message_id` on
   `CallbackQueryListener.listen`. Such a press is keyed by its user and
@@ -115,24 +120,19 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
-- **BREAKING:** `ask` is gone: `ask_message` asks for a message and
-  `ask_callback_query` for a press, on `Client` and `Message`.
-  `update_type` is gone with it, and so are `listen_user_id` and
-  `listen_message_id`: the key comes from the message sent or edited, and a
-  message answer is no longer matched by its id. `Message.ask_*` waits for the
-  sender of the message it is called on, or for anyone when that message is
-  the client's own; `Client.ask_*` waits for anyone in the chat. Affects every
-  `ask` call.
+- **BREAKING:** `ask` asks for a message only, and
+  `ask_callback_query` asks for a press, on `Client` and `Message`.
+  `update_type` and `listen_message_id` are gone: the key comes from
+  the message sent or edited, and a message answer is no longer matched by
+  its id. `listen_user_id` stays; without it the user is the one the message
+  sent or edited names, or on `Message`, the sender of the message it is
+  called on. Affects `ask` calls passing `update_type` or
+  `listen_message_id`.
   Migration:
-  - `client.ask_message(chat_id, "Name?", listen_filters=filters.user(user_id))`
-    instead of `client.ask(chat_id, "Name?", listen_user_id=user_id)`; in a
-    private chat the user is the only one who can answer, so the filter can go.
-  - `message.ask_message("Name?")` instead of
-    `message.ask("Name?", listen_user_id=message.from_user.id)`.
+  - Drop `listen_message_id` from `ask`.
   - `client.ask_callback_query(chat_id, "Pick one:", reply_markup=keyboard)`
     instead of `client.ask(..., update_type=CallbackQuery)`, and drop
-    `listen_message_id`: the press is awaited on the message sent or edited,
-    which must have a callback button.
+    `listen_message_id`: the press is awaited on the message sent or edited.
 - **BREAKING:** `listen` takes the fields of its listener's key, each `None`
   (any value) by default: `MessageListener.listen(chat_id, user_id,
   message_thread_id, direct_messages_topic_id, ephemeral)`,
@@ -224,23 +224,30 @@ Every breaking change lists what changed, who is affected and how to migrate.
   or reading `meta`, or building `ListenerModel` itself.
   Migration: `listen(chat, context=ListenerContext(step=1))` instead of
   `listen(chat, {"step": 1})`,
-  `ask_message(..., listen_context=ListenerContext(...))` instead of
+  `ask(..., listen_context=ListenerContext(...))` instead of
   `ask(..., meta=...)`, read `model.context.step` instead of
   `model.meta["step"]`, and build models as
   `ListenerModel(key, loop.create_future())`.
 - **BREAKING:** every listen parameter of the `ask_*` methods (on `Client`
   and `Message`) starts with `listen_`: `timeout` is `listen_timeout`.
   Affects every call passing it.
-  Migration: `ask_message(..., listen_timeout=30)` instead of
+  Migration: `ask(..., listen_timeout=30)` instead of
   `ask(..., timeout=30)`.
 - **BREAKING:** `CallbackQueryListener` no longer cancels message waits: a
   press that no callback wait takes no longer ends the `ask` that sent the
   pressed message, and nothing in pyroflow does it instead. Affects bots
   whose buttons on an `ask` message were meant to end it.
   Migration: cancel the wait in the button's handler, by the key it waits
-  on: `client.message_listen.cancel(MessageKey.from_sent(query.message, user_id))`,
-  with the user the `ask_message` waits for, such as `query.from_user.id`,
-  or `None` after `Client.ask_message`.
+  on: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, user_id))`,
+  with the user the `ask` waits for, such as `query.from_user.id`,
+  or `None` after `Client.ask`.
+- **BREAKING:** `Client.listeners`, `Client.message_listen` and
+  `Client.callback_listen` are gone. Affects code that reads them, and their
+  `KeyError` when no listener is registered.
+  Migration: `client.get_listener(Message)` instead of
+  `client.message_listen` or `client.listeners[Message]`; it returns `None`
+  rather than raising. To wait, `client.listen_message(...)` or
+  `client.listen_callback_query(...)`.
 - **BREAKING:** `ListenerKey.to_tuple` is a method. Affects code reading
   `key.to_tuple` as a property.
   Migration: call `key.to_tuple()`.
@@ -298,7 +305,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   a history or read its records.
   Migration: carry the step a button leads back to in its `callback_data`
   (such as `back:menu`), which survives restarts, or keep a conversation's
-  state in one `ask_message()` flow.
+  state in one `ask()` flow.
 - **BREAKING:** the general-purpose helpers in `pyroflow.utils` are gone,
   together with the modules `pyroflow.utils.async_tools`,
   `pyroflow.utils.iter_tools`, `pyroflow.utils.validate_tools` and

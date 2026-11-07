@@ -27,7 +27,7 @@ pyroflow replaces that with a single `await`:
 | Problem | pyroflow solution |
 |---|---|
 | Waiting for a specific reply | `UpdateListener` — `await` the next update from a user |
-| Asking a question and waiting for its answer | `ask_message()` / `ask_callback_query()` — send or edit a message, then `await` the reply or the press |
+| Asking a question and waiting for its answer | `ask()` / `ask_callback_query()` — send or edit a message, then `await` the reply or the press |
 
 ---
 
@@ -64,13 +64,13 @@ async def on_start(client, message):
     if message.text != "/start":
         return
 
-    answer = await message.ask_message("What is your name?", listen_timeout=60)
+    answer = await message.ask("What is your name?", listen_timeout=60)
     await answer.reply(f"Hello, {answer.text}!")
 
 client.run()
 ```
 
-`message.ask_message` replies to the message, then waits for the next message from its sender in the same chat and topic.
+`message.ask` replies to the message, then waits for the next message from its sender in the same chat and topic.
 
 ---
 
@@ -110,14 +110,15 @@ async def on_confirm(client, message):
 client.run()
 ```
 
-Shortcuts for the two most common listener types:
+The client can wait too, on the listener registered for the update type:
 
 ```python
-client.message_listen    # UpdateListener[Message, MessageKey]
-client.callback_listen   # UpdateListener[CallbackQuery, CallbackQueryKey]
+code_msg = await client.listen_message(chat_id=chat_id, user_id=user_id, timeout=120)
+press = await client.listen_callback_query(chat_id=chat_id, message_id=message_id)
+client.get_listener(Message)   # the registered listener, or None
 ```
 
-They are typed as the base `UpdateListener`, whose `listen` takes a whole key, while `MessageListener.listen` takes the key's fields. Keep the listener you register to call `listen` on it, as above, and use the shortcuts to look up or end waits, such as `client.message_listen.cancel(key)`.
+`listen_message` and `listen_callback_query` take the fields of their key and the wait arguments, and raise `RuntimeError` when no listener is registered for their type. `get_listener` returns `None` instead of raising; use the listener it returns to look up or end waits, such as `client.get_listener(Message).cancel(key)`.
 
 Each listener waits on keys of its own class, from `pyroflow.models`, and its `listen` takes the same fields:
 
@@ -126,7 +127,7 @@ Each listener waits on keys of its own class, from `pyroflow.models`, and its `l
 
 A field left `None` matches any value, so `messages.listen()` takes the next message anywhere, and `messages.listen(user_id=7)` takes user 7 in any chat. A key holds the values as given, so to wait in a user's private chat pass `chat_id`: a private chat has the user's id. `inline_message_id` waits for a press on a message sent in inline mode; such a press has no chat, so it reaches a wait on its user, never a wait on a chat.
 
-**Topics.** `message_thread_id` waits in one forum topic, or in a topic of a bot's private chat. `direct_messages_topic_id` waits in one topic of a channel's direct messages chat. `ask_message` waits in the topic of the message it sent or edited. Kurigram leaves `message_thread_id` empty in a forum's General topic, so a question asked there waits on the whole chat.
+**Topics.** `message_thread_id` waits in one forum topic, or in a topic of a bot's private chat. `direct_messages_topic_id` waits in one topic of a channel's direct messages chat. `ask` waits in the topic of the message it sent or edited. Kurigram leaves `message_thread_id` empty in a forum's General topic, so a question asked there waits on the whole chat.
 
 A listener takes the next matching update its client receives after `listen` is called. When several waits match one update, such as one for the user and one for the whole chat, only the most specific gets it: the one with the most fields set, then by field order, so `(chat, user)` comes before `(chat, topic)`. Pass `resolve_scope=ListenerScope.ALL` (from `pyroflow.enums`) to the listener to give it to every one. Listeners live in the client's own process: pyroflow does not coordinate between sessions, so a bot running in several processes handles each update once in every process that receives it.
 
@@ -149,15 +150,15 @@ By default there is no policy and no timeout, so a question nobody answers holds
 
 ---
 
-### ask_message() and ask_callback_query()
+### ask() and ask_callback_query()
 
-The `ask_*` methods are the high-level wrappers around listeners. They send (or edit) a message and then suspend until the answer arrives — all in one `await`. `ask_message` waits for the next message, and `ask_callback_query` for a press on the buttons of the message it sent or edited. Both are on `Client` and on `Message`, and both take the key from the message sent or edited: its chat and topic, and for a press its id.
+The `ask_*` methods are the high-level wrappers around listeners. They send (or edit) a message and then suspend until the answer arrives — all in one `await`. `ask` waits for the next message, and `ask_callback_query` for a press on the buttons of the message it sent or edited. Both are on `Client` and on `Message`, and both take the key from the message sent or edited: its chat and topic, and for a press its id.
 
 ```python
 from pyrogram import filters
 
 # Send a new message, then wait for the user's next message in the chat
-answer = await client.ask_message(
+answer = await client.ask(
     chat_id,
     "What is your name?",
     listen_filters=filters.user(user_id),
@@ -174,7 +175,7 @@ callback = await client.ask_callback_query(
 )
 ```
 
-`Client.ask_*` waits for anyone in the chat, so narrow it with `listen_filters`; in a private chat the user is the only one who can answer. `Message.ask_*` replies to the message, or edits it when it is the client's own (`editable`), and waits for its sender, or for anyone when the message is the client's own.
+Every `ask_*` takes `listen_user_id`, the user to wait for. Without it, the wait is on the user the message sent or edited names: the receiver of an ephemeral message (`ephemeral_message_parameters`), or the sender of the message it replies to (`reply_parameters`), unless that message is the client's own; with neither, on anyone in the chat, and in a private chat the user is the only one who can answer. `Message.ask_*` replies to the message, or edits it when it is the client's own (`editable`), and without `listen_user_id` waits for its sender first.
 
 **Parameters:**
 
@@ -197,9 +198,8 @@ Any other keyword argument goes to the Pyrogram method that sends or edits, such
 - `ListenerReplaced` — a newer wait took the same key (a `ListenerCancelled`)
 - `ListenerRejected` — with `listen_strict=True`, an update failed `listen_filters` (a `ListenerCancelled`)
 - `ListenerAlreadyExists` — with `DuplicatePolicy.REJECT` on the listener, a wait already exists on the key. The question is already sent by then.
-- `ValueError` — `ask_callback_query*` sent or edited a message with no button that sends a callback query (`callback_data` or `callback_game`). The message is already sent or edited by then.
 
-To check before sending instead, look the key up yourself, as the wait builds it: `MessageKey(chat_id, user_id) in client.message_listen.listeners` for `message.ask_message` in a chat without topics, with `None` as `user_id` when the message is the client's own (`editable`). `client.ask_message` waits with no `user_id`.
+To check before sending instead, look the key up yourself, as the wait builds it: `MessageKey(chat_id, user_id) in client.get_listener(Message).listeners` for `message.ask` in a chat without topics, with `None` as `user_id` when the message is the client's own (`editable`). `client.ask` waits with no `user_id`.
 
 **Filters.** `listen_filters` adds a Pyrogram filter the awaited update must pass besides its key. An update whose key matches but that fails the filter goes on to the handlers, and the wait goes on. With `listen_strict=True` that update ends the wait with `ListenerRejected` instead:
 
@@ -208,7 +208,7 @@ from pyrogram import filters
 from pyroflow.errors import ListenerRejected
 
 # Wait for text; a /cancel command ends the question.
-answer = await message.ask_message(
+answer = await message.ask(
     "What is your name?",
     listen_filters=filters.text & ~filters.command("cancel"),
     listen_strict=True,
@@ -217,7 +217,7 @@ answer = await message.ask_message(
 # Ask again until the answer passes the filter.
 while True:
     try:
-        answer = await message.ask_message("Send a number:", listen_filters=filters.regex(r"^\d+$"), listen_strict=True)
+        answer = await message.ask("Send a number:", listen_filters=filters.regex(r"^\d+$"), listen_strict=True)
         break
     except ListenerRejected:
         await message.reply("That is not a number.")
@@ -242,7 +242,7 @@ A question with its own `listen_filters` skips `strict_filter`, so it adds the f
 ```python
 from pyrogram import filters as pyrogram_filters
 
-name = await message.ask_message(
+name = await message.ask(
     "Your name?",
     listen_filters=pyrogram_filters.text & ~filters.registered_command(),
     listen_strict=True,
@@ -268,7 +268,7 @@ from pyroflow.models import ListenerContext
 class OrderContext(ListenerContext):
     step: int = 0
 
-answer = await message.ask_message("Your name?", listen_context=OrderContext(step=1, note="signup"))
+answer = await message.ask("Your name?", listen_context=OrderContext(step=1, note="signup"))
 ```
 
 With `setup_pyroflow(ask_context_message=True)`, the `ask_*` methods put the message it sent or edited in `listen_context` as `message`, on a copy, unless you set one first. Otherwise `listen_context` reaches the listener as it is. With the message, `on_error_func` can clean up the question:
@@ -279,7 +279,7 @@ async def drop_question(exc, model):
         await model.context.message.delete()
 ```
 
-To end a question from a button's handler, such as a "back" button on it, cancel its wait by its key, which raises `ListenerCancelled` in `ask_message`: `client.message_listen.cancel(MessageKey.from_sent(query.message, query.from_user.id))` after `message.ask_message` on the user's message, or with `None` as the user after `client.ask_message`, or after `message.ask_message` on the client's own (`editable`) message, such as `query.message`.
+To end a question from a button's handler, such as a "back" button on it, cancel its wait by its key, which raises `ListenerCancelled` in `ask`: `client.get_listener(Message).cancel(MessageKey.from_sent(query.message, query.from_user.id))` after `message.ask` on the user's message, or with `None` as the user after `client.ask`, or after `message.ask` on the client's own (`editable`) message, such as `query.message`.
 
 > ⚠️ **A wait that never ends.** Without `listen_strict`, a wait stays open until `listen_timeout`, or forever without one, when every update its key can still match fails the filter:
 > - The filter can never pass that update type, such as `filters.photo` while waiting for a `CallbackQuery`.
@@ -288,12 +288,12 @@ To end a question from a button's handler, such as a "back" button on it, cancel
 > Give such waits a timeout (`listen_timeout` on `ask_*`, `timeout` on `listen` or on the listener), use `listen_strict=True` (`strict=True` on `listen`) when the first rejected update should end the wait, or end the wait yourself with `listener.cancel(key)`. Note that `listen_strict=True` ends the wait on **any** rejected update of the key, such as a photo while text is awaited.
 
 
-`ask_message_rich()` and `ask_callback_query_rich()` do the same with a rich message: they send with `send_rich_message`, or edit with `edit_message_text(rich_message=...)` when `message_id` is given. The `Message` methods call the message's own `edit`, `reply` and `reply_rich`, so they accept what those accept; use the `Client` methods for arguments such as `reply_parameters`.
+`ask_rich()` and `ask_callback_query_rich()` do the same with a rich message: they send with `send_rich_message`, or edit with `edit_message_text(rich_message=...)` when `message_id` is given. The `Message` methods call the message's own `edit`, `reply` and `reply_rich`, so they accept what those accept; use the `Client` methods for arguments such as `reply_parameters`.
 
 ```python
 from pyrogram.types import InputRichMessage
 
-answer = await client.ask_message_rich(
+answer = await client.ask_rich(
     chat_id,
     InputRichMessage(html="Pick a <b>name</b>:"),
     listen_timeout=30,
@@ -318,7 +318,7 @@ await client.unregister_listener(Message)
 from pyroflow.errors import ListenerTimeout, ListenerCancelled
 
 try:
-    reply = await client.ask_message(chat_id, "Your input?", listen_timeout=30)
+    reply = await client.ask(chat_id, "Your input?", listen_timeout=30)
 except ListenerTimeout:
     await client.send_message(chat_id, "You took too long. Try again.")
 except ListenerCancelled:
