@@ -250,7 +250,7 @@ async def test_push_bot_commands_from_a_handler_never_waits_on_the_dispatcher() 
     c.add_handler(_handler([a]))
     await _drain()
 
-    # `handler_worker` holds its lock around the handler, as it does in an `ask`.
+    # `handler_worker` holds its lock around the handler, as it does in an `ask_*` method.
     async with worker_lock:
         await asyncio.wait_for(c.push_bot_commands(), 1)
 

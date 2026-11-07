@@ -1,4 +1,4 @@
-"""Pyrogram arguments `Message.ask` and `Message.ask_rich` accept, for type checkers.
+"""Pyrogram arguments the `Message.ask_*` methods accept, for type checkers.
 
 Each class stands alone, with every argument any supported kurigram accepts,
 so an argument may be unknown to the installed one; a comment names the
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class MessageAskSendKw(TypedDict, total=False):
-    """What `Message.ask` accepts when it replies with a text, as `Message.reply`."""
+    """What `Message.ask` and `ask_callback_query` accept to reply with a text."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -51,7 +51,7 @@ class MessageAskSendKw(TypedDict, total=False):
 
 
 class MessageAskEditKw(TypedDict, total=False):
-    """What `Message.ask` accepts when it edits a text, as `Message.edit`."""
+    """What `Message.ask` and `ask_callback_query` accept to edit a text."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -64,7 +64,7 @@ class MessageAskEditKw(TypedDict, total=False):
 
 
 class MessageAskRichSendKw(TypedDict, total=False):
-    """What `Message.ask_rich` accepts when it replies, as `Message.reply_rich`."""
+    """What the `Message.ask_*_rich` methods accept to reply, as `Message.reply_rich`."""
 
     disable_notification: bool | None
     """Send the message silently."""
@@ -87,7 +87,7 @@ class MessageAskRichSendKw(TypedDict, total=False):
 
 
 class MessageAskRichEditKw(TypedDict, total=False):
-    """What `Message.ask_rich` accepts when it edits, as `Message.edit` with `rich_message`."""
+    """What the `Message.ask_*_rich` methods accept to edit, as `Message.edit` with `rich_message`."""
 
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""

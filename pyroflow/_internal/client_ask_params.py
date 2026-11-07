@@ -1,4 +1,4 @@
-"""Pyrogram arguments `Client.ask` and `Client.ask_rich` accept, for type checkers.
+"""Pyrogram arguments the `Client.ask_*` methods accept, for type checkers.
 
 Each class stands alone, with every argument any supported kurigram accepts,
 so an argument may be unknown to the installed one; a comment names the
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class AskSendKw(TypedDict, total=False):
-    """What `Client.ask` accepts when it sends a text."""
+    """What `Client.ask` and `ask_callback_query` accept when they send a text."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -77,7 +77,7 @@ class AskSendKw(TypedDict, total=False):
 
 
 class AskEditKw(TypedDict, total=False):
-    """What `Client.ask` accepts when it edits a text."""
+    """What `Client.ask` and `ask_callback_query` accept when they edit a text."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -98,7 +98,7 @@ class AskEditKw(TypedDict, total=False):
 
 
 class AskRichSendKw(TypedDict, total=False):
-    """What `Client.ask_rich` accepts when it sends a rich message."""
+    """What the `Client.ask_*_rich` methods accept when they send a rich message."""
 
     disable_notification: bool | None
     """Send the message silently."""
@@ -129,7 +129,7 @@ class AskRichSendKw(TypedDict, total=False):
 
 
 class AskRichEditKw(TypedDict, total=False):
-    """What `Client.ask_rich` accepts when it edits to a rich message."""
+    """What the `Client.ask_*_rich` methods accept when they edit to a rich message."""
 
     schedule_date: datetime | None
     """Date to send the edited message at."""

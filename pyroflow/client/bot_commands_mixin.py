@@ -125,7 +125,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         async with self.bot_command_groups_lock:
             # Pyrogram registers in a task; one loop turn lets every registration not
             # blocked by a running handler land. The worker locks are not awaited: they
-            # are held for a whole handler (including an `ask`), so waiting on them could
+            # are held for a whole handler (including an `ask_*` method), so waiting on them could
             # take forever, and would never end when called from inside a handler.
             await yield_control()
             groups = self._declared_bot_command_groups()
