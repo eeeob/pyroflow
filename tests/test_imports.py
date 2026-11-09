@@ -41,6 +41,8 @@ MODULES = [
     "pyroflow.models.ask_again",
     "pyroflow.models.listener_key",
     "pyroflow.models.listener_model",
+    "pyroflow.models.page",
+    "pyroflow.models.pagination_options",
     "pyroflow.types",
     "pyroflow.types.user",
     "pyroflow.types.message",
