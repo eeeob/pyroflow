@@ -799,6 +799,17 @@ def test_sliding_pagination_refuses_a_fetch_without_a_count() -> None:
         SlidingPagination(Fetch(3), item=item_button)
 
 
+async def test_a_count_function_returning_a_negative_number_counts_no_items() -> None:
+    page = await NumberedPagination(
+        list(range(1, 11)),
+        item=item_button,
+        count=ItemCount(lambda: -1),
+        arrangement=PageArrangement(lines=5, columns=1),
+    ).build()
+
+    assert (list(page.items), page.total_pages) == ([], 0)
+
+
 async def test_an_empty_page_stays_without_first_if_empty() -> None:
     page = await NumberedPagination(
         Fetch(2),

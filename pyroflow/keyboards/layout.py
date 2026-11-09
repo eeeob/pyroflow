@@ -2,14 +2,12 @@
 
 from __future__ import annotations as _annotations
 
-from typing import TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-
-_T = TypeVar("_T")
-"""What a keyboard is made of."""
+    from pytrove.typings import _T
 
 
 def arrange(

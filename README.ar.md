@@ -340,7 +340,7 @@ answer = await client.ask_rich(
 
 معرّفات الرسائل المؤقتة لا تتسلسل وقد يُعاد استعمالها، فلا يحمل أي مفتاح رقمها:
 
-- `ephemeral=True` في `listen` ينتظر التحديثات المؤقتة. هذا الانتظار وحده يستقبلها، ولا يصله تحديث عادي.
+- حقل `ephemeral` في المفتاح ينتظر التحديثات المؤقتة، مثل `listen(MessageKey(ephemeral=True))`. هذا الانتظار وحده يستقبلها، ولا يصله تحديث عادي.
 - `ask_*` على رسالة مؤقتة أو برسالة مؤقتة تنتظر بهذه الطريقة، على `listen_user_id` إن أُعطي.
 - رسالتان مؤقتتان للمستخدم نفسه تشتركان في المفتاح، ففرّق بينهما بـ `listen_filters`.
 
@@ -397,7 +397,7 @@ except ListenerAttemptsExhausted as exc:
 
 والجواب الذي يصل إلى `parse` قد أخذه الانتظار، فلا يصل إلى أي handler حتى لو رُفض، والأمر المرسل بدل الجواب يُعد جواباً. و`listen_filters` هو الفلتر الذي يسبق `parse`: ما لا يمر منه يمضي إلى الـ handlers ويستمر الانتظار، ولذلك فإن `~filters.command("cancel")` في المثال يترك `/cancel` يعمل. ومع `listen_strict=True`، الـ update الذي لا يمر منه يرفع `ListenerRejected` فوراً وينهي الحلقة.
 
-والسؤال الأول وحده قد يعدّل رسالة، عبر `edit_message_id` في `Client` أو رسالة `editable` في `Message`، و`force_send` يخصه وحده. وبعد الرفض يكون كل سؤال رسالة جديدة، لأن Telegram يرفض تعديلاً لا يغيّر شيئاً. وكل إعادة ترسل `kw` الموجودة في `AskAgain` فقط، فضع فيها ما تحتاجه مثل `message_thread_id`، ويجب أن تقبلها دالة الإرسال: `link_preview_options` في دوال rich يرفع `TypeError`. وفي دوال الـ callback query ضع فيها `reply_markup`: يُرسل السؤال من جديد مع لوحته، وكل سؤال ينتظر ضغطة على أزراره هو.
+والسؤال الأول وحده قد يعدّل رسالة، عبر `edit_message_id` في `Client` أو رسالة `editable` في `Message`، و`force_send` يخصه وحده. وبعد الرفض يكون كل سؤال رسالة جديدة، لأن Telegram يرفض تعديلاً لا يغيّر شيئاً. وكل إعادة ترسل `kw` الموجودة في `AskAgain` فقط، فضع فيها ما تحتاجه مثل `message_thread_id` في `Client` (أما `Message` فيرد في topic رسالته)، ويجب أن تقبلها دالة الإرسال: `link_preview_options` في دوال rich يرفع `TypeError`. وفي دوال الـ callback query ضع فيها `reply_markup`: يُرسل السؤال من جديد مع لوحته، وكل سؤال ينتظر ضغطة على أزراره هو.
 
 ومع `attempts=None` وهو الافتراضي لا تتوقف. وإلا يُرفع `ListenerAttemptsExhausted` حين ترفض `parse` جواب آخر سؤال، ويحمل `update` فيه ذلك الجواب. أما `value` فهو عدد الأسئلة المطروحة. وقيمة `attempts` الأقل من 1 ترفع `ValueError` قبل إرسال أي شيء. و`listen_timeout` يسري على كل انتظار وحده، وأي خطأ آخر ترفعه `ask` أو `parse`، مثل `ListenerTimeout`، ينهي الحلقة فوراً.
 
@@ -420,9 +420,9 @@ keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2], repeat=True))
 
 `columns` عرض ثابت. وبعد آخر حجم في `layout` يستمر هذا الحجم، ومع `repeat=True` يبدأ النمط من جديد. و`columns` مع `layout`، أو عرض غير موجب، يرفع `ValueError`.
 
-و`CallbackData` تخطيط لـ `callback_data`: بادئة وحقول كلاس `CallbackFields`. يُكتب كل حقل مرة واحدة مع الدالة التي تقرؤه بـ `parsed`، فيكون نوعه في `pack` و`button` وفي ما تعيده `unpack` هو ما تعيده تلك الدالة. وحقل `str` لا يحتاج دالة، وأي حقل آخر بلا دالة يرفع `TypeError` عند تعريف الكلاس. تبني `pack` البيانات، وتبني `button` منها `InlineKeyboardButton`، وتعيد `unpack` الكلاس وكل حقل بنوعه. وعضو `Enum` يُكتب بقيمته، و`sep` حرف واحد.
+و`CallbackData` تخطيط لـ `callback_data`: بادئة وحقول كلاس `CallbackFields`. نوع الحقل تلميح فقط في `pack` و`button` وفي ما تعيده `unpack`. ولقراءة الحقل بغير النص، اكتبه بـ `parsed` مع الدالة التي تحوّله، والحقل بلا دالة يبقى نصاً. تبني `pack` البيانات، وتبني `button` منها `InlineKeyboardButton`، وتعيد `unpack` الكلاس بحقوله مقروءة، وتعيد `unpack_dict` القيم نفسها في `dict`. وتُكتب خيارات `dataclass` في سطر الكلاس، مثل `class Product(CallbackFields, slots=True)`. ولتخطيط بلا كلاس، تبني `CallbackData.from_fields("product", namedtuple("Product", "id action"), slots=True)` التخطيط من `namedtuple` وخيارات `dataclass`، فتظهر الأسماء تلميحات وتبقى كل الحقول نصوصاً. وعضو `Enum` يُكتب بقيمته، و`sep` حرف واحد.
 
-ويطابق `filter` الـ callback queries الخاصة بالتخطيط على الحقول التي تسميها، ويسمح بأي شيء آخر في البيانات. ومع `exact=True` يمنع أي عنصر غيرها: الحقل غير المذكور يجب أن يكون فارغاً أو غائباً، ولا شيء بعد آخر حقل. ويأخذ `filter_rules` لكل حقل ما يأخذه `filters.split_text`: نص، أو حاوية خيارات، أو كلاس `Enum`، أو نمط مُصرَّف، أو دالة:
+ويطابق `filter` الـ callback queries الخاصة بالتخطيط على الحقول التي تسميها، ويسمح بأي شيء آخر في البيانات. ويأخذ `filter_equal` كل الحقول كما يأخذها `pack`، ولا يمرر إلا بيانات تساوي ما يبنيه `pack`. ويأخذ `filter_rules` لكل حقل ما يأخذه `filters.split_text`: نص، أو حاوية خيارات، أو كلاس `Enum`، أو نمط مُصرَّف، أو دالة:
 
 ```python
 from pyroflow.keyboards import CallbackData, CallbackFields, parsed
@@ -523,7 +523,7 @@ NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, lay
 
 يعرض `SlidingPagination` كل صفحة برقمها، و`size` هو أقصى عدد يظهر في المرة، و8 هو الافتراضي. والأرقام في مجموعات ثابتة، وعند الوصول إلى آخر رقم في مجموعة تظهر المجموعة التالية، مع بقاء الصفحة السابقة. ويوضع حجمه ونصوصه في `bar`، وهو `SlidingBar` من `pyroflow.models`.
 
-وتوضع نصوص الشريطين الآخرين في `texts`، وهو `NumberedBarTexts` أو `ArrowBarTexts` من `pyroflow.models`. و`{page}` و`{pages}` يُملآن في أي منها. ويحمل `style`، وهو `BarStyle(nav, current)`، دوالاً يصلها كل زر في الشريط بعد إنشائه لتعدّله، ويلوّن `style` في الزر الذي تعيده `item` العنصر، ويحمل `header` صفوفاً ثابتة فوق العناصر، ويحمل `footer` صفوفاً ثابتة تحت الشريط. و`ButtonStyle.LINK` للرسائل rich فقط، ويرفضه Pyrogram على زر inline.
+وتوضع نصوص الشريطين الآخرين في `texts`، وهو `NumberedBarTexts` أو `ArrowBarTexts` من `pyroflow.models`. و`{page}` و`{pages}` يُملآن في أي منها. وبلا عدد معروف يظهر `{pages}` بقيمة `None`، فاستعمله مع العدد فقط. ويحمل `style`، وهو `BarStyle(nav, current)`، دوالاً يصلها كل زر في الشريط بعد إنشائه لتعدّله، ويلوّن `style` في الزر الذي تعيده `item` العنصر، ويحمل `header` صفوفاً ثابتة فوق العناصر، ويحمل `footer` صفوفاً ثابتة تحت الشريط. و`ButtonStyle.LINK` للرسائل rich فقط، ويرفضه Pyrogram على زر inline.
 
 ```python
 from pyrogram.enums import ButtonStyle

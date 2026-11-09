@@ -39,6 +39,7 @@ MODULES = [
     "pyroflow.filters",
     "pyroflow.keyboards",
     "pyroflow.keyboards.layout",
+    "pyroflow.keyboards.callback_data",
     "pyroflow.keyboards.pagination",
     "pyroflow.models",
     "pyroflow.models.ask_again",

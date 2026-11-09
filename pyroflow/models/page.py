@@ -4,13 +4,10 @@ from __future__ import annotations as _annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic
 
 from pyrogram.types import InlineKeyboardMarkup
-
-
-_T = TypeVar("_T")
-"""The class of the items on a `Page`."""
+from pytrove.typings import _T
 
 
 @dataclass(frozen=True, slots=True)

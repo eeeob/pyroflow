@@ -694,8 +694,7 @@ class Message(PyroMessage):
         Raises:
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects a press when
-                `attempts` questions were asked; `update` holds that press; `value` is `None` if the
-                press has no message.
+                `attempts` questions were asked; `update` holds that press.
             Anything else `ask_callback_query` or `parse` raises, at once.
         """
         return await self._client.ask_repeatedly(
@@ -782,8 +781,7 @@ class Message(PyroMessage):
         Raises:
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects a press when
-                `attempts` questions were asked; `update` holds that press; `value` is `None` if the
-                press has no message.
+                `attempts` questions were asked; `update` holds that press.
             Anything else `ask_callback_query_rich` or `parse` raises, at once.
         """
         return await self._client.ask_repeatedly(

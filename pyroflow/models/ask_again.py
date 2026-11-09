@@ -2,10 +2,9 @@
 
 from __future__ import annotations as _annotations
 
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeAlias
-
-from pytrove.typings import MaybeCoroutineCallable
 
 from ..typings import QuestionT, ResultT, UpdateType
 
@@ -25,8 +24,10 @@ class AskAgain(Generic[QuestionT]):
     """The arguments of the next question; empty sends it with none."""
 
 
-AskParser: TypeAlias = MaybeCoroutineCallable[
-    [UpdateType, dict[str, Any]], AskAgain[QuestionT] | ResultT
+# Spelled out: pytrove's `MaybeCoroutineCallable` loses `UpdateType` at runtime on Python 3.12 and 3.13.
+AskParser: TypeAlias = Callable[
+    [UpdateType, dict[str, Any]],
+    AskAgain[QuestionT] | ResultT | Coroutine[Any, Any, AskAgain[QuestionT] | ResultT],
 ]
 """The `parse` of the `ask_*_until` methods: `AskAgain` asks again, anything else is returned."""
 

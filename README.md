@@ -305,7 +305,7 @@ answer = await client.ask_rich(
 )
 ```
 
-Ephemeral messages have ids that do not follow each other and can be reused, so no key holds one. `ephemeral=True` on `listen` waits on ephemeral updates. Only such a wait receives them, and a regular update never reaches it. An `ask_*` on or with an ephemeral message waits this way, for its `listen_user_id` when given. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
+Ephemeral messages have ids that do not follow each other and can be reused, so no key holds one. The `ephemeral` field of a key waits on ephemeral updates, as in `listen(MessageKey(ephemeral=True))`. Only such a wait receives them, and a regular update never reaches it. An `ask_*` on or with an ephemeral message waits this way, for its `listen_user_id` when given. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
 
 ---
 
@@ -360,7 +360,7 @@ A question is a `str`, or an `InputRichMessage` in the `*_rich_until` methods. T
 
 An answer that reaches `parse` was taken by the wait, so it reaches no handler even when rejected, and a command sent instead of an answer counts as one. `listen_filters` is the filter in front of `parse`: what fails it goes on to the handlers and the wait goes on, so `~filters.command("cancel")` above lets `/cancel` run. With `listen_strict=True`, an update that fails it raises `ListenerRejected` at once and ends the loop.
 
-Only the first question may edit a message, through `edit_message_id` on `Client` or an `editable` message on `Message`, and `force_send` applies to it alone. After a rejection each question is a new message, since Telegram refuses an edit that changes nothing. A retry sends only the `kw` in `AskAgain`, so put what it needs there, such as `message_thread_id`, and it must hold what the send takes: `link_preview_options` in the rich methods raises `TypeError`. In the callback query methods, put `reply_markup` in it: the question goes out again with its keyboard, and each one waits for a press on its own buttons.
+Only the first question may edit a message, through `edit_message_id` on `Client` or an `editable` message on `Message`, and `force_send` applies to it alone. After a rejection each question is a new message, since Telegram refuses an edit that changes nothing. A retry sends only the `kw` in `AskAgain`, so put what it needs there, such as `message_thread_id` on `Client` (`Message` replies in its own topic), and it must hold what the send takes: `link_preview_options` in the rich methods raises `TypeError`. In the callback query methods, put `reply_markup` in it: the question goes out again with its keyboard, and each one waits for a press on its own buttons.
 
 With `attempts=None`, the default, it never gives up. Otherwise `ListenerAttemptsExhausted` is raised when `parse` rejects the answer to the last question, and its `update` holds that answer. Its `value` is the number of questions asked. `attempts` below 1 raises `ValueError` before anything is sent. `listen_timeout` applies to each wait on its own, and anything else `ask` or `parse` raises, such as `ListenerTimeout`, ends the loop at once.
 
@@ -383,9 +383,9 @@ keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2], repeat=True))
 
 `columns` is a fixed width. After the last size of `layout` its size goes on, and with `repeat=True` the layout starts over. `columns` with `layout`, or a width that is not positive, raises `ValueError`.
 
-`CallbackData` is a layout for `callback_data`: a prefix and the fields of a `CallbackFields` class. Each field is written once with the function that reads it, using `parsed`, so its type on `pack`, on `button` and on what `unpack` returns is what that function returns. A `str` field needs no function, and any other field without one raises `TypeError` when the class is defined. `pack` builds the data, `button` builds an `InlineKeyboardButton` with it, and `unpack` returns the class with every field converted. An `Enum` member goes in by its value, and `sep` is one character.
+`CallbackData` is a layout for `callback_data`: a prefix and the fields of a `CallbackFields` class. The type of a field is only a hint on `pack`, on `button` and on what `unpack` returns. To read a field as anything but text, write it with `parsed` and the function that converts it; a field without one stays text. `pack` builds the data, `button` builds an `InlineKeyboardButton` with it, and `unpack` returns the class with its fields read. `unpack_dict` returns the same values as a `dict`. The options of `dataclass` go on the class line, as in `class Product(CallbackFields, slots=True)`. For a layout without a class, `CallbackData.from_fields("product", namedtuple("Product", "id action"), slots=True)` builds one from a `namedtuple` and the options of `dataclass`: the names show as hints, and every field is text. An `Enum` member goes in by its value, and `sep` is one character.
 
-`filter` matches the callback queries of the layout on the fields you name and allows anything else in the data. With `exact=True` the data must hold nothing else: a field you do not name must be empty or absent, and nothing may follow the last field. `filter_rules` takes for each field what `filters.split_text` takes: a text, a container of options, an `Enum` class, a compiled pattern or a function:
+`filter` matches the callback queries of the layout on the fields you name and allows anything else in the data. `filter_equal` takes every field, as `pack` does, and passes only data equal to what `pack` builds. `filter_rules` takes for each field what `filters.split_text` takes: a text, a container of options, an `Enum` class, a compiled pattern or a function:
 
 ```python
 from pyroflow.keyboards import CallbackData, CallbackFields, parsed
@@ -486,7 +486,7 @@ The current page's button is `disabled`, and no page shows twice. A single page 
 
 `SlidingPagination` shows every page by number, at most `size` at a time, 8 by default. The numbers come in fixed groups, and reaching the last one of a group brings the next group, keeping the page before it. Its size and texts go in `bar`, a `SlidingBar` from `pyroflow.models`.
 
-The texts of the other two go in `texts`: a `NumberedBarTexts` or an `ArrowBarTexts` from `pyroflow.models`. `{page}` and `{pages}` are filled in any of them. `style`, a `BarStyle(nav, current)`, holds functions that get each button of the bar once it is built, to change it, `style` on the button that `item` returns colors an item, `header` holds fixed rows above the items, and `footer` holds fixed rows under the bar. `ButtonStyle.LINK` is for rich messages only, and Pyrogram refuses it on an inline button.
+The texts of the other two go in `texts`: a `NumberedBarTexts` or an `ArrowBarTexts` from `pyroflow.models`. `{page}` and `{pages}` are filled in any of them. Without a known count `{pages}` shows `None`, so use it only with a count. `style`, a `BarStyle(nav, current)`, holds functions that get each button of the bar once it is built, to change it, `style` on the button that `item` returns colors an item, `header` holds fixed rows above the items, and `footer` holds fixed rows under the bar. `ButtonStyle.LINK` is for rich messages only, and Pyrogram refuses it on an inline button.
 
 ```python
 from pyrogram.enums import ButtonStyle

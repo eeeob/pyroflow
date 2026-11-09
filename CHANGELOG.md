@@ -12,8 +12,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 - `pyroflow.keyboards`: `arrange` splits buttons into rows by `columns` or
   `layout`. `CallbackData` packs, unpacks and filters a layout of
-  `callback_data` typed by a `CallbackFields` class, each field written with
-  the function that reads it, and builds its buttons. `Pagination`
+  `callback_data` typed by a `CallbackFields` class, where a field written with
+  `parsed` is read by its function and any other stays text, and builds its
+  buttons. `Pagination`
   is the base of a paged keyboard, with `NumberedPagination` for a bar of page
   numbers, `ArrowPagination` for arrows that also work without a count and
   `SlidingPagination` for every page by number, as far as they fit; its
@@ -250,7 +251,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `context.message.id` instead of
   `meta["message_id"]`. Affects code passing
   or reading `meta`, or building `ListenerModel` itself.
-  Migration: `listen(chat, context=ListenerContext(step=1))` instead of
+  Migration: `listen(MessageKey(chat), context=ListenerContext(step=1))` instead of
   `listen(chat, {"step": 1})`,
   `ask(..., listen_context=ListenerContext(...))` instead of
   `ask(..., meta=...)`, read `model.context.step` instead of

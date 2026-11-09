@@ -4,9 +4,10 @@ from __future__ import annotations as _annotations
 
 from abc import ABC, abstractmethod
 from math import ceil
-from typing import Generic, TypeVar, cast, TYPE_CHECKING
+from typing import Generic, cast, TYPE_CHECKING
 
 from pyrogram.types import DisabledButton, InlineKeyboardButton, InlineKeyboardMarkup
+from pytrove.typings import _T
 
 from ..models import (
     ArrowBarTexts,
@@ -26,10 +27,6 @@ if TYPE_CHECKING:
     from pytrove.typings import MaybeCoroutineCallable
 
     from ..models import ItemCount
-
-
-_T = TypeVar("_T")
-"""The item class a `Pagination` pages through."""
 
 
 class Pagination(ABC, Generic[_T]):
@@ -172,7 +169,7 @@ class Pagination(ABC, Generic[_T]):
         """
         if self.count is not None:
             value = self.count.value
-            total = await call_maybe_async(value) if callable(value) else value
+            total = max(await call_maybe_async(value), 0) if callable(value) else value
         elif callable(self.items):
             total = None
         else:
