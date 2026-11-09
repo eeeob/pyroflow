@@ -104,7 +104,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **1.8 Aggregated interfaces.** A package exposes one unified interface from its `__init__.py`. Users never need to know the internal file layout.
 
-**1.9 `__all__` and wildcard imports.** `__all__` comes last in every module. Wildcard imports appear only in aggregation `__init__.py` files, which contain nothing but the docstring, `from .<module> import *` lines and `__all__ = (*<module>.__all__, ...)`. The star import already binds each submodule's name, so no `from . import <module>` is needed to reach its `__all__`, and these files carry no `__future__` import. The top-level `pyroflow/__init__.py` also holds the `__version__` line the build backend reads, right after the module docstring and before the imports, and imports `filters` with `from . import filters` so its factories stay namespaced as `pyroflow.filters.<name>`; it lists `"filters"` by name in `__all__`.
+**1.9 `__all__` and wildcard imports.** `__all__` comes last in every module. Wildcard imports appear only in aggregation `__init__.py` files, which contain nothing but the docstring, `from .<module> import *` lines and `__all__ = (*<module>.__all__, ...)`. The star import already binds each submodule's name, so no `from . import <module>` is needed to reach its `__all__`, and these files carry no `__future__` import. The top-level `pyroflow/__init__.py` also holds the `__version__` line the build backend reads, right after the module docstring and before the imports.
 
 **1.10 Code versus rule.** Code that violates a rule is fixed. A rule is never weakened to justify code.
 

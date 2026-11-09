@@ -403,6 +403,180 @@ except ListenerAttemptsExhausted as exc:
 
 ---
 
+## لوحات الأزرار
+
+تبني `pyroflow.keyboards` لوحات الأزرار inline. وتقسم `arrange` قائمة مسطحة من الأزرار إلى صفوف بـ `columns` أو `layout`، وبدونهما زر في كل صف:
+
+```python
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyroflow.keyboards import arrange
+
+buttons = [InlineKeyboardButton(text, callback_data=text) for text in "abcde"]
+
+keyboard = InlineKeyboardMarkup(arrange(buttons, columns=2))
+keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2]))
+keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2], repeat=True))
+```
+
+`columns` عرض ثابت. وبعد آخر حجم في `layout` يستمر هذا الحجم، ومع `repeat=True` يبدأ النمط من جديد. و`columns` مع `layout`، أو عرض غير موجب، يرفع `ValueError`.
+
+و`CallbackData` تخطيط لـ `callback_data`: بادئة وحقول كلاس `CallbackFields`. يُكتب كل حقل مرة واحدة مع الدالة التي تقرؤه بـ `parsed`، فيكون نوعه في `pack` و`button` وفي ما تعيده `unpack` هو ما تعيده تلك الدالة. وحقل `str` لا يحتاج دالة، وأي حقل آخر بلا دالة يرفع `TypeError` عند تعريف الكلاس. تبني `pack` البيانات، وتبني `button` منها `InlineKeyboardButton`، وتعيد `unpack` الكلاس وكل حقل بنوعه. وعضو `Enum` يُكتب بقيمته، و`sep` حرف واحد.
+
+ويطابق `filter` الـ callback queries الخاصة بالتخطيط على الحقول التي تسميها، ويسمح بأي شيء آخر في البيانات. ومع `exact=True` يمنع أي عنصر غيرها: الحقل غير المذكور يجب أن يكون فارغاً أو غائباً، ولا شيء بعد آخر حقل. ويأخذ `filter_rules` لكل حقل ما يأخذه `filters.split_text`: نص، أو حاوية خيارات، أو كلاس `Enum`، أو نمط مُصرَّف، أو دالة:
+
+```python
+from pyroflow.keyboards import CallbackData, CallbackFields, parsed
+
+class Product(CallbackFields):
+    id: int = parsed(int)
+    action: str
+
+product = CallbackData("product", Product)
+
+product.pack(id=7, action="buy")           # "product:7:buy"
+product.button("Buy", id=7, action="buy")  # an InlineKeyboardButton
+product.unpack("product:7:buy")            # Product(id=7, action="buy")
+
+@app.on_callback_query(product.filter(action="buy"))
+async def buy(client, query):
+    ...
+
+@app.on_callback_query(product.filter_rules(id=str.isdigit, action=["buy", "sell"]))
+async def act(client, query):
+    ...
+```
+
+لا يوثق Telegram حداً لعدد الأزرار في الصف أو اللوحة، فلا يُفحص شيء من ذلك: اجعل اللوحات صغيرة. وحد `callback_data` هو 64 بايت. ترفع `CallbackData.pack` عند تجاوزه `ValueError`، وفي غيرها، كما في `page_data`، لا يفحصه شيء، فاجعل المعرّفات قصيرة.
+
+### Pagination
+
+`Pagination` هو الأساس للوحة تعرض صفحة من العناصر وشريطاً للتنقل بين الصفحات. و`NumberedPagination` و`ArrowPagination` و`SlidingPagination` أشرطته. و`build` دالة async: تعيد `Page` فيه `number` و`items` و`total_pages` و`has_next` واللوحة في `markup`. مع handler:
+
+```python
+from pyrogram import filters
+from pyroflow.keyboards import CallbackData, CallbackFields, NumberedPagination, parsed
+
+class ProductId(CallbackFields):
+    id: int = parsed(int)
+
+class Turn(CallbackFields):
+    page: int = parsed(int)
+
+product = CallbackData("product", ProductId)
+turn = CallbackData("products", Turn)
+
+pages = NumberedPagination(
+    products,
+    item=lambda item: product.button(item.name, id=item.id),
+    page_data=lambda number: turn.pack(page=number),
+)
+
+@app.on_message(filters.command("products"))
+async def show(client, message):
+    page = await pages.build()
+    await message.reply("Products:", reply_markup=page.markup)
+
+@app.on_callback_query(turn.filter())
+async def turn_page(client, query):
+    page = await pages.build(turn.unpack(query.data).page)
+    await query.message.edit_reply_markup(page.markup)
+```
+
+ومع `ask_callback_query`، استمر في تقليب الصفحات حتى يكون الضغط على عنصر. و`press.message` رسالة الـ client نفسه، فكل سؤال يعدّلها وينتظر الضغطة التالية على أزرارها:
+
+```python
+page = await pages.build()
+press = await message.ask_callback_query("Pick a product:", reply_markup=page.markup)
+
+while press.data.startswith("products:"):
+    page = await pages.build(turn.unpack(press.data).page)
+    press = await press.message.ask_callback_query("Pick a product:", reply_markup=page.markup)
+```
+
+تعيد `item` زراً من نوع `InlineKeyboardButton`، ويحدد `arrangement`، وهو `PageArrangement` من `pyroflow.models`، عدد عناصر الصفحة ويرتبها مثل `arrange`. وهذه كل الخيارات الصحيحة له، وأي تركيبة أخرى ترفع `ValueError`. وبدونه تكون الصفحة خمسة صفوف بزر واحد في كل صف:
+
+| الخيارات | `per_page` | الصفوف |
+|---|---|---|
+| `lines`، `columns` | `lines * columns` | `lines` صفاً بعرض `columns` |
+| `per_page`، `columns` | `per_page` | صفوف بعرض `columns`، والأخير قد يقصر |
+| `layout` | مجموع `layout` | صف لكل حجم |
+| `layout`، `per_page` | `per_page`، ولا يقل عن مجموع `layout` | يستمر آخر حجم |
+| `layout`، `repeat`، `lines` | مجموع أول `lines` حجماً | `lines` صفاً والأحجام تتكرر |
+| `layout`، `repeat`، `per_page` | `per_page` | الأحجام تتكرر |
+
+```python
+from pyroflow.models import PageArrangement
+
+NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, columns=3))                   # 12 items in rows of 3
+NumberedPagination(products, item=item, arrangement=PageArrangement(layout=[1, 2, 3]))                     # 6 items
+NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, layout=[1, 2], repeat=True))  # 6 items: 1, 2, 1, 2
+```
+
+وزر الصفحة الحالية `disabled`، ولا تظهر صفحة مرتين. والصفحة الواحدة بلا شريط. وهذه الأشرطة للصفحة 6 من 12:
+
+| الكلاس | الشريط | نصوصه |
+|---|---|---|
+| `NumberedPagination` | `« 1` `‹ 5` `· 6 ·` `7 ›` `12 »` | `first`، `previous`، `current`، `next`، `last` |
+| `ArrowPagination` | `‹` `›` | `back`، `forward` |
+| `ArrowPagination(texts=ArrowBarTexts(counter="{page}/{pages}"))` | `‹` `6/12` `›` | `back`، `counter`، `forward` |
+| `SlidingPagination` | `1` `2` `3` `4` `5` `· 6 ·` `7` `8` | `page`، `current` |
+
+يعرض `SlidingPagination` كل صفحة برقمها، و`size` هو أقصى عدد يظهر في المرة، و8 هو الافتراضي. والأرقام في مجموعات ثابتة، وعند الوصول إلى آخر رقم في مجموعة تظهر المجموعة التالية، مع بقاء الصفحة السابقة. ويوضع حجمه ونصوصه في `bar`، وهو `SlidingBar` من `pyroflow.models`.
+
+وتوضع نصوص الشريطين الآخرين في `texts`، وهو `NumberedBarTexts` أو `ArrowBarTexts` من `pyroflow.models`. و`{page}` و`{pages}` يُملآن في أي منها. ويحمل `style`، وهو `BarStyle(nav, current)`، دوالاً يصلها كل زر في الشريط بعد إنشائه لتعدّله، ويلوّن `style` في الزر الذي تعيده `item` العنصر، ويحمل `header` صفوفاً ثابتة فوق العناصر، ويحمل `footer` صفوفاً ثابتة تحت الشريط. و`ButtonStyle.LINK` للرسائل rich فقط، ويرفضه Pyrogram على زر inline.
+
+```python
+from pyrogram.enums import ButtonStyle
+from pyrogram.types import InlineKeyboardButton
+from pyroflow.keyboards import ArrowPagination
+from pyroflow.models import ArrowBarTexts, BarStyle
+
+def primary(button):
+    button.style = ButtonStyle.PRIMARY
+
+def success(button):
+    button.style = ButtonStyle.SUCCESS
+
+pages = ArrowPagination(
+    products,
+    item=lambda item: InlineKeyboardButton(
+        item.name,
+        callback_data=f"product:{item.id}",
+        style=ButtonStyle.DANGER if item.sold_out else ButtonStyle.SUCCESS,
+    ),
+    page_data=lambda number: f"products:{number}",
+    texts=ArrowBarTexts(back="Back", forward="Next", counter="{page}/{pages}"),
+    style=BarStyle(nav=primary, current=success),
+    footer=[[InlineKeyboardButton("Close", callback_data="close")]],
+)
+```
+
+**الجلب الكسول.** يمكن أن تكون `items` دالة تُستدعى بالشكل `(offset, limit)`، متزامنة أو async، وتعيد دفعة واحدة، فكل `build` يجلب ما تحتاجه صفحته فقط. و`count` هو `ItemCount` من `pyroflow.models`، ويحمل رقماً، أو دالة بلا معاملات متزامنة أو async تُقرأ في كل `build`. ومع `strict`، وهو مفعّل افتراضياً، لا يُجلب ولا يُعرض عنصر بعده. ومع `strict=False` يحدد عدد الصفحات فقط، وتُجلب كل صفحة كاملة. ويُطبَّق على القوائم أيضاً. وبدون `count` تستعمل القائمة طولها، ويكون عدد الدالة مجهولاً.
+
+```python
+from pyroflow.models import ItemCount
+
+async def fetch(offset, limit):
+    return await db.products(offset=offset, limit=limit)
+
+pages = NumberedPagination(fetch, item=item, count=ItemCount(db.count_products))
+pages = ArrowPagination(fetch, item=item)
+```
+
+مع العدد، الصفحة خارج المدى تصير أقرب صفحة. وبدونه يجلب كل `build` عنصراً زيادة على الصفحة ليعرف هل تليها صفحة أخرى، وتكون `total_pages` هي `None`. والصفحة التي تعود فارغة، مثل التي بعد النهاية، تظهر مكانها الصفحة الأولى، ومع `first_if_empty=False` تبقى فارغة وفي شريطها طريق الرجوع. وتحتاج `NumberedPagination` و`SlidingPagination` إلى عدد الصفحات، فالدالة بلا `count` ترفع `TypeError`. أما `ArrowPagination` فتعمل في الحالتين، ويستخدم عدّادها حينها `unknown_counter`، وافتراضيه `{page}`.
+
+**شريطك الخاص.** ورّث من `Pagination` واكتب `nav_row`، وتصلها الصفحة، وعدد الصفحات أو `None`، وهل تليها صفحة. وتبني `nav_button` زراً إلى صفحة:
+
+```python
+from pyroflow.keyboards import Pagination
+
+class MorePagination(Pagination):
+    def nav_row(self, number, total_pages, has_next):
+        return [self.nav_button("More", number + 1, number, total_pages)] if has_next else []
+```
+
+---
+
 ## معالجة الأخطاء
 
 ```python

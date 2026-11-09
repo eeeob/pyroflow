@@ -10,6 +10,17 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
+- `pyroflow.keyboards`: `arrange` splits buttons into rows by `columns` or
+  `layout`. `CallbackData` packs, unpacks and filters a layout of
+  `callback_data` typed by a `CallbackFields` class, each field written with
+  the function that reads it, and builds its buttons. `Pagination`
+  is the base of a paged keyboard, with `NumberedPagination` for a bar of page
+  numbers, `ArrowPagination` for arrows that also work without a count and
+  `SlidingPagination` for every page by number, as far as they fit; its
+  items can be a sequence or a function that fetches each batch, and the async
+  `build` returns a `pyroflow.models.Page`. `PageArrangement`, `ItemCount`, `BarStyle`,
+  `NumberedBarTexts`, `ArrowBarTexts` and `SlidingBar` in `pyroflow.models` hold how a page is
+  arranged, how many items there are, the functions that change its bar's buttons and its texts.
 - `Client` and `Message` `ask_until`, `ask_rich_until`,
   `ask_callback_query_until` and `ask_callback_query_rich_until`: repeat the
   question until `parse(answer, kw)`, sync or async, returns a value, and return
@@ -123,6 +134,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **Breaking:** `from pyroflow import *` now brings the names of
+  `pyroflow.filters` and `pyroflow.keyboards` instead of the two modules, so
+  star-import users lose the names `filters` and `keyboards`. To migrate, call
+  the names directly or write `from pyroflow import filters`, which still works.
 - **BREAKING:** the `message_id` argument of `Client.ask` and the other
   `Client.ask_*` methods is now `edit_message_id`, so it says what it does: the
   message to edit. Replace `message_id=` with `edit_message_id=` in those

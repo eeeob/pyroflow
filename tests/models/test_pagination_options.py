@@ -8,7 +8,14 @@ from typing import Any
 
 import pytest
 
-from pyroflow.models import ArrowBarTexts, BarStyle, NumberedBarTexts, PageArrangement, SlidingBar
+from pyroflow.models import (
+    ArrowBarTexts,
+    BarStyle,
+    ItemCount,
+    NumberedBarTexts,
+    PageArrangement,
+    SlidingBar,
+)
 from pyroflow.models import pagination_options as module
 
 OPTIONS = [
@@ -17,12 +24,14 @@ OPTIONS = [
     NumberedBarTexts(),
     ArrowBarTexts(),
     SlidingBar(),
+    ItemCount(1),
 ]
 
 
 def test_module_all() -> None:
     assert module.__all__ == (
         "PageArrangement",
+        "ItemCount",
         "BarStyle",
         "NumberedBarTexts",
         "ArrowBarTexts",
@@ -156,3 +165,17 @@ def test_options_are_frozen_and_slotted(option: Any) -> None:
     assert not hasattr(value, "__dict__")
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(value, name, None)
+
+
+def test_item_count_is_strict_by_default() -> None:
+    assert ItemCount(3).strict is True
+
+
+@pytest.mark.parametrize("value", [0, 3, len])
+def test_item_count_accepts_a_number_or_a_function(value: Any) -> None:
+    assert ItemCount(value).value is value
+
+
+def test_item_count_refuses_a_negative_number() -> None:
+    with pytest.raises(ValueError, match="must not be negative"):
+        ItemCount(-1)

@@ -37,6 +37,9 @@ MODULES = [
     "pyroflow.enums",
     "pyroflow.errors",
     "pyroflow.filters",
+    "pyroflow.keyboards",
+    "pyroflow.keyboards.layout",
+    "pyroflow.keyboards.pagination",
     "pyroflow.models",
     "pyroflow.models.ask_again",
     "pyroflow.models.listener_key",
@@ -152,13 +155,9 @@ def test_package_all_is_the_union_of_its_star_imports(package: str) -> None:
         for source in sources
         for name in importlib.import_module(f"{package}.{source}").__all__
     ]
-    # pyroflow exposes the filters submodule itself, not its contents.
-    exported = [
-        name for name in module.__all__ if not (package == "pyroflow" and name == "filters")
-    ]
 
     assert sources, f"{package} star-imports nothing"
-    assert exported == expected
+    assert list(module.__all__) == expected
     assert "__version__" not in module.__all__
 
 

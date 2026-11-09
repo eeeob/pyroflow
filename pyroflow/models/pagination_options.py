@@ -1,4 +1,4 @@
-"""The options of a `pyroflow.keyboards.Pagination`: its arrangement, bar styling and texts."""
+"""The options of a `pyroflow.keyboards.Pagination`: its arrangement, item count, bar styling and texts."""
 
 from __future__ import annotations as _annotations
 
@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from itertools import cycle, islice
 
 from pyrogram.types import InlineKeyboardButton
+from pytrove.typings import MaybeCoroutineCallable
 
 
 @dataclass(frozen=True, slots=True)
 class PageArrangement:
-    """How many items a page holds and how they are arranged, as in `ikb`.
+    """How many items a page holds and how they are arranged, as in `arrange`.
 
     Pass one of these sets, and nothing else; any other mix raises `ValueError`:
 
@@ -170,7 +171,7 @@ class SlidingBar:
     """
 
     size: int = 8
-    """Page numbers shown at once."""
+    """The most page numbers shown at once."""
     page: str = "{page}"
     """Any page but the current one."""
     current: str = "· {page} ·"
@@ -187,8 +188,40 @@ class SlidingBar:
             raise ValueError(msg)
 
 
+@dataclass(frozen=True, slots=True)
+class ItemCount:
+    """How many items a `Pagination` has, and how strictly that number is kept.
+
+    A function is read again on every build. With `strict`, no item past `value`
+    is fetched or shown. Without it, `value` only sets how many pages there are,
+    and each page is fetched whole.
+
+    Example:
+        >>> ItemCount(13).strict
+        True
+    """
+
+    value: int | MaybeCoroutineCallable[[], int]
+    """The number of items, or a sync or async function that returns it."""
+    strict: bool = True
+    """Whether no item past `value` is fetched or shown."""
+
+    def __post_init__(self) -> None:
+        """Refuse a negative number.
+
+        Raises:
+            ValueError: If `value` is a number below zero.
+        """
+        value = self.value
+
+        if not callable(value) and value < 0:
+            msg = "value must not be negative"
+            raise ValueError(msg)
+
+
 __all__ = (
     "PageArrangement",
+    "ItemCount",
     "BarStyle",
     "NumberedBarTexts",
     "ArrowBarTexts",

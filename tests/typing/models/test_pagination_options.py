@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from pyroflow.models import (
         ArrowBarTexts,
         BarStyle,
+        ItemCount,
         NumberedBarTexts,
         PageArrangement,
         SlidingBar,
@@ -22,3 +23,5 @@ if TYPE_CHECKING:
         ArrowBarTexts(back=None)  # ty: ignore[invalid-argument-type]
         SlidingBar(size=4, page="{page}", current="[{page}]")
         SlidingBar(size="4")  # ty: ignore[invalid-argument-type]
+        ItemCount(3, strict=False)
+        ItemCount("3")  # ty: ignore[invalid-argument-type]

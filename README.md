@@ -366,6 +366,180 @@ With `attempts=None`, the default, it never gives up. Otherwise `ListenerAttempt
 
 ---
 
+## Keyboards
+
+`pyroflow.keyboards` builds inline keyboards. `arrange` splits a flat list of buttons into rows by `columns` or `layout`, one button per row without either:
+
+```python
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyroflow.keyboards import arrange
+
+buttons = [InlineKeyboardButton(text, callback_data=text) for text in "abcde"]
+
+keyboard = InlineKeyboardMarkup(arrange(buttons, columns=2))
+keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2]))
+keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2], repeat=True))
+```
+
+`columns` is a fixed width. After the last size of `layout` its size goes on, and with `repeat=True` the layout starts over. `columns` with `layout`, or a width that is not positive, raises `ValueError`.
+
+`CallbackData` is a layout for `callback_data`: a prefix and the fields of a `CallbackFields` class. Each field is written once with the function that reads it, using `parsed`, so its type on `pack`, on `button` and on what `unpack` returns is what that function returns. A `str` field needs no function, and any other field without one raises `TypeError` when the class is defined. `pack` builds the data, `button` builds an `InlineKeyboardButton` with it, and `unpack` returns the class with every field converted. An `Enum` member goes in by its value, and `sep` is one character.
+
+`filter` matches the callback queries of the layout on the fields you name and allows anything else in the data. With `exact=True` the data must hold nothing else: a field you do not name must be empty or absent, and nothing may follow the last field. `filter_rules` takes for each field what `filters.split_text` takes: a text, a container of options, an `Enum` class, a compiled pattern or a function:
+
+```python
+from pyroflow.keyboards import CallbackData, CallbackFields, parsed
+
+class Product(CallbackFields):
+    id: int = parsed(int)
+    action: str
+
+product = CallbackData("product", Product)
+
+product.pack(id=7, action="buy")           # "product:7:buy"
+product.button("Buy", id=7, action="buy")  # an InlineKeyboardButton
+product.unpack("product:7:buy")            # Product(id=7, action="buy")
+
+@app.on_callback_query(product.filter(action="buy"))
+async def buy(client, query):
+    ...
+
+@app.on_callback_query(product.filter_rules(id=str.isdigit, action=["buy", "sell"]))
+async def act(client, query):
+    ...
+```
+
+Telegram documents no limit on buttons per row or per keyboard, so none is checked: keep keyboards small. `callback_data` is limited to 64 bytes. `CallbackData.pack` raises `ValueError` beyond that, and elsewhere, as in `page_data`, nothing checks it, so keep ids short.
+
+### Pagination
+
+`Pagination` is the base for a keyboard of one page of items with a bar to move between pages. `NumberedPagination`, `ArrowPagination` and `SlidingPagination` are its bars. `build` is async: it returns a `Page` with `number`, `items`, `total_pages`, `has_next` and the keyboard in `markup`. With a handler:
+
+```python
+from pyrogram import filters
+from pyroflow.keyboards import CallbackData, CallbackFields, NumberedPagination, parsed
+
+class ProductId(CallbackFields):
+    id: int = parsed(int)
+
+class Turn(CallbackFields):
+    page: int = parsed(int)
+
+product = CallbackData("product", ProductId)
+turn = CallbackData("products", Turn)
+
+pages = NumberedPagination(
+    products,
+    item=lambda item: product.button(item.name, id=item.id),
+    page_data=lambda number: turn.pack(page=number),
+)
+
+@app.on_message(filters.command("products"))
+async def show(client, message):
+    page = await pages.build()
+    await message.reply("Products:", reply_markup=page.markup)
+
+@app.on_callback_query(turn.filter())
+async def turn_page(client, query):
+    page = await pages.build(turn.unpack(query.data).page)
+    await query.message.edit_reply_markup(page.markup)
+```
+
+With `ask_callback_query`, keep turning pages until the press is on an item. `press.message` is the client's own message, so each question edits it and waits for the next press on its buttons:
+
+```python
+page = await pages.build()
+press = await message.ask_callback_query("Pick a product:", reply_markup=page.markup)
+
+while press.data.startswith("products:"):
+    page = await pages.build(turn.unpack(press.data).page)
+    press = await press.message.ask_callback_query("Pick a product:", reply_markup=page.markup)
+```
+
+`item` returns an `InlineKeyboardButton`. `arrangement`, a `PageArrangement` from `pyroflow.models`, says how many items a page holds and arranges them like `arrange`. These are all its valid sets, and any other mix raises `ValueError`. Without it, a page is five rows of one button each:
+
+| Options | `per_page` | Rows |
+|---|---|---|
+| `lines`, `columns` | `lines * columns` | `lines` rows of `columns` |
+| `per_page`, `columns` | `per_page` | rows of `columns`, the last may be shorter |
+| `layout` | the sum of `layout` | one row per size |
+| `layout`, `per_page` | `per_page`, at least the sum of `layout` | the last size goes on |
+| `layout`, `repeat`, `lines` | the sum of the first `lines` sizes | `lines` rows, the sizes cycling |
+| `layout`, `repeat`, `per_page` | `per_page` | the sizes cycling |
+
+```python
+from pyroflow.models import PageArrangement
+
+NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, columns=3))                   # 12 items in rows of 3
+NumberedPagination(products, item=item, arrangement=PageArrangement(layout=[1, 2, 3]))                     # 6 items
+NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, layout=[1, 2], repeat=True))  # 6 items: 1, 2, 1, 2
+```
+
+The current page's button is `disabled`, and no page shows twice. A single page has no bar. The bars, here on page 6 of 12:
+
+| Class | Bar | Its texts |
+|---|---|---|
+| `NumberedPagination` | `« 1` `‹ 5` `· 6 ·` `7 ›` `12 »` | `first`, `previous`, `current`, `next`, `last` |
+| `ArrowPagination` | `‹` `›` | `back`, `forward` |
+| `ArrowPagination(texts=ArrowBarTexts(counter="{page}/{pages}"))` | `‹` `6/12` `›` | `back`, `counter`, `forward` |
+| `SlidingPagination` | `1` `2` `3` `4` `5` `· 6 ·` `7` `8` | `page`, `current` |
+
+`SlidingPagination` shows every page by number, at most `size` at a time, 8 by default. The numbers come in fixed groups, and reaching the last one of a group brings the next group, keeping the page before it. Its size and texts go in `bar`, a `SlidingBar` from `pyroflow.models`.
+
+The texts of the other two go in `texts`: a `NumberedBarTexts` or an `ArrowBarTexts` from `pyroflow.models`. `{page}` and `{pages}` are filled in any of them. `style`, a `BarStyle(nav, current)`, holds functions that get each button of the bar once it is built, to change it, `style` on the button that `item` returns colors an item, `header` holds fixed rows above the items, and `footer` holds fixed rows under the bar. `ButtonStyle.LINK` is for rich messages only, and Pyrogram refuses it on an inline button.
+
+```python
+from pyrogram.enums import ButtonStyle
+from pyrogram.types import InlineKeyboardButton
+from pyroflow.keyboards import ArrowPagination
+from pyroflow.models import ArrowBarTexts, BarStyle
+
+def primary(button):
+    button.style = ButtonStyle.PRIMARY
+
+def success(button):
+    button.style = ButtonStyle.SUCCESS
+
+pages = ArrowPagination(
+    products,
+    item=lambda item: InlineKeyboardButton(
+        item.name,
+        callback_data=f"product:{item.id}",
+        style=ButtonStyle.DANGER if item.sold_out else ButtonStyle.SUCCESS,
+    ),
+    page_data=lambda number: f"products:{number}",
+    texts=ArrowBarTexts(back="Back", forward="Next", counter="{page}/{pages}"),
+    style=BarStyle(nav=primary, current=success),
+    footer=[[InlineKeyboardButton("Close", callback_data="close")]],
+)
+```
+
+**Fetching lazily.** `items` can be a function called as `(offset, limit)`, sync or async, that returns one batch, so each `build` fetches only what its page needs. `count` is an `ItemCount` from `pyroflow.models`, which holds a number, or a sync or async function of no arguments read on every `build`. With `strict`, on by default, no item past it is fetched or shown. With `strict=False` it only sets how many pages there are, and each page is fetched whole. It applies to a sequence too. Without `count`, a sequence uses its length and the count of a function is unknown.
+
+```python
+from pyroflow.models import ItemCount
+
+async def fetch(offset, limit):
+    return await db.products(offset=offset, limit=limit)
+
+pages = NumberedPagination(fetch, item=item, count=ItemCount(db.count_products))
+pages = ArrowPagination(fetch, item=item)
+```
+
+With a count, a page out of range becomes the nearest one. Without one, each `build` fetches one item more than a page to tell whether another page follows, and `total_pages` is `None`. A page that comes back empty, such as one past the end, shows the first page instead, and with `first_if_empty=False` it stays empty, with the way back on its bar. `NumberedPagination` and `SlidingPagination` need the number of pages, so a function without `count` raises `TypeError`. `ArrowPagination` works either way, and its counter then uses `unknown_counter`, `{page}` by default.
+
+**Your own bar.** Subclass `Pagination` and write `nav_row`, which gets the page, the number of pages or `None`, and whether a page follows. `nav_button` builds a button to a page:
+
+```python
+from pyroflow.keyboards import Pagination
+
+class MorePagination(Pagination):
+    def nav_row(self, number, total_pages, has_next):
+        return [self.nav_button("More", number + 1, number, total_pages)] if has_next else []
+```
+
+---
+
 ## Error handling
 
 ```python
