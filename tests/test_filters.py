@@ -36,6 +36,7 @@ from pyroflow import filters
 from pyroflow.dispatcher import Dispatcher
 from pyroflow.enums import CommandUsernamePolicy
 from pyroflow.errors import ListenerRejected
+from pyroflow.models import MessageKey
 from pyroflow.update_listener import MessageListener
 
 if TYPE_CHECKING:
@@ -911,7 +912,7 @@ async def dispatch(listener: MessageListener, msg: Message) -> list[Message]:
 
 async def test_inverted_strict_filter_ends_the_wait_and_reaches_the_handlers() -> None:
     listener = MessageListener(strict_filter=~filters.registered_command())
-    waiter = asyncio.ensure_future(listener.listen(chat_id=100, user_id=7))
+    waiter = asyncio.ensure_future(listener.listen(MessageKey(chat_id=100, user_id=7)))
     await asyncio.sleep(0)
     msg = make_message(text="/start now", _client=FakeBot("start"))
 
@@ -923,7 +924,7 @@ async def test_inverted_strict_filter_ends_the_wait_and_reaches_the_handlers() -
 @pytest.mark.parametrize("text", ["my answer", "/help"])
 async def test_inverted_strict_filter_gives_anything_else_to_the_wait(text: str) -> None:
     listener = MessageListener(strict_filter=~filters.registered_command())
-    waiter = asyncio.ensure_future(listener.listen(chat_id=100, user_id=7))
+    waiter = asyncio.ensure_future(listener.listen(MessageKey(chat_id=100, user_id=7)))
     await asyncio.sleep(0)
     msg = make_message(text=text, _client=FakeBot("start"))
 
@@ -935,7 +936,7 @@ async def test_inverted_filter_in_the_filters_of_a_strict_wait_ends_it() -> None
     listener = MessageListener()
     flt = pyrogram_filters.text & ~filters.registered_command()
     waiter = asyncio.ensure_future(
-        listener.listen(chat_id=100, user_id=7, filters=flt, strict=True)
+        listener.listen(MessageKey(chat_id=100, user_id=7), filters=flt, strict=True)
     )
     await asyncio.sleep(0)
     msg = make_message(text="/start", _client=FakeBot("start"))
@@ -947,8 +948,10 @@ async def test_inverted_filter_in_the_filters_of_a_strict_wait_ends_it() -> None
 
 async def test_a_wider_wait_with_filters_takes_a_command_a_strict_wait_rejected() -> None:
     listener = MessageListener(strict_filter=~filters.registered_command())
-    rejected = asyncio.ensure_future(listener.listen(chat_id=100, user_id=7))
-    wider = asyncio.ensure_future(listener.listen(chat_id=100, filters=pyrogram_filters.text))
+    rejected = asyncio.ensure_future(listener.listen(MessageKey(chat_id=100, user_id=7)))
+    wider = asyncio.ensure_future(
+        listener.listen(MessageKey(chat_id=100), filters=pyrogram_filters.text)
+    )
     await asyncio.sleep(0)
     msg = make_message(text="/start", _client=FakeBot("start"))
 

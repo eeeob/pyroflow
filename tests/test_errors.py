@@ -7,6 +7,7 @@ import pytest
 import pyroflow.errors
 from pyroflow.errors import (
     ListenerAlreadyExists,
+    ListenerAttemptsExhausted,
     ListenerCancelled,
     ListenerError,
     ListenerEvicted,
@@ -91,6 +92,22 @@ def test_error_subclass_messages(
     assert err.value == 5
 
 
+def test_listener_attempts_exhausted_keeps_the_value_and_the_update() -> None:
+    update = object()
+    err = ListenerAttemptsExhausted(3, update)
+    assert isinstance(err, ListenerError)
+    assert str(err) == "No attempts left out of 3"
+    assert err.value == 3
+    assert err.update is update
+
+
+def test_listener_attempts_exhausted_defaults() -> None:
+    err = ListenerAttemptsExhausted()
+    assert err.value is None
+    assert err.update is None
+    assert str(err) == "No attempts left out of None"
+
+
 def test_errors_all() -> None:
     assert pyroflow.errors.__all__ == (
         "PyroflowError",
@@ -102,4 +119,5 @@ def test_errors_all() -> None:
         "ListenerEvicted",
         "ListenerWorkersBusy",
         "ListenerAlreadyExists",
+        "ListenerAttemptsExhausted",
     )

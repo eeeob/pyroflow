@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-from pyroflow.models import ListenerContext, ListenerKey, ListenerModel, MessageKey
+from pyroflow.models import ListenerContext, ListenerModel, MessageKey
 from pyroflow.models import listener_model as listener_model_module
-from pyroflow.typings import KeyT
+from pyroflow.typings import UpdateType
 
 
 def test_logger_name() -> None:
@@ -18,14 +18,13 @@ def test_logger_name() -> None:
 # --- ListenerModel ----------------------------------------------------------------------
 
 
-def test_listener_model_is_generic_over_the_key() -> None:
-    assert ListenerModel.__parameters__ == (KeyT,)
-    assert ListenerModel[MessageKey] is not ListenerModel
+def test_listener_model_is_generic_over_the_update_type() -> None:
+    assert ListenerModel.__parameters__ == (UpdateType,)
 
 
 async def test_listener_model_resolve_and_done() -> None:
     fut = asyncio.get_running_loop().create_future()
-    model = ListenerModel(ListenerKey(1), fut)
+    model = ListenerModel(MessageKey(1), fut)
     assert not model.done()
     model.resolve("update")
     assert model.done()
@@ -34,7 +33,7 @@ async def test_listener_model_resolve_and_done() -> None:
 
 async def test_listener_model_set_exc() -> None:
     fut = asyncio.get_running_loop().create_future()
-    model = ListenerModel(ListenerKey(1), fut)
+    model = ListenerModel(MessageKey(1), fut)
     model.set_exc(ValueError("boom"))
     assert model.done()
     with pytest.raises(ValueError):
@@ -43,7 +42,7 @@ async def test_listener_model_set_exc() -> None:
 
 @pytest.mark.parametrize("end", ["resolve", "set_exc"])
 async def test_listener_model_marked_done_runs_the_callbacks_before_returning(end: str) -> None:
-    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
     seen: list[tuple[str, bool]] = []
     model.add_done_callback(lambda m: seen.append(("first", m.done())))
     model.add_done_callback(lambda m: seen.append(("second", m.done())))
@@ -58,7 +57,7 @@ async def test_listener_model_marked_done_runs_the_callbacks_before_returning(en
 
 
 async def test_listener_model_add_done_callback_passes_the_model() -> None:
-    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
     seen: list[ListenerModel] = []
     model.add_done_callback(seen.append)
 
@@ -68,7 +67,7 @@ async def test_listener_model_add_done_callback_passes_the_model() -> None:
 
 
 async def test_listener_model_add_done_callback_on_a_done_model_calls_at_once() -> None:
-    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
     model.resolve("update")
     seen: list[ListenerModel] = []
 
@@ -79,7 +78,7 @@ async def test_listener_model_add_done_callback_on_a_done_model_calls_at_once() 
 
 
 async def test_listener_model_marked_done_twice_does_not_run_the_callbacks_again() -> None:
-    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
     seen: list[ListenerModel] = []
     model.add_done_callback(seen.append)
     model.resolve("update")
@@ -96,7 +95,7 @@ async def test_listener_model_marked_done_twice_does_not_run_the_callbacks_again
 async def test_listener_model_failing_callback_is_logged_and_the_next_one_runs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
     seen: list[ListenerModel] = []
 
     def fail(_: ListenerModel) -> None:
@@ -114,7 +113,7 @@ async def test_listener_model_failing_callback_is_logged_and_the_next_one_runs(
 
 
 async def test_listener_model_run_done_callbacks_drops_them() -> None:
-    model = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
     seen: list[ListenerModel] = []
     model.done_callbacks.append(seen.append)
 
@@ -136,7 +135,7 @@ async def test_listener_model_is_slotted() -> None:
 
 async def test_listener_model_defaults() -> None:
     future = asyncio.get_running_loop().create_future()
-    model = ListenerModel(ListenerKey(1), future)
+    model = ListenerModel(MessageKey(1), future)
     assert model.future is future
     assert model.context is None
     assert model.filters is None

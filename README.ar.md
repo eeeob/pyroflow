@@ -93,6 +93,7 @@ client.run()
 ```python
 from pyroflow import Client, MessageListener
 from pyroflow.errors import ListenerTimeout
+from pyroflow.models import MessageKey
 
 client = Client("my_session")
 messages = MessageListener()
@@ -107,8 +108,7 @@ async def on_confirm(client, message):
 
     try:
         code_msg = await messages.listen(
-            chat_id=message.chat.id,
-            user_id=message.from_user.id,
+            MessageKey(message.chat.id, message.from_user.id),
             timeout=120,
         )
     except ListenerTimeout:
@@ -123,19 +123,20 @@ client.run()
 ويستطيع الـ client أن ينتظر أيضًا، على الـ listener المسجَّل لنوع الـ update:
 
 ```python
+code_msg = await client.listen(MessageKey(chat_id, user_id), timeout=120)
 code_msg = await client.listen_message(chat_id=chat_id, user_id=user_id, timeout=120)
 press = await client.listen_callback_query(chat_id=chat_id, message_id=message_id)
 client.get_listener(Message)   # the registered listener, or None
 ```
 
-`listen_message` و`listen_callback_query` تأخذان حقول مفتاحهما ومعاملات الانتظار، وترفعان `RuntimeError` إن لم يُسجَّل listener لنوعهما. أما `get_listener` فتُرجع `None` بدل رفع خطأ؛ واستعمل الـ listener الذي تُرجعه للبحث عن الانتظارات أو إنهائها، مثل `client.get_listener(Message).cancel(key)`.
+`listen` تأخذ مفتاحاً ومعاملات الانتظار، وتعرف الـ listener من `__update_type__` الخاص بالمفتاح. و`listen_message` و`listen_callback_query` تأخذان حقول المفتاح ومعاملات الانتظار، وتبنيان المفتاح بـ `__key_type__` الخاص بالـ listener، وترفعان `RuntimeError` إن لم يُسجَّل listener لنوعهما. أما `get_listener` فتُرجع `None` بدل رفع خطأ؛ واستعمل الـ listener الذي تُرجعه للبحث عن الانتظارات أو إنهائها، مثل `client.get_listener(Message).cancel(key)`.
 
-كل listener ينتظر على مفاتيح من كلاسه الخاص، من `pyroflow.models`، و`listen` فيه تأخذ الحقول نفسها:
+كل listener ينتظر على مفاتيح من كلاسه الخاص، من `pyroflow.models`، و`listen` فيه تأخذ مفتاحاً منها:
 
 - `MessageListener`: `MessageKey(chat_id, user_id, message_thread_id, direct_messages_topic_id, ephemeral)`.
 - `CallbackQueryListener`: `CallbackQueryKey(chat_id, user_id, message_id, inline_message_id, ephemeral)`.
 
-الحقل المتروك `None` يطابق أي قيمة، فـ `messages.listen()` تأخذ الرسالة التالية في أي مكان، و`messages.listen(user_id=7)` تأخذ المستخدم 7 في أي محادثة. والمفتاح يحفظ القيم كما مُرِّرت، فللانتظار في المحادثة الخاصة مع مستخدم مرِّر `chat_id`: معرّف المحادثة الخاصة هو معرّف المستخدم. و`inline_message_id` ينتظر ضغطة على رسالة أُرسلت في الـ inline mode؛ وهذه الضغطة بلا محادثة، فتصل إلى انتظار على مستخدمها، ولا تصل أبدًا إلى انتظار على محادثة.
+الحقل المتروك `None` يطابق أي قيمة، فـ `messages.listen(MessageKey())` تأخذ الرسالة التالية في أي مكان، و`messages.listen(MessageKey(user_id=7))` تأخذ المستخدم 7 في أي محادثة. والمفتاح يحفظ القيم كما مُرِّرت، فللانتظار في المحادثة الخاصة مع مستخدم مرِّر `chat_id`: معرّف المحادثة الخاصة هو معرّف المستخدم. و`inline_message_id` ينتظر ضغطة على رسالة أُرسلت في الـ inline mode؛ وهذه الضغطة بلا محادثة، فتصل إلى انتظار على مستخدمها، ولا تصل أبدًا إلى انتظار على محادثة.
 
 **الـ topics.** `message_thread_id` ينتظر في topic واحد من منتدى، أو في topic من محادثة خاصة للبوت. و`direct_messages_topic_id` ينتظر في topic واحد من محادثة الرسائل المباشرة لقناة. و`ask` تنتظر في topic الرسالة التي أرسلتها أو عدّلتها. ويترك Kurigram الحقل `message_thread_id` فارغًا في topic الـ General، فالسؤال المطروح هناك ينتظر على المحادثة كلها.
 
@@ -206,7 +207,7 @@ callback = await client.ask_callback_query(
 |---|---|
 | `chat_id` | في `Client` فقط: الـ chat المستهدفة |
 | `text` | نص الرسالة (`rich_message` في دوال `_rich`) |
-| `message_id` | في `Client` فقط: إن أُعطي، تُعدَّل الرسالة بدل إرسال رسالة جديدة |
+| `edit_message_id` | في `Client` فقط: إن أُعطي، تُعدَّل هذه الرسالة بدل إرسال رسالة جديدة |
 | `force_send` | في `Message` فقط: يرسل ردًا جديدًا حتى لو كانت الرسالة `editable` |
 | `listen_timeout` | عدد الثواني قبل رفع `ListenerTimeout` |
 | `listen_context` | `ListenerContext` بقيم تُرفق بالـ listener |
@@ -248,6 +249,8 @@ while True:
     except ListenerRejected:
         await message.reply("That is not a number.")
 ```
+
+و[`ask_until()`](#ask_until) تشغّل حلقة كهذه عنك بدالة `parse`.
 
 `listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر.
 
@@ -321,7 +324,7 @@ async def drop_question(exc, model):
 `ask_rich()` و`ask_callback_query_rich()` تفعلان الشيء نفسه مع rich message:
 
 - ترسلان عبر `send_rich_message`.
-- أو تعدّلان عبر `edit_message_text(rich_message=...)` إن أُعطي `message_id`.
+- أو تعدّلان عبر `edit_message_text(rich_message=...)` إن أُعطي `edit_message_id`.
 
 ودوال `Message` تستدعي `edit` و`reply` و`reply_rich` من الرسالة نفسها، فتقبل ما تقبله هذه الدوال. ولمعاملات مثل `reply_parameters` استعمل دوال `Client`.
 
@@ -348,6 +351,55 @@ answer = await client.ask_rich(
 ```python
 await client.unregister_listener(Message)
 ```
+
+---
+
+### ask_until()
+
+تكرر `ask_until()` استدعاء `ask()` حتى ترجع دالةٌ تمررها أنت قيمةً، ثم تعيد تلك القيمة. وتفعل `ask_rich_until()` و`ask_callback_query_until()` و`ask_callback_query_rich_until()` الشيء نفسه مع `ask_rich()` و`ask_callback_query()` و`ask_callback_query_rich()`. والأربع موجودة في `Client` وفي `Message`، فهي ثماني دوال، وتقبل كل منها ما تقبله الدالة التي تكررها، ومعه `parse` وهو إلزامي، و`attempts`.
+
+```python
+from pyrogram import filters
+from pyrogram.enums import ParseMode
+from pyroflow.errors import ListenerAttemptsExhausted
+from pyroflow.models import AskAgain
+
+async def parse_username(answer, kw):
+    if not answer.text.isascii():
+        return AskAgain("Latin letters only. Try again:")
+
+    if await is_taken(answer.text):
+        return AskAgain("<b>That name is taken.</b> Try another:", {"parse_mode": ParseMode.HTML})
+
+    return answer.text
+
+try:
+    username = await message.ask_until(
+        "Pick a username:",
+        parse=parse_username,
+        attempts=3,
+        listen_filters=filters.text & ~filters.command("cancel"),
+        listen_user_id=message.from_user.id,
+    )
+except ListenerAttemptsExhausted as exc:
+    await message.reply(f"Giving up after {exc.update.text!r}.")
+```
+
+تُستدعى `parse` بالشكل `parse(answer, kw)`، متزامنة أو async. و`answer` هو الـ update الذي وصل، و`kw` هو dict معاملات السؤال بأسمائها. وما تعيده `parse` يحدد ما يحدث بعدها:
+
+| ما تعيده `parse` | ما يحدث |
+|---|---|
+| `AskAgain(question)` | مرفوض: يُطرح هذا السؤال بلا معاملات |
+| `AskAgain(question, kw)` | مرفوض: يُطرح هذا السؤال بهذا `kw` |
+| أي قيمة أخرى، و`None` منها | مقبول: تُرجَع هذه القيمة لك |
+
+والسؤال `str`، أو `InputRichMessage` في دوال `*_rich_until`. ولإعادة السؤال نفسه أرجعه داخل `AskAgain`، ولإبقاء معاملاته مرّر `kw` التي وصلت إلى `parse`. وللحصول على الجواب نفسه استعمل `return answer`.
+
+والجواب الذي يصل إلى `parse` قد أخذه الانتظار، فلا يصل إلى أي handler حتى لو رُفض، والأمر المرسل بدل الجواب يُعد جواباً. و`listen_filters` هو الفلتر الذي يسبق `parse`: ما لا يمر منه يمضي إلى الـ handlers ويستمر الانتظار، ولذلك فإن `~filters.command("cancel")` في المثال يترك `/cancel` يعمل. ومع `listen_strict=True`، الـ update الذي لا يمر منه يرفع `ListenerRejected` فوراً وينهي الحلقة.
+
+والسؤال الأول وحده قد يعدّل رسالة، عبر `edit_message_id` في `Client` أو رسالة `editable` في `Message`، و`force_send` يخصه وحده. وبعد الرفض يكون كل سؤال رسالة جديدة، لأن Telegram يرفض تعديلاً لا يغيّر شيئاً. وكل إعادة ترسل `kw` الموجودة في `AskAgain` فقط، فضع فيها ما تحتاجه مثل `message_thread_id`، ويجب أن تقبلها دالة الإرسال: `link_preview_options` في دوال rich يرفع `TypeError`. وفي دوال الـ callback query ضع فيها `reply_markup`: يُرسل السؤال من جديد مع لوحته، وكل سؤال ينتظر ضغطة على أزراره هو.
+
+ومع `attempts=None` وهو الافتراضي لا تتوقف. وإلا يُرفع `ListenerAttemptsExhausted` حين ترفض `parse` جواب آخر سؤال، ويحمل `update` فيه ذلك الجواب. أما `value` فهو عدد الأسئلة المطروحة. وقيمة `attempts` الأقل من 1 ترفع `ValueError` قبل إرسال أي شيء. و`listen_timeout` يسري على كل انتظار وحده، وأي خطأ آخر ترفعه `ask` أو `parse`، مثل `ListenerTimeout`، ينهي الحلقة فوراً.
 
 ---
 

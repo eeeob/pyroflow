@@ -5,14 +5,10 @@ from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing_extensions import assert_type
+    from pyrogram.types import BotCommand
 
-    from pyroflow.models import ListenerModel, MessageKey
-    from pyroflow.typings import KeyT
+    from pyroflow.typings import BotCommandEntryT
 
-    def _key_of(model: ListenerModel[KeyT]) -> KeyT:
-        return model.key
-
-    def _check_key_type(model: ListenerModel[MessageKey]) -> None:
-        assert_type(_key_of(model), MessageKey)
-        ListenerModel[str]  # ty: ignore[invalid-type-arguments]
+    def _check_bot_command_entry(command: BotCommand) -> None:
+        entry: BotCommandEntryT = command
+        _ = entry

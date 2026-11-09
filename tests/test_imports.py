@@ -38,6 +38,7 @@ MODULES = [
     "pyroflow.errors",
     "pyroflow.filters",
     "pyroflow.models",
+    "pyroflow.models.ask_again",
     "pyroflow.models.listener_key",
     "pyroflow.models.listener_model",
     "pyroflow.types",

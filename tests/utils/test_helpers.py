@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import functools
+import inspect
 import threading
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pyrogram.types import Message
 
 from pyroflow.utils import (
     UpdateBound,
@@ -17,8 +19,6 @@ from pyroflow.utils import (
     get_update_executor,
     helpers,
 )
-from pyrogram.types import Message
-
 
 # --- UpdateBound ----------------------------------------------------------
 
@@ -185,6 +185,30 @@ async def test_call_maybe_async_awaits_a_partial_around_a_coroutine_function() -
         return a + b
 
     assert await call_maybe_async(functools.partial(add, 1), 2) == 3
+
+
+async def test_call_maybe_async_returns_the_coroutine_of_a_callable_object() -> None:
+    class Add:
+        async def __call__(self, a: int, b: int) -> int:
+            return a + b
+
+    result = await call_maybe_async(Add(), 1, 2)
+
+    assert inspect.iscoroutine(result)
+    assert await result == 3
+
+
+async def test_call_maybe_async_returns_the_coroutine_of_a_sync_callable() -> None:
+    async def add(a: int, b: int) -> int:
+        return a + b
+
+    def start(a: int, b: int) -> Any:
+        return add(a, b)
+
+    result = await call_maybe_async(start, 1, 2)
+
+    assert inspect.iscoroutine(result)
+    assert await result == 3
 
 
 async def test_call_maybe_async_runs_a_sync_callable_on_the_executor() -> None:

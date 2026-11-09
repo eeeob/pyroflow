@@ -2,7 +2,9 @@
 
 Each class stands alone, with every argument any supported kurigram accepts,
 so an argument may be unknown to the installed one; a comment names the
-versions of such an argument, and of those Pyrogram deprecated.
+versions of such an argument, and of those Pyrogram deprecated. What would
+put the question off, such as `schedule_date`, stays out: `ask` waits for the
+answer to a question asked now.
 """
 
 from __future__ import annotations as _annotations
@@ -10,8 +12,6 @@ from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from pyrogram import enums as pyro_enums, types as pyro_types
 
 
@@ -28,10 +28,6 @@ class MessageAskSendKw(TypedDict, total=False):
     """Send the message silently."""
     effect_id: int | None
     """Message effect to apply."""
-    schedule_date: datetime | None
-    """Date to send the message at."""
-    repeat_period: int | None
-    """Interval in seconds to repeat the message at."""
     protect_content: bool | None
     """Protect the message from forwarding and saving."""
     allow_paid_broadcast: bool | None
@@ -89,6 +85,8 @@ class MessageAskRichSendKw(TypedDict, total=False):
 class MessageAskRichEditKw(TypedDict, total=False):
     """What the `Message.ask_*_rich` methods accept to edit, as `Message.edit` with `rich_message`."""
 
+    link_preview_options: pyro_types.LinkPreviewOptions | None
+    """Link preview options for the message."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
 

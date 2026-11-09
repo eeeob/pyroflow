@@ -58,7 +58,7 @@ async def test_resolve_matches_less_specific_key() -> None:
     """A chat-only wait takes an update that carries a user too."""
     lis = await _started(MessageListener())
     try:
-        task = asyncio.ensure_future(lis.listen(chat_id=100))
+        task = asyncio.ensure_future(lis.listen(MessageKey(chat_id=100)))
         await asyncio.sleep(0.02)
         await lis.resolve(make_message(100, 7, 5))
         got = await asyncio.wait_for(task, 1)
@@ -68,10 +68,12 @@ async def test_resolve_matches_less_specific_key() -> None:
 
 
 async def test_resolve_matches_a_topic_wait_without_a_user() -> None:
-    """`listen(chat_id=..., message_thread_id=...)` takes whoever answers in that topic."""
+    """`listen(MessageKey(chat_id=..., message_thread_id=...))` takes answers in that topic."""
     lis = await _started(MessageListener())
     try:
-        task = asyncio.ensure_future(lis.listen(chat_id=100, message_thread_id=3, timeout=5))
+        task = asyncio.ensure_future(
+            lis.listen(MessageKey(chat_id=100, message_thread_id=3), timeout=5)
+        )
         await asyncio.sleep(0.02)
 
         await lis.resolve(make_message(100, 7, 5, message_thread_id=3))
@@ -87,8 +89,10 @@ async def test_user_listener_outranks_a_topic_one() -> None:
     wait wins over a (chat, topic) one."""
     lis = await _started(MessageListener())
     try:
-        by_user = asyncio.ensure_future(lis.listen(chat_id=100, user_id=7, timeout=5))
-        by_topic = asyncio.ensure_future(lis.listen(chat_id=100, message_thread_id=3, timeout=5))
+        by_user = asyncio.ensure_future(lis.listen(MessageKey(chat_id=100, user_id=7), timeout=5))
+        by_topic = asyncio.ensure_future(
+            lis.listen(MessageKey(chat_id=100, message_thread_id=3), timeout=5)
+        )
         await asyncio.sleep(0.02)
 
         await lis.resolve(make_message(100, 7, 5, message_thread_id=3))
@@ -106,7 +110,9 @@ async def test_listener_default_timeout_used_when_not_overridden() -> None:
     lis = await _started(MessageListener(timeout=0.05))
     try:
         with pytest.raises(ListenerTimeout):
-            await lis.listen(chat_id=300, user_id=7)  # no per-call timeout → falls back to 0.05
+            await lis.listen(
+                MessageKey(chat_id=300, user_id=7)
+            )  # no per-call timeout → falls back to 0.05
     finally:
         await lis.stop()
 
@@ -114,7 +120,7 @@ async def test_listener_default_timeout_used_when_not_overridden() -> None:
 # --- UpdateListener base: a local subclass exercises every hook directly ---
 
 
-class _Listener(UpdateListener[Message, MessageKey]):
+class _Listener(UpdateListener[Message]):
     __update_type__ = Message
     __key_type__ = MessageKey
 
@@ -175,11 +181,8 @@ def test_module_logger() -> None:
     assert update_listener_module.log.name == "pyroflow.update_listener.update_listener"
 
 
-def test_update_listener_is_generic_over_update_and_key_type() -> None:
-    assert UpdateListener.__parameters__ == (
-        update_listener_module.UpdateType,
-        update_listener_module.KeyT,
-    )
+def test_update_listener_is_generic_over_the_update_type() -> None:
+    assert UpdateListener.__parameters__ == (update_listener_module.UpdateType,)
 
 
 # --- __init__ -----------------------------------------------------------------
@@ -188,7 +191,7 @@ def test_update_listener_is_generic_over_update_and_key_type() -> None:
 def test_init_defaults() -> None:
     lis = _Listener()
     assert lis.duplicate_policy is DuplicatePolicy.REPLACE
-    assert lis.extract_key_func is None
+    assert lis.extract_key_func == MessageKey.from_update
     assert lis.on_error_func is None
     assert lis.timeout is None
     assert lis.resolve_scope is ListenerScope.FIRST
@@ -445,7 +448,7 @@ class _Holder:
         has_policy: bool = True,
     ) -> None:
         self.error = error
-        self.workers_policy = object() if has_policy else None
+        self.client = SimpleNamespace(workers_policy=object() if has_policy else None)
         self.handler_waits: dict[ListenerModel, object] = {}
         self.entered: list[MessageKey] = []
         self.ended: list[tuple[object, ListenerModel]] = []
@@ -1240,7 +1243,7 @@ class _LanguageKey(MessageKey):
     language: str | None = None
 
 
-class _LanguageListener(UpdateListener[Message, _LanguageKey]):
+class _LanguageListener(UpdateListener[Message]):
     __update_type__ = Message
     __key_type__ = _LanguageKey
 
@@ -1264,12 +1267,6 @@ async def test_a_key_class_with_a_field_of_its_own_needs_no_listener_change() ->
 
 
 # --- extract_key ----------------------------------------------------------------
-
-
-def test_extract_key_requires_func_or_override() -> None:
-    lis = _Listener()
-    with pytest.raises(NotImplementedError, match="_Listener must either pass extract_key_func"):
-        lis.extract_key(make_message())
 
 
 def test_extract_key_rejects_the_wrong_update_type() -> None:
@@ -1317,11 +1314,11 @@ async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
     lis = MessageListener()
     ephemeral = make_message(message_id=0, ephemeral_message_id=4)
     regular_waits = [
-        asyncio.create_task(lis.listen()),
-        asyncio.create_task(lis.listen(chat_id=100)),
-        asyncio.create_task(lis.listen(chat_id=100, user_id=7)),
+        asyncio.create_task(lis.listen(MessageKey())),
+        asyncio.create_task(lis.listen(MessageKey(chat_id=100))),
+        asyncio.create_task(lis.listen(MessageKey(chat_id=100, user_id=7))),
     ]
-    wait = asyncio.create_task(lis.listen(chat_id=100, user_id=7, ephemeral=True))
+    wait = asyncio.create_task(lis.listen(MessageKey(chat_id=100, user_id=7, ephemeral=True)))
     await asyncio.sleep(0)
 
     assert await lis.resolve(ephemeral) is True
@@ -1334,7 +1331,7 @@ async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
 
 async def test_a_regular_update_never_reaches_a_wait_on_ephemeral() -> None:
     lis = MessageListener()
-    wait = asyncio.create_task(lis.listen(chat_id=100, user_id=7, ephemeral=True))
+    wait = asyncio.create_task(lis.listen(MessageKey(chat_id=100, user_id=7, ephemeral=True)))
     await asyncio.sleep(0)
 
     assert await lis.resolve(make_message()) is False

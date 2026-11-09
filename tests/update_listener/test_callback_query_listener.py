@@ -27,9 +27,11 @@ def test_key_type_is_callback_query_key() -> None:
     assert CallbackQueryListener.__key_type__ is CallbackQueryKey
 
 
-def test_init_defaults_to_callback_query_key_from_callback_query() -> None:
+def test_init_defaults_to_from_update() -> None:
     lis = CallbackQueryListener()
-    assert lis.extract_key_func == CallbackQueryKey.from_callback_query
+
+    assert lis.extract_key_func == CallbackQueryKey.from_update
+    assert lis.extract_key(make_callback_query(-100, 9, 42)) == CallbackQueryKey(-100, 9, 42)
     assert lis.on_error_func is None
 
 
@@ -45,10 +47,12 @@ def test_init_keeps_a_given_function_and_forwards_kwargs() -> None:
 # --- listen -----------------------------------------------------------------------
 
 
-async def test_listen_waits_on_the_key_of_its_fields() -> None:
+async def test_listen_waits_on_its_key() -> None:
     lis = CallbackQueryListener()
     context = ListenerContext(step=1)
-    task = asyncio.ensure_future(lis.listen(chat_id=1, user_id=2, message_id=3, context=context))
+    task = asyncio.ensure_future(
+        lis.listen(CallbackQueryKey(chat_id=1, user_id=2, message_id=3), context=context)
+    )
     await asyncio.sleep(0)
     try:
         assert lis.listeners[CallbackQueryKey(1, 2, 3)].context is context
@@ -57,20 +61,11 @@ async def test_listen_waits_on_the_key_of_its_fields() -> None:
         await asyncio.gather(task, return_exceptions=True)
 
 
-async def test_listen_takes_the_key_fields_by_position() -> None:
-    lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(1, 2, 3))
-    await asyncio.sleep(0)
-    try:
-        assert CallbackQueryKey(1, 2, 3) in lis.listeners
-    finally:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-
-
 async def test_listen_on_ephemeral_takes_a_press_on_an_ephemeral_message() -> None:
     lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(chat_id=100, user_id=7, ephemeral=True))
+    task = asyncio.ensure_future(
+        lis.listen(CallbackQueryKey(chat_id=100, user_id=7, ephemeral=True))
+    )
     await asyncio.sleep(0)
     regular = make_callback_query(message_id=5)
     ephemeral = make_callback_query(message_id=0)
@@ -83,7 +78,7 @@ async def test_listen_on_ephemeral_takes_a_press_on_an_ephemeral_message() -> No
 
 async def test_listen_on_a_message_takes_only_a_press_on_it() -> None:
     lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(chat_id=100, message_id=5))
+    task = asyncio.ensure_future(lis.listen(CallbackQueryKey(chat_id=100, message_id=5)))
     await asyncio.sleep(0)
 
     assert await lis.resolve(make_callback_query(message_id=6)) is False
@@ -94,7 +89,7 @@ async def test_listen_on_a_message_takes_only_a_press_on_it() -> None:
 
 async def test_listen_on_an_inline_message_takes_only_a_press_on_it() -> None:
     lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(inline_message_id="im"))
+    task = asyncio.ensure_future(lis.listen(CallbackQueryKey(inline_message_id="im")))
     await asyncio.sleep(0)
 
     assert await lis.resolve(make_callback_query(message=None, inline_message_id="other")) is False
@@ -106,7 +101,7 @@ async def test_listen_on_an_inline_message_takes_only_a_press_on_it() -> None:
 
 async def test_listen_on_an_inline_message_for_a_user_skips_other_users() -> None:
     lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(user_id=7, inline_message_id="im"))
+    task = asyncio.ensure_future(lis.listen(CallbackQueryKey(user_id=7, inline_message_id="im")))
     await asyncio.sleep(0)
 
     assert (
@@ -120,7 +115,7 @@ async def test_listen_on_an_inline_message_for_a_user_skips_other_users() -> Non
 
 async def test_listen_for_a_user_takes_their_inline_press() -> None:
     lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(user_id=7))
+    task = asyncio.ensure_future(lis.listen(CallbackQueryKey(user_id=7)))
     await asyncio.sleep(0)
     press = make_callback_query(user_id=7, message=None, inline_message_id="im")
 
@@ -130,7 +125,7 @@ async def test_listen_for_a_user_takes_their_inline_press() -> None:
 
 async def test_listen_in_a_private_chat_skips_an_inline_press() -> None:
     lis = CallbackQueryListener()
-    task = asyncio.ensure_future(lis.listen(chat_id=7))
+    task = asyncio.ensure_future(lis.listen(CallbackQueryKey(chat_id=7)))
     await asyncio.sleep(0)
 
     try:
