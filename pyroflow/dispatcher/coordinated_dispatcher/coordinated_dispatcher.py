@@ -352,6 +352,17 @@ class CoordinatedDispatcher(Dispatcher):
         Reads the stop sentinels of `Dispatcher.stop`, waits for the updates
         read to be over, and then stops the workers and the offer task.
 
+        Warning:
+            This task only reads; the replies are parsed by the workers too.
+            Without a `workers_policy` (`Client.setup_pyroflow`), once every
+            worker waits inside a handler, no worker is left to parse: the
+            reply stays queued, the waits run to their timeout, and those
+            without one, with every worker, hang for good. A policy keeps
+            one worker out of the waits, but counts only a wait in the
+            worker's own task: one in `asyncio.gather`, in a task the handler
+            starts, or in a sync handler can still take the last worker.
+            Bound such waits with a timeout.
+
         Args:
             workers: How many workers the run has, and so how many sentinels end the reading.
         """
@@ -367,6 +378,7 @@ class CoordinatedDispatcher(Dispatcher):
                 stop_signals_read += 1
                 continue
 
+            # Queued, not parsed: with every worker in a wait and no `workers_policy`, it stays here.
             self.worker_instructions.put_nowait(
                 _UpdateToParse(arrival_order.give_next_number(), raw_update)
             )
