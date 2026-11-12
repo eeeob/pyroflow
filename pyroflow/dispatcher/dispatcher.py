@@ -10,20 +10,22 @@ from typing import Any, Final, cast, TYPE_CHECKING
 from pyrogram import StopPropagation, ContinuePropagation, raw
 from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
-from pytrove import gather_helper, yield_control
+from pytrove import gather_helper
 
-from .enums import WorkersPolicy
-from .errors import ListenerWorkersBusy
-from .utils import call_maybe_async, patch_cls
+from ..enums import WorkersPolicy
+from ..errors import ListenerWorkersBusy
+from ..utils import call_maybe_async, patch_cls
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from pyrogram.types import Update as PyroUpdate
 
-    from .models import ListenerKey, ListenerModel
-    from .typings import UpdateType
-    from .update_listener import UpdateListener
+    from .coordinated_dispatcher import CoordinatedDispatcher
+    from .coordinated_dispatcher.models import _HandlerHold
+    from ..models import ListenerKey, ListenerModel
+    from ..typings import UpdateType
+    from ..update_listener import UpdateListener
 
 
 log = logging.getLogger(__name__)
@@ -32,6 +34,11 @@ _HANDLER_WORKER: Final[ContextVar[tuple[Dispatcher, asyncio.Task[None]] | None]]
     "pyroflow_handler_worker", default=None
 )
 """The dispatcher and worker task running the current handler, or `None` outside one."""
+
+_HANDLER_HOLD: Final[ContextVar[tuple[CoordinatedDispatcher, _HandlerHold] | None]] = ContextVar(
+    "pyroflow_handler_hold", default=None
+)
+"""The dispatcher and the hold of the coordinated handler running here; the tasks it starts inherit them."""
 
 
 @patch_cls(setter=setattr)
@@ -69,10 +76,8 @@ class Dispatcher(PyroDispatcher):
 
         self.workers_policy: WorkersPolicy | None = None
         """What a wait inside a handler does when the workers run short; `None` does nothing."""
-        self.handler_waits: dict[ListenerModel, UpdateListener[Any, Any]] = {}
+        self.listener_waits: dict[ListenerModel, UpdateListener[Any, Any]] = {}
         """The waits inside handlers that hold their worker, oldest first."""
-        self.running_workers = 0
-        """How many `handler_worker` tasks run now; one stays out of the waits to read the replies."""
 
     async def start(self, *args: object, **kw: object) -> None:
         """Start all registered listeners, then the dispatcher.
@@ -121,7 +126,7 @@ class Dispatcher(PyroDispatcher):
 
         Called by `UpdateListener.listen` from the worker task itself, when
         `workers_policy` is set. `listen` then adds the wait to
-        `handler_waits` at once, which takes the slot. With none free,
+        `listener_waits` at once, which takes the slot. With none free,
         `CANCEL_OLDEST` ends the oldest wait, whose slot frees at once. The
         evicted handler may go on working, uncounted like any handler that is
         not waiting, and a new wait of its goes through here too.
@@ -135,14 +140,15 @@ class Dispatcher(PyroDispatcher):
                 or under `WorkersPolicy.CANCEL_OLDEST` with no wait to end, as
                 with a single worker.
         """
-        if len(self.handler_waits) < self.running_workers - 1:
+        # One worker stays out of the waits to read the replies.
+        if len(self.listener_waits) < len(self.handler_worker_tasks) - 1:
             return
 
-        if policy is WorkersPolicy.REJECT or not self.handler_waits:
+        if policy is WorkersPolicy.REJECT or not self.listener_waits:
             raise ListenerWorkersBusy(key)
 
-        model = next(iter(self.handler_waits))
-        listener = self.handler_waits[model]
+        model = next(iter(self.listener_waits))
+        listener = self.listener_waits[model]
         # A pending wait frees its slot through its done callback; one whose task was
         # cancelled, and so is done without it, does here.
         listener.evict(model.key, model=model)
@@ -154,7 +160,7 @@ class Dispatcher(PyroDispatcher):
         Args:
             listener_model: The wait; one no longer tracked frees nothing.
         """
-        self.handler_waits.pop(listener_model, None)
+        self.listener_waits.pop(listener_model, None)
 
     def register_listener(self, listener: UpdateListener[UpdateType, Any]) -> None:
         """Register a listener for its declared update type.
@@ -289,12 +295,10 @@ class Dispatcher(PyroDispatcher):
         """
         # Always called from a task.
         token = _HANDLER_WORKER.set((self, cast("asyncio.Task[None]", asyncio.current_task())))
-        self.running_workers += 1
+        # A client started inside a coordinated handler must not take that handler's hold.
+        hold_token = _HANDLER_HOLD.set(None)
 
         try:
-            # `Queue.get` does not yield with updates queued, so every worker counts itself first.
-            await yield_control()
-
             while True:
                 packet = await self.updates_queue.get()
 
@@ -319,8 +323,8 @@ class Dispatcher(PyroDispatcher):
                 except Exception:
                     log.exception("Unexpected error in handler_worker")
         finally:
+            _HANDLER_HOLD.reset(hold_token)
             _HANDLER_WORKER.reset(token)
-            self.running_workers -= 1
 
 
 __all__ = ("Dispatcher",)

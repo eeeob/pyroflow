@@ -8,7 +8,7 @@ from abc import ABC
 from typing import Any, Generic, TYPE_CHECKING, TypedDict
 
 from ..typings import KeyT, UpdateType
-from ..dispatcher import _HANDLER_WORKER
+from ..dispatcher.dispatcher import _HANDLER_WORKER, _HANDLER_HOLD
 from ..utils import UpdateBound, call_maybe_async, get_update_executor
 from ..errors import (
     ListenerAlreadyExists,
@@ -416,6 +416,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
             `asyncio.wait_for` before Python 3.12, though the worker waits
             for it. Bound such waits with `timeout`.
 
+            Under a `CoordinatedDispatcher`, a wait inside a coordinated
+            handler, or in a task or `asyncio.to_thread` it started, is
+            offered the updates queued for the handler's key, in order, from
+            the moment it starts.
+
         Example:
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
@@ -432,6 +437,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
                 f"not {type(key).__name__}"
             )
             raise TypeError(msg)
+
+        # Read here alone, with no `current_task` check: a wait in a sync handler or a spawned task counts.
+        hold = _HANDLER_HOLD.get()
+
+        # A wait of a coordinated handler starts between two offers of its lane, never during
+        # one; once the handler ended there is nothing to wait for. Nothing below suspends
+        # before the wait is registered, so the lock is not kept.
+        if hold is not None:
+            await hold[1].wait_offer_lock(handler_active_required=True)
 
         if self.is_closed:
             raise ListenerCancelled(key)
@@ -460,7 +474,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
             dispatcher = holder[0]
 
             # A wait replacing one that holds a slot takes that slot, so it needs no check.
-            if current not in dispatcher.handler_waits:
+            if current not in dispatcher.listener_waits:
                 dispatcher.enter_handler_wait(policy, key)
 
         if current is not None:
@@ -480,7 +494,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
         if dispatcher is not None:
             # The slot frees the moment the wait ends, not when this coroutine resumes.
             listener.add_done_callback(dispatcher.end_handler_wait)
-            dispatcher.handler_waits[listener] = self
+            dispatcher.listener_waits[listener] = self
 
         if timeout is None:
             timeout = self.timeout
@@ -493,6 +507,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
         error: ListenerError | None = None
 
         try:
+            if hold is not None:
+                hold[1].note_handler_wait(hold[0], listener)
+
             return await future
         except ListenerError as exc:
             error = exc
@@ -513,7 +530,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
             # The error's traceback keeps this frame: drop what links back to it, so the
             # wait, its message and the client are freed without waiting for the cyclic GC.
             # `current`, the wait this one replaced, would chain every replaced wait.
-            del future, listener, error, current
+            del future, listener, error, current, hold
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""
@@ -533,7 +550,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
         every one does. A listener whose filter fails, or raises (logged), is
         skipped and keeps waiting, or, when `strict`, fails with
         `ListenerRejected`; either way the next candidate is tried. A sync
-        filter runs on the client's executor.
+        filter runs on the client's executor. A wait whose filter failed an
+        update skips it if it is offered again, as a `CoordinatedDispatcher`
+        does.
 
         Args:
             update: The incoming Pyrogram update.
@@ -574,7 +593,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
             sub = key_type(**kept)
             listener = self.listeners.get(sub)
 
-            if listener is None or listener.done():
+            # Declined already: its filter failed this update, offered again from a queue.
+            if listener is None or listener.done() or id(update) in listener.declined_updates:
                 continue
 
             if listener.filters is not None:
@@ -594,6 +614,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType], Generic[UpdateType, KeyT]):
                     continue
 
                 if not passed:
+                    listener.decline(update)
+
                     if listener.strict:
                         self.reject(sub)
                     continue

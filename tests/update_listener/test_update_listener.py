@@ -22,7 +22,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
-from pyroflow.dispatcher import _HANDLER_WORKER
+from pyroflow.dispatcher.dispatcher import _HANDLER_WORKER
 from pyroflow.enums import DuplicatePolicy, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
@@ -446,7 +446,7 @@ class _Holder:
     ) -> None:
         self.error = error
         self.workers_policy = object() if has_policy else None
-        self.handler_waits: dict[ListenerModel, object] = {}
+        self.listener_waits: dict[ListenerModel, object] = {}
         self.entered: list[MessageKey] = []
         self.ended: list[tuple[object, ListenerModel]] = []
 
@@ -456,7 +456,7 @@ class _Holder:
         self.entered.append(key)
 
     def end_handler_wait(self, model: ListenerModel) -> None:
-        if (listener := self.handler_waits.pop(model, None)) is not None:
+        if (listener := self.listener_waits.pop(model, None)) is not None:
             self.ended.append((listener, model))
 
 
@@ -532,7 +532,7 @@ async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
     ((listener, model),) = holder.ended
     assert listener is lis
     assert model.key == MessageKey(100)
-    assert holder.handler_waits == {}
+    assert holder.listener_waits == {}
 
 
 async def test_listen_in_a_task_the_handler_spawned_is_not_counted() -> None:
@@ -587,7 +587,7 @@ async def test_listen_refuses_a_duplicate_before_making_room_for_it() -> None:
         await _drain(first)
 
     assert holder.entered == []
-    assert holder.handler_waits == {}
+    assert holder.listener_waits == {}
     assert holder.ended == []
 
 
@@ -1127,6 +1127,40 @@ async def test_resolve_skips_a_lenient_rejection_and_keeps_the_listener_waiting(
         assert await lis.resolve(make_message(100, 7, 5, text="zzz")) is False
         assert not task.done()
         assert MessageKey(100, 7) in lis.listeners
+    finally:
+        await _drain(task)
+
+
+async def test_resolve_notes_a_rejection_and_skips_the_update_offered_again() -> None:
+    lis = _make()
+    calls: list[int] = []
+
+    async def count(_: object, __: object, update: Message) -> bool:
+        calls.append(update.id)
+        return False
+
+    task = await _pending(lis, MessageKey(100, 7), filters=filters.create(count))
+    declined: list[object] = []
+    lis.listeners[MessageKey(100, 7)].on_declined_update = declined.append
+    update = make_message(100, 7, 5)
+    try:
+        assert await lis.resolve(update) is False
+        assert await lis.resolve(update) is False
+        assert calls == [5]
+        assert declined == [update]
+        assert lis.listeners[MessageKey(100, 7)].declined_updates[id(update)] is update
+    finally:
+        await _drain(task)
+
+
+async def test_resolve_skips_a_listener_that_set_the_update_aside() -> None:
+    lis = _make()
+    task = await _pending(lis, MessageKey(100, 7))
+    update = make_message(100, 7, 5)
+    lis.listeners[MessageKey(100, 7)].declined_updates[id(update)] = update
+    try:
+        assert await lis.resolve(update) is False
+        assert not task.done()
     finally:
         await _drain(task)
 

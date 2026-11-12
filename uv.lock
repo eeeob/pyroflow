@@ -77,14 +77,14 @@ wheels = [
 
 [[package]]
 name = "filelock"
-version = "4.2.6"
+version = "4.2.10"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.11'",
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/35/6c/730b340182f1fd74d4ef8d3f35431ce84f8f97b1a1f2afd145174b7bb047/filelock-4.2.6.tar.gz", hash = "sha256:ee7af8ede36dcaf12e1016d9f7c3a63ecd5497d46f85dab21b8c779b8f944e97", size = 661339, upload-time = "2026-10-31T15:10:16.889Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/cf/05bcdacabdc0aec7dc8e19d76281bd82325df62dae3b6430e9ba57397689/filelock-4.2.10.tar.gz", hash = "sha256:fcc3c0cb8bfe7f4b3bb0e231c04b15dbad068cb3c2515f343d8fde4dce93bd5d", size = 670595, upload-time = "2026-11-09T18:58:00.54Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/8d/3f849fcb79359259737bc2d8ddcaee6149ffb773239a260c9ff20179736f/filelock-4.2.6-py3-none-any.whl", hash = "sha256:fd7d4fca497bf3e3d0945a13261f8e684f2aef12ce7cf76aef26e13bf7388b88", size = 164378, upload-time = "2026-10-31T15:10:15.322Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/90/5d0096a325aa0f83ba7a3968bfb485b67e32c947bdf9cd0fcb4b485be718/filelock-4.2.10-py3-none-any.whl", hash = "sha256:9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857", size = 218040, upload-time = "2026-11-09T18:57:59.088Z" },
 ]
 
 [[package]]
@@ -107,15 +107,15 @@ wheels = [
 
 [[package]]
 name = "kurigram"
-version = "2.2.26"
+version = "2.2.27"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyaes" },
     { name = "python-socks", extra = ["asyncio"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c1/48/65efaaaaf24dc62d6f6ef046843952ff17b5358f9c7119303ceee6d53657/kurigram-2.2.26.tar.gz", hash = "sha256:83b64fd7ab37122d920b1e7c0e221b599d7c52dd5d0d24c79956f01273020c49", size = 748176, upload-time = "2026-09-12T17:45:08.406Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/b9/59d958f6383fc7bf79e9af051a861446bfcc887bcee62722fd059028cd32/kurigram-2.2.27.tar.gz", hash = "sha256:f7338a8cce4885b2108a9b20daaf7bf75bea17d6da2fd13f1018fd4adb85b19c", size = 851387, upload-time = "2026-11-09T12:22:50.484Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2b/e0/a00020c21725550c9309e6e03787acf7236de2f284c8d9bc57644ae2160a/kurigram-2.2.26-py3-none-any.whl", hash = "sha256:f53cee6119a579b74620f45b5f83d543cd3bd510a8a6a1b4b3852e21603241e9", size = 6044442, upload-time = "2026-09-12T17:45:06.456Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/2e/02e8196b334c61fb7098240a6ca0a8451eebdecf4337de582a77a0bd9045/kurigram-2.2.27-py3-none-any.whl", hash = "sha256:75aee16496f104c553e3d742c825ea860943ddad180343da95b0273a60a0a90c", size = 6501151, upload-time = "2026-11-09T12:22:48.74Z" },
 ]
 
 [[package]]
@@ -150,14 +150,14 @@ wheels = [
 
 [[package]]
 name = "platformdirs"
-version = "4.14.2"
+version = "4.14.5"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.11'",
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/4e/2684728d9f2c8c4110738dcadca7e0bed4b60c8dc68c40c2a9e0cf017900/platformdirs-4.14.2.tar.gz", hash = "sha256:6d13b4c1d66b7548dcec9e3db13c1ba9d9adb65041b5d07869313afc07e6e41b", size = 70792, upload-time = "2026-10-31T15:10:34.029Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/9a/8475be631fb33ca1466915e70fd594c42a4e84b512db650eaa14f90fe75d/platformdirs-4.14.5.tar.gz", hash = "sha256:32e9921db7385aa8169bee4fe9501923e5715ba9fb7ea3b9c69b0d8e0639f7a1", size = 71464, upload-time = "2026-11-04T16:54:50.358Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/2d/98af31fdcd7c95c7114e2eb7c2eb0fa55d2a012c37ba4eb3722b7272abcb/platformdirs-4.14.2-py3-none-any.whl", hash = "sha256:dc1f93390f2a9265e44e5afc8667ec7faf737739604e39bc538fec889720c36b", size = 35291, upload-time = "2026-10-31T15:10:32.615Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/ae/ecbbbfd0e4343a6a521d49b3c8656fb4643dee2a4f6eaf941cf3280391a8/platformdirs-4.14.5-py3-none-any.whl", hash = "sha256:8e778c6fa421516f4d3369449f8df3b0e1b72c0e0005fe88e3ec772d0a14e750", size = 35402, upload-time = "2026-11-04T16:54:48.875Z" },
 ]
 
 [[package]]
@@ -298,29 +298,29 @@ wheels = [
 
 [[package]]
 name = "pytest-asyncio"
-version = "1.4.1"
+version = "1.4.1.post1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backports-asyncio-runner", marker = "python_full_version < '3.11'" },
     { name = "pytest" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/9a/887535e477847f5159377ab35303923644840b13c0ca03c0a467f84d4680/pytest_asyncio-1.4.1.tar.gz", hash = "sha256:e8266eb094e5ee9ffdb2068c9836f33e209ea77a970eb846933d416b5602669b", size = 145237, upload-time = "2026-10-25T21:05:37.135Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/7f/c60a4338420b33453d4f814ac0c930abd399f162b9bdd21af4b9e363037f/pytest_asyncio-1.4.1.post1.tar.gz", hash = "sha256:f582d9ea4a1c082195abe8bd29a1fe106aeb1cd435e3dad2d3bc2749935c36a2", size = 145360, upload-time = "2026-11-01T18:26:03.732Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/d7/cd9e2708afdbf059658adaf08bdb0792ca52489871051d6ce7d498b51277/pytest_asyncio-1.4.1-py3-none-any.whl", hash = "sha256:507afa78ec77c6661164ef1a2368bc7820383fd1a14b2a7f813de8b5a92949cc", size = 17061, upload-time = "2026-10-25T21:05:35.473Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/de/adbc7578959cfab07e5e7c05cf6d54224a51e7667ea2c07458b6bc571e75/pytest_asyncio-1.4.1.post1-py3-none-any.whl", hash = "sha256:0755e488cc0a2b9bd2eab7292cc6390d4cbb8390f1020745647bae5a708e0165", size = 17140, upload-time = "2026-11-01T18:26:02.168Z" },
 ]
 
 [[package]]
 name = "python-discovery"
-version = "1.9.0"
+version = "1.9.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "filelock", version = "4.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "filelock", version = "4.2.10", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/15/0405206e0cfe0c14b91ac038d31f30d1dd78139b3b2a285e6be41bf6e5af/python_discovery-1.9.0.tar.gz", hash = "sha256:88beb57e51b919c30f303b053ec41359298ca349192035b0a802c76347ae96d7", size = 125151, upload-time = "2026-10-30T23:24:24.91Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/55/70b46fae646bc6f5cb5e82569949d925cff1c7b5ce20ec4a11e0d977f8c6/python_discovery-1.9.5.tar.gz", hash = "sha256:86279f5d2728bc067de28b7ddc571be2eacc2ae0e7048f8629d2481a0f8848a2", size = 141121, upload-time = "2026-11-06T15:32:11.331Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/3c/da1cae963a076132dbc4d3c1f0292dd2f373b9d3e072d42f4620801159c1/python_discovery-1.9.0-py3-none-any.whl", hash = "sha256:fb65edfff3541b7ceb3a39be334a0f69f4cb5148287a053e1874748742fda93b", size = 39841, upload-time = "2026-10-30T23:24:23.452Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/35/25bd092ca8a7e71192afdca67fbff4f797da74408e74ac3626e13b409ec0/python_discovery-1.9.5-py3-none-any.whl", hash = "sha256:a1fae8fca11e4bc61e38491c2aafff29e430b3c5e272d51ae52fb895bc4c0fac", size = 44377, upload-time = "2026-11-06T15:32:09.821Z" },
 ]
 
 [[package]]
@@ -547,19 +547,19 @@ wheels = [
 
 [[package]]
 name = "virtualenv"
-version = "21.15.2"
+version = "21.15.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distlib" },
     { name = "filelock", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "filelock", version = "4.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "filelock", version = "4.2.10", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "packaging" },
     { name = "platformdirs", version = "4.12.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "platformdirs", version = "4.14.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "platformdirs", version = "4.14.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "python-discovery" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/9e/40c7098240cedd3a2f32e42a74b35c4563c617fdd7e41ae6268d4fdd8915/virtualenv-21.15.2.tar.gz", hash = "sha256:dbd886e6e5689eb4dde6a9bbc478ad14b4fc8ed0852690d8273ccfb8c467f635", size = 5520597, upload-time = "2026-10-30T19:18:04.759Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/bd/e40ad2df6a9efc1f859ea23d63fd7371cff68252833f182ca9af819bb4d3/virtualenv-21.15.6.tar.gz", hash = "sha256:c8b65c7d206ca6ef18de9352c160b3f04f66fff9f6b0ec8fd31f14688eba52c4", size = 5641659, upload-time = "2026-11-06T18:17:32.46Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f7/d8/09c9d6df253b2016312dd5ccbb962dfa86a5202f2452604b52e0a9844661/virtualenv-21.15.2-py3-none-any.whl", hash = "sha256:fb8c62c7c328e0238061c721068f06b7bc6bd10f7a0f5987195cef1008837ee6", size = 5559530, upload-time = "2026-10-30T19:18:01.134Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/63/fd514dee3159f74a96ac01beb8f460b65e4ef0b972f63f4fe9f0cd2aa0e3/virtualenv-21.15.6-py3-none-any.whl", hash = "sha256:4b99ab9b95ff11043939bb4cad2fa0449175fa5a478372864f62160cb6c1a7ed", size = 5680963, upload-time = "2026-11-06T18:17:30.128Z" },
 ]

@@ -162,6 +162,56 @@ client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.C
 
 افتراضيًا لا سياسة ولا مهلة، فالسؤال الذي لا يُجاب يمسك الـ worker للأبد: وحين تُفتح `workers` أسئلة كهذه يتوقف البوت عن قراءة الـ updates حتى إعادة التشغيل. فاضبط سياسة أو `listen_timeout` أو كليهما، إلا إذا كانت `workers` أكبر بكثير من أي عدد محادثات مفتوحة. و`setup_pyroflow()` يلغي السياسة. كل الأوضاع تُبقي كل handler تحت قفل الـ worker الخاص به. والعدّ للانتظارات فقط، لا للـ handler الذي يعمل، وللانتظار في الـ handler نفسه فقط: فالانتظار في task أنشأها الـ handler لا يُحسب، حتى لو انتظرها بـ `asyncio.gather` فبقي حاجزًا للـ worker، ولا الانتظار في handler غير async، لأنه يعمل في thread. وهي method وليست معاملًا في `Client(...)`، حتى لا تعيد pyroflow كتابة توقيع الـ constructor الخاص بـ Pyrogram.
 
+### update واحد في كل مرة لكل قفل: CoordinatedDispatcher
+
+رسالتان سريعتان من المستخدم نفسه تشغّلان عادةً handler‑ين في الوقت نفسه، فقد تفوت الثانيةَ السؤالُ الذي يوشك الأول أن يطرحه. `CoordinatedDispatcher` صنف فرعي اختياري من `Dispatcher` يشغّل الـ updates التي تشترك في قفل واحدًا بعد الآخر. ثبّته مباشرة بعد إنشاء الـ client:
+
+```python
+from pyroflow import Client, CoordinatedDispatcher
+
+client = Client("bot")
+
+
+def chat_key(update):
+    chat = getattr(update, "chat", None)
+    return None if chat is None else chat.id  # None: the update runs free
+
+
+key_functions = [chat_key]                    # one lock per chat
+key_functions = [lambda update: update.text]  # your own key
+
+# Your own decision is a constant key: everything it picks shares one lock.
+key_functions = [lambda update: "payments" if is_payment(update) else None]
+# Chats 1 and 2 share one lock, and every other chat has its own.
+key_functions = [lambda update: "vip" if chat_key(update) in (1, 2) else None, chat_key]
+
+client.dispatcher = CoordinatedDispatcher(client, key_functions=key_functions)
+```
+
+هو كيان مستقل يبدأ فارغًا: لا يُنقل إليه شيء من الـ dispatcher الذي يحل محله. **ثبّته قبل أي handler أو listener أو استدعاء `setup_pyroflow`**، لأن ما سُجّل قبله يبقى على الـ dispatcher القديم ولا يعمل أبدًا. ولا تثبّته من `on_start` أو بعد بدء الـ client: سيستمر الـ client في قراءة الـ dispatcher القديم، بلا أي خطأ. و`Dispatcher` الخاص بـ pyroflow لا يتغير أبدًا: بدونه لا يوجد تنسيق.
+
+- **دوال المفاتيح.** تستخرج المفتاح فقط، والـ dispatcher ينسق المفاتيح. أول دالة تعطي مفتاحًا هي المعتمدة، و`None` ينقل الـ update للدالة التالية، ومفاتيح الدوال المختلفة لا تختلط. ولقرار خاص بك أعد مفتاحًا ثابتًا لما يختاره. والـ update الذي لا تعطيه أي دالة مفتاحًا يعمل حرًا، فمنشورات القنوات بلا مستخدم، والـ inline query بلا شات. دوال المفاتيح متزامنة وتستلم الـ update المُحلَّل، والخطأ أو المفتاح غير الـ hashable يُسجَّل وينتقل الـ update للدالة التالية.
+- **الترتيب.** تحلّل الـ task التي تقرأ طابور Pyrogram كل update بدوره، وتضعه خلف ما سبقه من updates مفتاحه، فيُحسب المفتاح بعد التحليل ولا يسبق update لاحق ما قبله. ولا تُنشأ task لكل update، ويصل الرد ولو كانت كل الـ workers تنتظر. والـ parser البطيء يؤخر ما بعده.
+- **الحجز.** عند دور الـ update يُعرض أولًا على الانتظارات. وإن لم يأخذه أحد، تعمل handlers مع filters تحت قفل الـ worker، فترى filters ما تركه الـ update السابق للمفتاح. ويحجز الـ handler المفتاح حتى ينتهي، حتى أثناء انتظاره في `ask`.
+- **الطابور.** الـ update لمفتاح محجوز ينضم إلى طابور المفتاح ولا يأخذ worker، فالمستخدم الذي يرسل 12 رسالة لا يوقف غيره.
+- **العدالة.** بعد كل update يذهب مفتاحه خلف المفاتيح الأخرى الجاهزة، فلا يبقي الإغراق المستخدمين الآخرين منتظرين.
+- **الردود.** أثناء عمل الـ handler، تعرض task واحدة مشتركة بين كل المفاتيح الطابور على الانتظارات بالترتيب: كل update عند وصوله، والطابور كله من جديد كلما بدأ الـ handler انتظارًا. ما يأخذه انتظار يخرج من الطابور. وما يرفضه انتظار للـ handler يبقى في مكانه، ولا يُعرض على انتظارات ذلك الـ handler اللاحقة، وتبقى الانتظارات الأخرى تراه: فهو ليس ردًا كما في الـ dispatcher العادي، ويعمل بالـ handlers في دوره، ولا يُرفض الـ handler الذي يعيد السؤال بـ `listen_strict=True` بنفس الـ update إلى الأبد. يعمل filter الانتظار مرة واحدة لكل update مهما تكرر عرضه. والانتظار الذي يبدأ أثناء عرض update يأخذ الأقدم أولًا. ولا يلزم worker حر لذلك.
+- **الانتظارات الأخرى.** الـ task التي يطلقها الـ handler تُحسب منه ما دام يعمل، فانتظاراتها انتظاراته. وحين ينتهي الـ handler يتحرك المفتاح بدون الـ task، فانتظرها بـ `await` داخل الـ handler ليبقى المفتاح محجوزًا. وأي انتظار آخر، كانتظار handler حر، أو handler لمفتاح آخر، أو task انتهى الـ handler الذي أطلقها، يصله الـ update من الطابور بنفس الطريقة، لكن الـ update الذي عُرض قبل بدء الانتظار قد لا يصله إلا في دوره. وإذا طابق update عدة انتظارات يحسم الـ listener كالعادة، بترتيب الأشكال و`resolve_scope`، ولا أولوية للـ handler الذي يحجز المفتاح.
+- **بعد الـ handler.** يُنشر الـ update التالي للمفتاح: يُعرض على الانتظارات مرة أخرى، ثم تعمل handlers. ويُحرَّر المفتاح عند فراغ الطابور، ولا يترك أي حالة.
+- **الإيقاف.** `stop` ينهي الانتظارات المفتوحة، ثم يعمل كل update قُرئ قبل خروج الـ workers، وتُرفض انتظاراته بـ `ListenerCancelled`.
+
+اعرف هذه النقاط قبل تفعيله:
+
+- **الانتظار بلا timeout يجمّد مفتاحه نهائيًا.** يبقى المفتاح محجوزًا أثناء الانتظار، فلا يعمل شيء آخر لذلك المفتاح، وhandler لأمر `/cancel` عادي هو مجرد update في الطابور: لن يعمل. مرّر `listen_timeout`. وإذا فشل أمر في `strict_filter` الخاص بالـ listener فإنه ينهي الانتظار أيضًا ويصل الأمر إلى الـ handlers بعد انتهاء الـ handler، لكن هذا يخص الانتظار بلا `listen_filters` فقط: الانتظار بـ filter خاص يحتاج `listen_strict=True` أو timeout.
+- قد تنهي رسالة في الطابور انتظارًا strict لاحقًا عند عرضها عليه، لأن `strict` ينهي الانتظار عند أي update مرفوض لمفتاحه.
+- يبدأ الترتيب من لحظة خروج الـ update من طابور Pyrogram، لا من لحظة إرسال Telegram له. ولا ترتيب بين updates أقفال مختلفة.
+- التحليل الذي لا ينتهي يؤخر كل update خلفه، وfilter انتظار لا يعود يؤخر عرض الردود لكل المفاتيح حتى `stop`، بينما تستمر قراءة الـ updates وتشغيل الـ handlers.
+- الانتظار خارج handler المفتاح (انتظار handler آخر) يرى update من طابور المفتاح عند عرضه التالي، أو عند دوره. والانتظار المفتوح من `ErrorHandler` متزامن أو `threading.Thread` عادي أو `run_in_executor` يكون خارج الحجز: فهذه لا تحمل context الـ handler.
+- الطوابير بلا حد، ولا يُحذف شيء. والمفتاح الذي يتلقى أكثر مما يعالجه الـ handler يكبر فقط.
+- `add_handler` و`remove_handler` ما زالا ينتظران قفل كل worker، فاستدعاؤهما أثناء انتظار مفتوح يوقف الـ workers الحرة حتى ينتهي.
+- التنسيق يعيش في هذه العملية، مثل الـ listeners: لا تنسيق بين sessions.
+
+
 ---
 
 ### ask() وask_callback_query()

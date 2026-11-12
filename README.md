@@ -150,6 +150,56 @@ client = Client("bot", workers=12).setup_pyroflow(workers_policy=WorkersPolicy.C
 
 By default there is no policy and no timeout, so a question nobody answers holds its worker for good: once `workers` such questions are open, the bot reads no more updates until it restarts. Set a policy, a `listen_timeout`, or both, unless `workers` is far above any number of open conversations. `setup_pyroflow()` removes a policy. Every mode keeps each handler under its worker's lock. Only waits are counted, not a handler that is simply working, and only a wait in the handler itself: one in a task the handler spawned is not counted, even if the handler awaits that task with `asyncio.gather` and so holds its worker, and neither is one in a sync handler, which runs in a thread. It is a method, not a `Client(...)` argument, so pyroflow does not have to redeclare Pyrogram's constructor.
 
+### One update at a time per lock: CoordinatedDispatcher
+
+Two rapid messages from one user normally run two handlers at once, and the second can miss the question the first is about to ask. `CoordinatedDispatcher`, an opt-in `Dispatcher` subclass, runs the updates that share a lock one at a time. Install it right after creating the client:
+
+```python
+from pyroflow import Client, CoordinatedDispatcher
+
+client = Client("bot")
+
+
+def chat_key(update):
+    chat = getattr(update, "chat", None)
+    return None if chat is None else chat.id  # None: the update runs free
+
+
+key_functions = [chat_key]                    # one lock per chat
+key_functions = [lambda update: update.text]  # your own key
+
+# Your own decision is a constant key: everything it picks shares one lock.
+key_functions = [lambda update: "payments" if is_payment(update) else None]
+# Chats 1 and 2 share one lock, and every other chat has its own.
+key_functions = [lambda update: "vip" if chat_key(update) in (1, 2) else None, chat_key]
+
+client.dispatcher = CoordinatedDispatcher(client, key_functions=key_functions)
+```
+
+It stands alone and starts empty: nothing is carried over from the dispatcher it replaces. **Install it before any handler, listener or `setup_pyroflow` call**, as what was registered earlier stays on the old dispatcher and never runs, and do not install it from `on_start` or once the client has started: the client would keep reading the old dispatcher, and no error is raised. Pyroflow's own `Dispatcher` is never changed: without it, nothing is coordinated.
+
+- **Key functions.** They only extract a key, and the dispatcher coordinates the keys. The first function to give a key decides, `None` passes the update to the next, and keys of different functions never mix. For a decision of your own, return a constant key for what it picks. An update no function gives a key runs free, so channel posts have no user, and an inline query has no chat. Key functions are sync and get the parsed update; an error or an unhashable key is logged and the update goes to the next function.
+- **Order.** The task that reads Pyrogram's queue parses each update in turn and places it behind the earlier updates of its key, so the keys are computed after parsing and no update overtakes an earlier one. No task is created per update, and a reply still arrives while every worker waits. A slow parser holds back the updates behind it.
+- **The hold.** An update whose turn comes is offered to the waits first. If none takes it, its handlers run under the worker's lock, filters included, so filters see what the previous update of the key left behind. The handler holds the key until it ends, including while it waits in `ask`.
+- **The queue.** An update of a held key joins the key's queue and takes no worker, so a user who sends 12 messages does not stop other users.
+- **Fairness.** After each update its key goes behind the other keys that are ready, so a flood does not keep other users waiting.
+- **Replies.** While the handler runs, one task shared by all the keys offers the queue to the waits in order: each update as it arrives, and the whole queue again each time the handler starts a wait. What a wait takes leaves the queue. What a wait of the handler declines keeps its place, and goes to no later wait of that handler, though other waits still get it: as with the plain dispatcher, it is not a reply and runs its handlers in its turn, and a handler that asks again with `listen_strict=True` is not refused the same update forever. A wait's filter runs once per update, however often the update is offered. A wait that starts while an update is on offer gets the older ones first. No free worker is needed for this.
+- **Other waits.** A task the handler spawns counts as the handler while the handler runs, so its waits are the handler's. Once the handler ends, the key moves on without the task, so `await` the task in the handler to keep the key held. Any other wait, such as one in a free handler, in a handler of another key, or in a task whose handler ended, gets queued updates the same way, but an update offered before the wait started may reach it only in its turn. When several waits match an update, the listener decides as usual, by shape order and `resolve_scope`: the handler holding the key has no priority.
+- **After the handler.** The next update of the key is posted: it is offered to the waits once more, then runs its handlers. The key is freed when the queue empties, and leaves no state.
+- **Stopping.** `stop` ends the open waits, then every update already read still runs before the workers exit, with its own waits refused with `ListenerCancelled`.
+
+Know these before you turn it on:
+
+- **A wait with no timeout freezes its key for good.** The key stays held during the wait, so nothing else of that key runs, and a plain `/cancel` handler is just another queued update: it never runs. Pass `listen_timeout`. A listener's `strict_filter` that a command fails also ends the wait, and the command reaches the handlers once the handler ends, but it only covers a wait with no `listen_filters`: a wait with its own filter needs `listen_strict=True` or a timeout.
+- A queued message can end a later strict wait when it is offered to it, as `strict` ends a wait on any rejected update of its key.
+- Order holds from the moment an update leaves Pyrogram's queue, not from when Telegram sent it. Updates of different locks have no order between them.
+- A parse that never ends delays every update behind it, and a wait filter that never returns delays the offers of every key until `stop`. Reading updates and running handlers go on.
+- A wait outside the key's handler (another handler's) sees a queued update of the key when the update is next offered, or when its turn comes. A wait opened from a sync `ErrorHandler`, a plain `threading.Thread` or `run_in_executor` is outside the hold: they do not carry the handler's context.
+- The queues have no limit, and nothing is dropped. A key that gets more than its handler can process only grows.
+- `add_handler` and `remove_handler` still wait for every worker's lock, so calling them during an open wait stops the free workers until it ends.
+- The coordination lives in this process, like the listeners: it does not coordinate between sessions.
+
+
 ---
 
 ### ask() and ask_callback_query()

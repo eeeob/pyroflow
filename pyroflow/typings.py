@@ -2,6 +2,7 @@
 
 from __future__ import annotations as _annotations
 
+from collections.abc import Hashable
 from typing import (
     TYPE_CHECKING,
     TypeVar,
@@ -36,10 +37,15 @@ BotCommandGroupKeyT: TypeAlias = tuple[str | None, BotCommandScope | None]
 """The key a collected command group is filed under by `BotCommandsMixin`."""
 
 
+CoordinationKeyT: TypeAlias = Hashable
+"""What a `CoordinatedDispatcher` groups updates by: any hashable value."""
+
+
 __all__ = (
     "UpdateType",
     "KeyT",
     "BotCommandEntryT",
     "BotCommandPartsT",
     "BotCommandGroupKeyT",
+    "CoordinationKeyT",
 )

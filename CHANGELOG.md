@@ -10,6 +10,21 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
+- `CoordinatedDispatcher`: opt-in, one update at a time per lock.
+  `client.dispatcher = CoordinatedDispatcher(client, key_functions=[...])`.
+  Key functions extract the key of
+  each update, and a constant key groups what a decision of yours picks.
+  Updates are parsed
+  one at a time, in arrival order. A handler holds its key
+  until it ends, including while it waits; other updates of the key reach
+  its waits in order and run after it. It starts empty, so install it right
+  after creating the client, before registering anything. A wait with no
+  timeout freezes its key for good, so bound it with `listen_timeout`.
+  `pyroflow.Dispatcher` is unchanged. Also adds
+  `pyroflow.typings.CoordinationKeyT`, and `ListenerModel.declined_updates`,
+  `on_declined_update` and `decline`: a wait's filter now
+  runs once per update, so an update offered again skips the waits whose
+  filter already failed it.
 - `Client.listen_message` and `Client.listen_callback_query`: wait on the
   listener registered for `Message` or `CallbackQuery`, with the fields of
   its key and the wait arguments; `RuntimeError` when none is registered.

@@ -1,4 +1,4 @@
-"""Data models for listeners: the keys a wait is filed under, its context and its model."""
+"""Data models: the keys a wait is filed under, its context and its model, and the rules of a lock."""
 
 from .listener_key import *
 from .listener_model import *

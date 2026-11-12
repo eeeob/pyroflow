@@ -98,7 +98,7 @@ def _check_update_type(cls: type) -> None:
         raise TypeError(msg)
 
 
-def get_update_executor(update: object) -> ThreadPoolExecutor | None:
+def get_update_executor(update: PyroUpdate) -> ThreadPoolExecutor | None:
     """Return the executor of the client bound to `update`.
 
     Args:
@@ -109,7 +109,8 @@ def get_update_executor(update: object) -> ThreadPoolExecutor | None:
         or the client has no executor.
 
     Example:
-        >>> get_update_executor(object()) is None
+        >>> from pyrogram.types import Message
+        >>> get_update_executor(Message(id=1)) is None
         True
     """
     return getattr(getattr(update, "_client", None), "executor", None)

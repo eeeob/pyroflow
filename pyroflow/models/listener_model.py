@@ -4,12 +4,14 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import logging
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Generic, TYPE_CHECKING
 
 from pyrogram.filters import Filter
+from pyrogram.types import Update as PyroUpdate
 
 from ..typings import KeyT
 
@@ -74,6 +76,12 @@ class ListenerModel(Generic[KeyT]):
     """Whether an update that matches the key but fails `filters` ends the wait."""
     done_callbacks: list[Callable[[ListenerModel[KeyT]], object]] = field(default_factory=list)
     """Called with the model, in order, as soon as it is marked done."""
+    declined_updates: weakref.WeakValueDictionary[int, PyroUpdate] = field(
+        default_factory=weakref.WeakValueDictionary
+    )
+    """The updates `resolve` skips for this wait, by `id`, mostly those that failed `filters`; weak."""
+    on_declined_update: Callable[[PyroUpdate], object] | None = None
+    """Called by `decline` with the update; set by the `CoordinatedDispatcher` of the wait."""
 
     def add_done_callback(self, fn: Callable[[ListenerModel[KeyT]], object]) -> None:
         """Call `fn(self)` as soon as the listener is done; at once if it already is.
@@ -97,10 +105,36 @@ class ListenerModel(Generic[KeyT]):
         else:
             self.done_callbacks.append(fn)
 
-    def resolve(self, update: object) -> None:
+    def resolve(self, update: PyroUpdate) -> None:
         """Complete the listener's future with `update`, then run `done_callbacks`."""
         self.future.set_result(update)
         self.run_done_callbacks()
+
+    def decline(self, update: PyroUpdate) -> None:
+        """Note that `update` failed `filters`, so it is not filtered again, and call `on_declined_update`.
+
+        Args:
+            update: The update that failed; one that cannot be weakly
+                referenced is not noted.
+
+        Example:
+            >>> from pyroflow.models import ListenerKey
+            >>> from pyrogram.types import Message
+            >>> async def main():
+            ...     listener = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+            ...     update = Message(id=1)
+            ...     listener.decline(update)
+            ...     return id(update) in listener.declined_updates
+            >>> asyncio.run(main())
+            True
+        """
+        try:
+            self.declined_updates[id(update)] = update
+        except TypeError:  # not weakly referenceable
+            pass
+
+        if self.on_declined_update is not None:
+            self.on_declined_update(update)
 
     def set_exc(self, exc: Exception) -> None:
         """Fail the listener's future with `exc`, then run `done_callbacks`."""

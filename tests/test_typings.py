@@ -2,6 +2,8 @@
 
 from __future__ import annotations as _annotations
 
+from collections.abc import Hashable
+
 from typing import ForwardRef, get_args, get_origin
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
@@ -37,6 +39,10 @@ def test_bot_command_parts_and_group_key() -> None:
     assert get_args(BotCommandGroupKeyT) == (str | None, BotCommandScope | None)
 
 
+def test_coordination_key_is_any_hashable_value() -> None:
+    assert pyroflow.typings.CoordinationKeyT is Hashable
+
+
 def test_typings_all() -> None:
     assert set(pyroflow.typings.__all__) == {
         "UpdateType",
@@ -44,4 +50,5 @@ def test_typings_all() -> None:
         "BotCommandEntryT",
         "BotCommandPartsT",
         "BotCommandGroupKeyT",
+        "CoordinationKeyT",
     }

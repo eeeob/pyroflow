@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import asyncio
+import gc
 
 import pytest
 
@@ -142,6 +143,33 @@ async def test_listener_model_defaults() -> None:
     assert model.filters is None
     assert model.strict is False
     assert model.done_callbacks == []
+    assert dict(model.declined_updates) == {}
+    assert model.on_declined_update is None
+
+
+async def test_listener_model_decline_notes_the_update_weakly_and_calls_on_decline() -> None:
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
+    calls: list[object] = []
+    model.on_declined_update = calls.append
+    update = ListenerContext()
+
+    model.decline(update)
+
+    assert model.declined_updates[id(update)] is update
+    assert calls == [update]
+
+    del update, calls[:]
+    gc.collect()
+
+    assert dict(model.declined_updates) == {}
+
+
+async def test_listener_model_decline_skips_noting_an_update_it_cannot_reference_weakly() -> None:
+    model = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
+
+    model.decline("text")
+
+    assert dict(model.declined_updates) == {}
 
 
 # --- ListenerContext ----------------------------------------------------------------
