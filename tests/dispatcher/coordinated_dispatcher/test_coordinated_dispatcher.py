@@ -130,6 +130,8 @@ class _Bot:
         self.dispatcher.update_parsers[_Packet] = self.parse
         self.handled: list[int] = []
         self.replies: list[int] = []
+        self.pending: list[_Packet] = []
+        """Updates sent before the start; `start` would drop them, so `_running` sends them after."""
 
     @staticmethod
     async def parse(update: _Packet, users: object, chats: object) -> tuple[object, type]:
@@ -139,7 +141,10 @@ class _Bot:
         self.client.add_handler(MessageHandler(callback, flt), group)
 
     def send_update(self, parsed: object, handler_type: type = MessageHandler) -> None:
-        self.dispatcher.updates_queue.put_nowait((_Packet(parsed, handler_type), {}, {}))  # ty: ignore[invalid-argument-type]
+        if self.dispatcher.is_started:
+            self.dispatcher.enqueue(_Packet(parsed, handler_type), users={}, chats={})  # ty: ignore[invalid-argument-type]
+        else:
+            self.pending.append(_Packet(parsed, handler_type))
 
     def send(self, *ids: int, user: int = USER) -> None:
         for message_id in ids:
@@ -171,6 +176,10 @@ class _Bot:
 @asynccontextmanager
 async def _running(bot: _Bot) -> AsyncIterator[_Bot]:
     await bot.dispatcher.start()
+    # Sent before any worker runs, so they wait as a backlog.
+    for packet in bot.pending:
+        bot.dispatcher.enqueue(packet, users={}, chats={})  # ty: ignore[invalid-argument-type]
+    bot.pending.clear()
     try:
         yield bot
     finally:
@@ -392,14 +401,13 @@ async def test_rapid_messages_cost_no_workers_while_another_user_is_served() -> 
     assert bot.handled == list(range(1, 13))
 
 
-async def test_a_queued_update_runs_in_a_worker_under_that_worker_lock() -> None:
+async def test_a_queued_update_runs_in_a_worker() -> None:
     bot = _Bot()
-    inside: list[tuple[bool, int]] = []
+    inside: list[bool] = []
 
     async def probe(_: object, message: Message) -> None:
         holder = _HANDLER_WORKER.get()
-        locks = sum(lock.locked() for lock in bot.dispatcher.locks_list)
-        inside.append((holder is not None and holder[1] is asyncio.current_task(), locks))
+        inside.append(holder is not None and holder[1] is asyncio.current_task())
         await asyncio.sleep(0.01)
 
     bot.on(probe)
@@ -408,7 +416,7 @@ async def test_a_queued_update_runs_in_a_worker_under_that_worker_lock() -> None
         await _until(lambda: len(inside) == 3)
         await bot.settle()
 
-    assert inside == [(True, 1)] * 3
+    assert inside == [True] * 3
 
 
 async def test_add_handler_gets_in_between_two_queued_updates() -> None:
@@ -423,7 +431,6 @@ async def test_add_handler_gets_in_between_two_queued_updates() -> None:
         if message.id == 1:
             await _until(lambda: bot.queued() == [2, 3])
             bot.on(record, group=1)
-            await asyncio.sleep(0.01)  # `add_handler` now waits for this worker's lock
 
     bot.on(first)
     async with _running(bot):
@@ -1375,10 +1382,10 @@ async def test_listen_returns_a_queued_reply_with_the_handler_still_running() ->
     assert bot.handled == [2]
 
 
-# --- Pyrogram's propagation rules under a lock -------------------------------
+# --- Pyrogram's propagation rules -------------------------------------------
 
 
-async def test_continue_propagation_stays_under_the_lock() -> None:
+async def test_continue_propagation_goes_on_to_the_next_handler() -> None:
     bot = _Bot()
     seen: list[str] = []
 

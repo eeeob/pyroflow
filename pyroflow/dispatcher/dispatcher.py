@@ -48,9 +48,8 @@ class Dispatcher(PyroDispatcher):
 
     Patched onto `pyrogram.dispatcher.Dispatcher` in place, so every client uses
     it. A worker offers each parsed update to the listener registered for its
-    type first, without the worker's lock; if the listener takes it, no
-    handler runs. Otherwise `handle_update` runs the first matching handler
-    of each group under the lock.
+    type first; if the listener takes it, no handler runs. Otherwise
+    `handle_update` runs the first matching handler of each group.
     """
 
     client: Client
@@ -254,7 +253,8 @@ class Dispatcher(PyroDispatcher):
 
                 if isinstance(handler, handler_type):
                     try:
-                        if await handler.check(self.client, parsed_update):
+                        # Passed as is, as kurigram does; the cast only matches its typing.
+                        if await handler.check(self.client, cast("PyroUpdate", parsed_update)):
                             args = (parsed_update,)
                     except Exception:
                         log.exception("Error in handler.check for handler %r", handler)
@@ -284,16 +284,12 @@ class Dispatcher(PyroDispatcher):
 
                 break
 
-    async def handler_worker(self, lock: asyncio.Lock) -> None:
+    async def handler_worker(self) -> None:
         """Parse and dispatch updates from the queue until a `None` sentinel arrives.
 
-        A parsed update goes to `handle_listen` first, without the lock, so a
-        listener resolves it whatever the handlers are doing. Errors are
-        logged, never raised, so the worker keeps running.
-
-        Args:
-            lock: This worker's own lock; each update the listener does not
-                take is handled while holding it.
+        A parsed update goes to `handle_listen` first, so a listener resolves
+        it before any handler sees it. Errors are logged, never raised, so the
+        worker keeps running.
         """
         # Always called from a task.
         token = _HANDLER_WORKER.set((self, cast("asyncio.Task[None]", asyncio.current_task())))
@@ -318,8 +314,7 @@ class Dispatcher(PyroDispatcher):
                     if parsed_update is not None and await self.handle_listen(parsed_update):
                         continue
 
-                    async with lock:
-                        await self.handle_update(packet, parsed_update, handler_type)
+                    await self.handle_update(packet, parsed_update, handler_type)
                 except StopPropagation:
                     pass
                 except Exception:

@@ -890,7 +890,6 @@ async def dispatch(listener: MessageListener, msg: Message) -> list[Message]:
 
     dispatcher = Dispatcher(
         SimpleNamespace(
-            loop=asyncio.get_running_loop(),
             workers=0,
             executor=None,
             start_handler=None,
@@ -905,7 +904,7 @@ async def dispatch(listener: MessageListener, msg: Message) -> list[Message]:
     dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
     dispatcher.updates_queue.put_nowait(None)
 
-    await asyncio.wait_for(dispatcher.handler_worker(asyncio.Lock()), 1)
+    await asyncio.wait_for(dispatcher.handler_worker(), 1)
 
     return handled
 

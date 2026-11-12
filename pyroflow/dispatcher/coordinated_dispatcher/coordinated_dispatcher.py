@@ -74,8 +74,8 @@ class CoordinatedDispatcher(Dispatcher):
     One task reads `updates_queue`, parses each update in turn and places it
     in its lane, so a reply still reaches its wait while every worker waits.
     The workers take what `worker_instructions` holds: they offer an update
-    to the listeners, and then run its handlers under the worker's lock. A
-    handler holds its lane until it ends, its waits included. While it runs,
+    to the listeners, and then run its handlers. A handler holds its lane
+    until it ends, its waits included. While it runs,
     one offer pass task shared by all the lanes offers the lane's
     `waiting_updates` to the waits, so no worker is needed for a reply.
 
@@ -185,8 +185,8 @@ class CoordinatedDispatcher(Dispatcher):
         await super().start(*args, **kw)
 
         if reads_updates:
-            self.reader_task = self.client.loop.create_task(self._read_updates(workers))
-            self.offer_pass_task = self.client.loop.create_task(self._run_offer_passes())
+            self.reader_task = asyncio.create_task(self._read_updates(workers))
+            self.offer_pass_task = asyncio.create_task(self._run_offer_passes())
 
     async def stop(self, *args: object, **kw: object) -> None:
         """Stop as usual, then wait for the reader and the offers, so `start` can follow at once.
@@ -204,12 +204,8 @@ class CoordinatedDispatcher(Dispatcher):
 
         self.reader_task = self.offer_pass_task = None
 
-    async def handler_worker(self, lock: asyncio.Lock) -> None:
-        """Carry out what `worker_instructions` holds until it tells this worker to stop.
-
-        Args:
-            lock: This worker's own lock; each update's handlers run while holding it.
-        """
+    async def handler_worker(self) -> None:
+        """Carry out what `worker_instructions` holds until it tells this worker to stop."""
         # Always called from a task.
         worker_token = _HANDLER_WORKER.set(
             (self, cast("asyncio.Task[None]", asyncio.current_task()))
@@ -240,12 +236,11 @@ class CoordinatedDispatcher(Dispatcher):
                         handler_hold_token = _HANDLER_HOLD.set((self, lane.handler_hold))
                         lane.handler_hold.request_offer_pass(self.offer_pass_requests)
 
-                    async with lock:
-                        await self.handle_update(
-                            instruction.raw_update,
-                            instruction.parsed_update,
-                            instruction.handler_type,
-                        )
+                    await self.handle_update(
+                        instruction.raw_update,
+                        instruction.parsed_update,
+                        instruction.handler_type,
+                    )
                 except StopPropagation:
                     pass
                 except Exception:

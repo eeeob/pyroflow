@@ -106,6 +106,8 @@ class AskRichSendKw(TypedDict, total=False):
     """Reply options."""
     protect_content: bool | None
     """Protect the message from forwarding and saving."""
+    business_connection_id: str | None
+    """Business connection to send through."""
     allow_paid_broadcast: bool | None
     """Allow a paid broadcast."""
     suggested_post_parameters: pyro_types.SuggestedPostParameters | None

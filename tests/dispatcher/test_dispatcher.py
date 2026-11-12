@@ -98,7 +98,6 @@ class FakeListener:
 
 
 def make_client(**kw: Any) -> SimpleNamespace:
-    kw.setdefault("loop", asyncio.get_running_loop())
     kw.setdefault("workers", 0)
     return SimpleNamespace(
         executor=None,
@@ -520,9 +519,8 @@ class FakeRawUpdate:
     pass
 
 
-async def test_handler_worker_parses_and_dispatches_under_the_lock() -> None:
+async def test_handler_worker_parses_and_dispatches() -> None:
     dispatcher = make_real_dispatcher()
-    lock = asyncio.Lock()
     packet = (FakeRawUpdate(), {}, {})
     seen: list[tuple[object, ...]] = []
 
@@ -530,22 +528,20 @@ async def test_handler_worker_parses_and_dispatches_under_the_lock() -> None:
         return ("parsed", MessageHandler)
 
     async def handle_update(packet: object, parsed: object, handler_type: object) -> None:
-        seen.append((packet, parsed, handler_type, lock.locked()))
+        seen.append((packet, parsed, handler_type))
 
     dispatcher.update_parsers = {FakeRawUpdate: parser}
     dispatcher.handle_update = handle_update
     dispatcher.updates_queue.put_nowait(packet)
     dispatcher.updates_queue.put_nowait(None)
 
-    await dispatcher.handler_worker(lock)
+    await dispatcher.handler_worker()
 
-    assert seen == [(packet, "parsed", MessageHandler, True)]
-    assert lock.locked() is False
+    assert seen == [(packet, "parsed", MessageHandler)]
 
 
-async def test_handler_worker_resolves_a_listened_update_without_the_lock() -> None:
+async def test_handler_worker_resolves_a_listened_update_before_the_handlers() -> None:
     dispatcher = make_real_dispatcher()
-    lock = asyncio.Lock()
     listener = FakeListener()
     dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
     msg = make_message()
@@ -562,8 +558,7 @@ async def test_handler_worker_resolves_a_listened_update_without_the_lock() -> N
     dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
     dispatcher.updates_queue.put_nowait(None)
 
-    async with lock:  # Another holder: resolving must not wait for it.
-        await asyncio.wait_for(dispatcher.handler_worker(lock), 1)
+    await asyncio.wait_for(dispatcher.handler_worker(), 1)
 
     assert listener.resolved == [msg]
     assert handled == []
@@ -577,7 +572,7 @@ async def test_handler_worker_offers_no_unparsed_update_to_the_listener() -> Non
     dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
     dispatcher.updates_queue.put_nowait(None)
 
-    await dispatcher.handler_worker(asyncio.Lock())
+    await dispatcher.handler_worker()
 
     assert listener.resolved == []
 
@@ -595,7 +590,7 @@ async def test_handler_worker_passes_unknown_updates_unparsed() -> None:
     dispatcher.updates_queue.put_nowait(packet)
     dispatcher.updates_queue.put_nowait(None)
 
-    await dispatcher.handler_worker(asyncio.Lock())
+    await dispatcher.handler_worker()
 
     assert seen == [(packet, None, type(None))]
 
@@ -625,7 +620,7 @@ async def test_handler_worker_keeps_running_after_errors(caplog: pytest.LogCaptu
     dispatcher.updates_queue.put_nowait(("after-sentinel", {}, {}))
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher.dispatcher"):
-        await dispatcher.handler_worker(asyncio.Lock())
+        await dispatcher.handler_worker()
 
     assert handled == ["stop", "boom", "ok"]
     assert caplog.text.count("Unexpected error in handler_worker") == 2
@@ -654,7 +649,7 @@ async def test_a_listened_reply_skips_the_handlers_and_the_next_one_reaches_them
         dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
     dispatcher.updates_queue.put_nowait(None)
 
-    await dispatcher.handler_worker(asyncio.Lock())
+    await dispatcher.handler_worker()
 
     assert await waiter is reply
     assert calls == [("handler", later)]
@@ -904,10 +899,11 @@ async def test_every_worker_counts_itself_before_any_takes_an_update() -> None:
         return None, type(None)
 
     dispatcher.update_parsers = {FakeRawUpdate: parser}
-    dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
 
     await dispatcher.start()
     try:
+        # Queued before any worker runs; `start` drops what comes before it.
+        dispatcher.enqueue(FakeRawUpdate(), users={}, chats={})  # ty: ignore[invalid-argument-type]
         await _until(lambda: seen != [])
     finally:
         await dispatcher.stop()
@@ -1110,7 +1106,7 @@ async def test_handler_worker_marks_the_worker_for_listen_and_clears_it_after() 
     dispatcher.updates_queue.put_nowait(("raw", {}, {}))
     dispatcher.updates_queue.put_nowait(None)
 
-    await dispatcher.handler_worker(asyncio.Lock())
+    await dispatcher.handler_worker()
 
     assert seen == [(dispatcher, asyncio.current_task())]
     assert _HANDLER_WORKER.get() is None

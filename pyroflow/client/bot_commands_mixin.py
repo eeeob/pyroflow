@@ -15,7 +15,6 @@ from pytrove import (
     gather_abort,
     clean_none_kw,
     safe_await,
-    yield_control,
 )
 
 from ..utils import split_bot_command_entry, mark_bot_commands
@@ -126,18 +125,10 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         Each group is sent with `set_bot_commands`, and a group sent before
         that no handler declares any more is deleted with
         `delete_bot_commands`. Called by `initialize`, which `start` runs.
-
-        It never waits on the dispatcher's locks, so it is safe to call from a
-        handler. Pyrogram places a handler in a task that waits for every
-        running handler to finish, so one added while handlers run (such as
-        from inside a handler) may not be counted yet; push again once it is.
+        It is safe to call from a handler, and counts a handler added just
+        before it.
         """
         async with self.bot_command_groups_lock:
-            # Pyrogram registers in a task; one loop turn lets every registration not
-            # blocked by a running handler land. The worker locks are not awaited: they
-            # are held for a whole handler (including an `ask_*` method), so waiting on them could
-            # take forever, and would never end when called from inside a handler.
-            await yield_control()
             groups = self._declared_bot_command_groups()
             keys = [key for key, _ in groups]
             stale = [key for key, _ in self.bot_command_groups if key not in keys]

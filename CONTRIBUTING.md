@@ -112,7 +112,7 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **2.1 Patch, don't subclass.** Methods added to Pyrogram types (`Client`, `Message`, `User`, ...) go inside the class decorated with `@patch_cls`, never in a subclass, so users keep using Pyrogram's own classes.
 
-**2.2 Override signatures.** Pyrogram overrides (`Dispatcher.handler_worker(self, lock)`, `start`, `stop`) keep kurigram's signatures. Change one only after checking it against the installed `kurigram`.
+**2.2 Override signatures.** Pyrogram overrides (`Dispatcher.handler_worker(self)`, `start`, `stop`) keep kurigram's signatures. Change one only after checking it against the installed `kurigram`.
 
 **2.3 A new update type gets its listener.** Support for it is an `XListener` bound to the type with `__update_type__`.
 

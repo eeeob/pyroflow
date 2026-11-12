@@ -10,7 +10,7 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
-- `CoordinatedDispatcher`: opt-in, one update at a time per lock.
+- `CoordinatedDispatcher`: opt-in, one update at a time per key.
   `client.dispatcher = CoordinatedDispatcher(client, key_functions=[...])`.
   Key functions extract the key of
   each update, and a constant key groups what a decision of yours picks.
@@ -228,8 +228,17 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `schedule_date` on an edit. Affects calls on a `Message` that pass those.
   Migration: call the `Client.ask_*` method with
   those arguments.
-- **BREAKING:** pyroflow needs `kurigram>=2.2.26`, the first version with
-  `Message.edit(rich_message=...)`. Migration: upgrade kurigram.
+- **BREAKING:** pyroflow needs `kurigram>=2.2.27`. 2.2.26 brought
+  `Message.edit(rich_message=...)`, and 2.2.27 calls `handler_worker()` with
+  no lock and registers handlers at once. `Dispatcher.handler_worker` and
+  `CoordinatedDispatcher.handler_worker` take no `lock`, and handlers no
+  longer run under a worker lock, so `add_handler` and `remove_handler` no
+  longer wait for the running handlers. Affects subclasses that override
+  `handler_worker`. Migration: upgrade kurigram, and drop `lock` from the
+  override.
+- `Client.ask_rich`, `ask_callback_query_rich`, `ask_rich_until` and
+  `ask_callback_query_rich_until` accept `business_connection_id`, as
+  `send_rich_message` does since kurigram 2.2.27.
 - Faster dispatch: `UpdateListener.resolve` returns at once when no wait is
   open, and listener filters, `on_error_func`, handler
   callbacks and `split_text` rules that are coroutine functions are awaited
@@ -239,8 +248,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `pyroflow.update_listener.update_listener` logger instead of `pytrove`'s.
 - **BREAKING:** `Dispatcher.handle_listen` returns whether the listener took
   the update instead of raising `StopPropagation`, and the worker calls it
-  before taking its lock; `handle_update` only runs the handlers. A
-  listener now resolves an update while handlers hold the worker locks.
+  before the handlers; `handle_update` only runs the handlers. A listener
+  now resolves an update while other handlers run.
 - **BREAKING:** `UpdateListener.resolve` returns whether a listener took the
   update, instead of returning `None` or raising `UnresolvedUpdate`.
   Affects code calling or overriding `resolve`.

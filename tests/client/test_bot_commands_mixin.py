@@ -37,7 +37,7 @@ class _MixinBase(pyroflow.Client):
     """A minimal stand-in for `Client` under `BotCommandsMixin`, recording every call."""
 
     def __init__(self) -> None:
-        self.dispatcher = SimpleNamespace(groups={}, locks_list=[])
+        self.dispatcher = SimpleNamespace(groups={})
         self.calls: list[tuple[object, ...]] = []
         self.set_error: Exception | None = None
         self.delete_error: Exception | None = None
@@ -91,14 +91,6 @@ def _handler(*entries: object) -> MessageHandler:
     if entries:
         setattr(handler, _BOT_COMMANDS_ATTR, entries)
     return handler
-
-
-def _client_with_a_busy_worker() -> tuple[_MixedClient, asyncio.Lock]:
-    """A real client with one worker lock, as `Dispatcher.start` creates it."""
-    c = _MixedClient("probe", api_id=1, api_hash="x", in_memory=True)
-    worker_lock = asyncio.Lock()
-    c.dispatcher.locks_list.append(worker_lock)
-    return c, worker_lock
 
 
 async def _drain() -> None:
@@ -242,25 +234,12 @@ async def test_push_bot_commands_waits_for_the_groups_lock() -> None:
     assert c.calls == [("set", [a], {})]
 
 
-async def test_push_bot_commands_counts_a_registration_queued_just_before() -> None:
+async def test_push_bot_commands_counts_a_handler_added_just_before() -> None:
     c = _MixedClient("probe", api_id=1, api_hash="x", in_memory=True)
     a = _cmd("a")
 
-    c.add_handler(_handler([a]))  # Pyrogram places it in a task, not yet run.
-    await c.push_bot_commands()
-
-    assert c.sent == [[a]]
-
-
-async def test_push_bot_commands_from_a_handler_never_waits_on_the_dispatcher() -> None:
-    c, worker_lock = _client_with_a_busy_worker()
-    a = _cmd("a")
     c.add_handler(_handler([a]))
-    await _drain()
-
-    # `handler_worker` holds its lock around the handler, as it does in an `ask_*` method.
-    async with worker_lock:
-        await asyncio.wait_for(c.push_bot_commands(), 1)
+    await c.push_bot_commands()
 
     assert c.sent == [[a]]
 
