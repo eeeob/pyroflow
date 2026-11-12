@@ -46,7 +46,8 @@ dependencies = [
     # 2.2.27 calls `Dispatcher.handler_worker()` with no lock, which the patched one
     # matches; `Message.ask_rich` needs `reply_rich` and `edit(rich_message=...)`.
     "kurigram>=2.2.27",
-    # yield_control is a pytrove 2.0 API.
+    # Every name used is in pytrove 1.1.0; 2.0 is the floor tested and locked, which keeps
+    # out the 1.x behavior of safe_await, patch_cls and to_list.
     "pytrove>=2.0.0",
 ]
 
