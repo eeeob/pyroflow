@@ -1,6 +1,6 @@
-هذه ترجمة عربية لـ [`CONTRIBUTING.md`](CONTRIBUTING.md)، والنص الإنجليزي هو المرجع عند أي اختلاف بينهما.
-
 # المساهمة في `pyroflow`
+
+هذه ترجمة عربية لـ [`CONTRIBUTING.md`](CONTRIBUTING.md)، والنص الإنجليزي هو المرجع عند أي اختلاف بينهما.
 
 هذا الملف هو المصدر الوحيد لقواعد المشروع. وهو من جزأين:
 
@@ -34,8 +34,9 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 |---|---|---|
 | `method` أو `property` على نوع من Pyrogram | داخل الكلاس المعلَّم بـ `@patch_cls` الذي يرقّع ذلك النوع | 2.1، 2.2 |
 | دعم نوع `update` جديد | `listener` في `pyroflow.update_listener` | 2.3 |
-| `enum` أو `type alias` أو `model` أو خطأ أو ثابت عام | `pyroflow.enums`، `pyroflow.typings`، `pyroflow.models`، `pyroflow.errors`، `pyroflow.constants` | 1.4، 2.4 |
+| `enum` أو `type alias` أو `model` أو خطأ أو ثابت عام | `pyroflow.enums`، `pyroflow.typings`، `pyroflow.models`، `pyroflow.errors`، `pyroflow.constants` (يُنشأ مع أول ثابت) | 1.4، 2.4 |
 | أداة مساعدة (`helper`) | `pyroflow.utils` إن تشاركتها الأقسام، و`_internal.py` الخاص بالقسم إن استخدمها قسم واحد؛ وابحث في `pytrove` أولًا | 1.5 |
+| `type hints` لوسائط Pyrogram التي تأخذها دوال `ask_*` | `pyroflow._internal`، ولا تُصدَّر أبدًا | 1.7–1.9 |
 | اعتمادية (`dependency`) | `extra`، إلا إن احتاجتها كل الميزات | 3.1–3.3 |
 | اختبار | مسار `tests/` المقابل للـ `module`؛ واختبارات الأنواع الساكنة في `tests/typing/` | 0.1 |
 
@@ -76,7 +77,8 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 | `make test` | الاختبارات في البيئة المقفلة مع كل الـ `extras` | مع كل تغيير |
 | `make test-doctest` | كل `Example` في الـ `docstrings` بوصفه `doctest` | عند إضافة مثال أو تغييره |
 | `make test-minimal` | الاستيراد والاختبارات في بيئة جديدة مثبّتة من المصدر | عند لمس الاستيرادات أو الاعتماديات |
-| `make test-floor` / `make test-ceil` | الاختبارات على أدنى إصدار تسمح به كل الحدود الدنيا مع أقدم Python / على أحدث إصدار لكل اعتمادية مع أحدث Python | عند إضافة اعتمادية أو تغيير حد |
+| `make test-floor` | الاختبارات مع كل اعتمادية على أدنى إصدار يسمح به حدها الأدنى، على أقدم Python | عند إضافة اعتمادية أو تغيير حد |
+| `make test-ceil` | الاختبارات مع كل اعتمادية على أحدث إصدار لها، على أحدث Python | عند إضافة اعتمادية أو تغيير حد |
 | `make build` | الـ `sdist` والـ `wheel` | عند لمس التحزيم |
 
 يشغّل `CI` كل الفحوص أعلاه عدا `make format` و`make build` على كل `pull request`، ويشغّل `recipes` الاختبار على كل إصدار Python مدعوم (1.1).
@@ -111,7 +113,6 @@ import pyroflow.typings       # type aliases
 import pyroflow.errors        # exceptions
 import pyroflow.models        # data models
 import pyroflow.enums         # enums
-import pyroflow.constants     # public constants
 
 from pyroflow.errors import ListenerTimeout   # a single name stays importable
 ```
@@ -120,7 +121,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **1.3 التوافق.** الأسماء في `__all__` وتواقيعها وسلوكها الملحوظ هي الواجهة العامة. لا يُحذف منها شيء ولا يُكسر دون توثيق، وتقدير للأثر، ومسار ترحيل. الإهمال التدريجي (`deprecation`) مفضَّل على الكسر الفوري، والكسر لا يكون صامتًا أبدًا.
 
-**1.4 الأقسام بحسب المسؤولية.** ينتمي كل عنصر إلى قسم واحد: `enums` أو `typings` أو `models` أو `errors` أو `constants` أو الأدوات. لا يوجد كود `enum` أو نوع أو `model` أو خطأ في ملف أداة أو `helper`. كل ثابت عام يعيش في `pyroflow.constants` باسم يقول ما هو. والثابت الخاص (`_NAME`) يبقى بجوار الكود الذي يستخدمه.
+**1.4 الأقسام بحسب المسؤولية.** ينتمي كل عنصر إلى قسم واحد: `enums` أو `typings` أو `models` أو `errors` أو `constants` أو الأدوات. لا يوجد كود `enum` أو نوع أو `model` أو خطأ في ملف أداة أو `helper`. كل ثابت عام يعيش في `pyroflow.constants`، الذي يُنشأ مع أول ثابت، باسم يقول ما هو. والثابت الخاص (`_NAME`) يبقى بجوار الكود الذي يستخدمه.
 
 **1.5 الأدوات المساعدة.** الـ `helpers` التي تتشاركها الأقسام تعيش في `pyroflow.utils`، مجمّعة بحسب المسؤولية في `modules` متماسكة، لا `module` صغير لكل دالة. والـ `helper` الذي يستخدمه قسم واحد فقط يعيش في `_internal.py` الخاص بذلك القسم. قبل كتابة `helper` عام الغرض، ابحث في `pytrove`، فهو اعتمادية موجودة أصلًا، واستورده من `pytrove` مباشرة. النوع أو الـ `helper` الذي يوفّره `pytrove` أصلًا (`StrInt`، `Number`، `MaybeList`، `MaybeCoroutineCallable`، ...) يُستورد من `pytrove` ولا يُعاد كتابته؛ ويجوز أن يحتفظ `pyroflow` باسم `alias` عام معرَّف عبره. لا يُعاد تصدير أسماء خارجية عبر `pyroflow`.
 
@@ -138,7 +139,7 @@ from pyroflow.errors import ListenerTimeout   # a single name stays importable
 
 **2.1 رقّع ولا ترث.** الـ `methods` المضافة إلى أنواع Pyrogram (`Client`، `Message`، `User`، ...) توضع داخل الكلاس المزيَّن بـ `@patch_cls`، لا في كلاس فرعي، كي يبقى المستخدم على كلاسات Pyrogram نفسها.
 
-**2.2 تواقيع الـ overrides.** تحتفظ الـ `overrides` على Pyrogram (`Dispatcher.handler_worker(self, lock)`، `start`، `stop`) بتواقيع kurigram. لا تغيّر أحدها إلا بعد مطابقته مع `kurigram` المثبّت.
+**2.2 تواقيع الـ overrides.** الـ `override` الذي يستدعي أصله في kurigram يأخذ `*args, **kw` ويمررهما، ومعاملات `pyroflow` الخاصة `keyword-only` بينهما (`def __init__(self, *args, key_functions=(), **kw)`)، فلا يحتاج تغيير توقيع في kurigram إلى تغيير هنا. أما ما يستبدل الأصل دون استدعائه (`Dispatcher.handler_worker(self)`) و`__call__(self, client, update)` للفلاتر فيحتفظان بتوقيع kurigram؛ لا تغيّر أحدهما إلا بعد مطابقته مع `kurigram` المثبّت.
 
 **2.3 نوع الـ update الجديد يحصل على listener.** دعمه هو `XListener` مربوط بالنوع عبر `__update_type__`.
 
@@ -244,7 +245,7 @@ class ChatKind(Enum):
 
 ```python
 def chunk(text: str, size: int) -> list[str]:
-    """Split text into pieces of at most ``size`` characters.
+    """Split text into pieces of at most `size` characters.
 
     Args:
         text: The text to split.
@@ -254,7 +255,7 @@ def chunk(text: str, size: int) -> list[str]:
         The pieces, in order.
 
     Raises:
-        ValueError: If ``size`` is not positive.
+        ValueError: If `size` is not positive.
 
     Example:
         >>> chunk("abcde", 2)

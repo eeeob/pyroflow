@@ -2,13 +2,22 @@
 
 An Arabic translation is kept in [`CONTRIBUTING.ar.md`](CONTRIBUTING.ar.md); this English text is the reference when the two differ.
 
-This file is the single source of the project's rules. It has two parts: the workflow, which takes a change from a fresh clone to a merged pull request, and the rules that workflow points at. Rules keep their numbers so reviews, commits and code comments can cite them. The mechanical rules are enforced by `ruff` and `ty`, configured only in `pyproject.toml` under `[tool.ruff]` and `[tool.ty]`: each selected rule set names the rule it enforces, and each ignore says why. The rest are checked in review.
+This file is the single source of the project's rules. It has two parts:
+
+- **The workflow:** takes a change from a fresh clone to a merged pull request.
+- **The rules:** the ones the workflow points at.
+
+Rules keep their numbers so reviews, commits and code comments can cite them.
+
+The mechanical rules are enforced by `ruff` and `ty`, configured only in `pyproject.toml` under `[tool.ruff]` and `[tool.ty]`. Each selected rule set names the rule it enforces, and each ignore says why. The rest are checked in review.
 
 ## The workflow
 
 ### 1. Set up once
 
-`uv` and `make` are the only prerequisites; `uv` provisions the interpreter and the locked environment. Every command is a `make` recipe: the `Makefile` is the one place commands are written down, and CI and the pre-commit hooks call the same recipes.
+`uv` and `make` are the only prerequisites. `uv` provisions the interpreter and the locked environment.
+
+Every command is a `make` recipe. The `Makefile` is the one place commands are written down, and CI and the pre-commit hooks call the same recipes.
 
 ```bash
 make sync    # the locked environment, with every extra and every tooling group
@@ -31,19 +40,32 @@ Branch from `main`, one cohesive change per branch, ending in its own pull reque
 | A dependency | an extra, unless every feature needs it | 3.1–3.3 |
 | A test | the `tests/` path that mirrors the module; static type tests in `tests/typing/` | 0.1 |
 
-Every new public name goes into its module's `__all__` and reaches users through its package's `__init__.py` (1.7–1.9). Files are cut by responsibility, not by element type, and stay cohesive (4.1, 4.2).
+Every new public name goes into its module's `__all__` and reaches users through its package's `__init__.py` (1.7–1.9).
+
+Files are cut by responsibility, not by element type, and stay cohesive (4.1, 4.2).
 
 ### 4. Write the code
 
-Lay each module out in the fixed order (4.3). Annotate completely with modern syntax and deferred annotations (5.1, 5.2, 5.6), declare constants as `Final` (5.3), and guard and raise as 5.5 says. Keep `import pyroflow` free of any effect beyond the patch (1.6). Every suppression names its code and reason (5.7); every log call goes through the module logger (5.8). Write for the reader (6.1, 6.2).
+- Lay each module out in the fixed order (4.3).
+- Annotate completely, with modern syntax and deferred annotations (5.1, 5.2, 5.6).
+- Declare constants as `Final` (5.3).
+- Guard and raise as 5.5 says.
+- Keep `import pyroflow` free of any effect beyond the patch (1.6).
+- Every suppression names its code and reason (5.7), and every log call goes through the module logger (5.8).
+- Write for the reader (6.1, 6.2).
 
 ### 5. Test it
 
-Test every element you added or changed, at the path that mirrors its module (0.1, 0.2). Nothing touches a real server, the network or Telegram (0.3).
+Test every element you added or changed, at the path that mirrors its module (0.1, 0.2).
+
+Nothing touches a real server, the network or Telegram (0.3).
 
 ### 6. Document it
 
-Give every function and class a Google-style docstring (6.3); give every module-level variable, field, enum member and attribute its own docstring (6.4); add an `Example` doctest where a usage example helps (6.5). Public documentation explains concepts and links to the single source of anything that changes (6.6).
+- Give every function and class a Google-style docstring (6.3).
+- Give every module-level variable, field, enum member and attribute its own docstring (6.4).
+- Add an `Example` doctest where a usage example helps (6.5).
+- Public documentation explains concepts and links to the single source of anything that changes (6.6).
 
 ### 7. Run the checks
 
@@ -55,14 +77,19 @@ Give every function and class a Google-style docstring (6.3); give every module-
 | `make test` | the suite in the locked environment with every extra | on every change |
 | `make test-doctest` | every docstring `Example` as a doctest | when adding or changing an example |
 | `make test-minimal` | import and the suite in a fresh environment installed from source | when touching imports or dependencies |
-| `make test-floor` / `make test-ceil` | the suite on the lowest version every floor allows, on the oldest Python / on the newest release of every dependency, on the newest Python | when adding a dependency or changing a bound |
+| `make test-floor` | the suite with every dependency at the lowest version its floor allows, on the oldest Python | when adding a dependency or changing a bound |
+| `make test-ceil` | the suite with every dependency at its newest release, on the newest Python | when adding a dependency or changing a bound |
 | `make build` | the sdist and the wheel | when touching packaging |
 
-CI runs every check above except `make format` and `make build` on each pull request, the test recipes on every supported Python (1.1). A rule set is never narrowed, nor an ignore widened, in `pyproject.toml` to make a change pass (1.10).
+CI runs every check above except `make format` and `make build` on each pull request, and the test recipes on every supported Python (1.1).
+
+A rule set is never narrowed, nor an ignore widened, in `pyproject.toml` to make a change pass (1.10).
 
 ### 8. Commit and open the pull request
 
-Write Conventional Commits; a breaking change carries its `!`, its `BREAKING CHANGE` note and its `CHANGELOG.md` entry in the same pull request (1.3, 6.7). Open the pull request from your branch into `main` (6.8).
+Write Conventional Commits. A breaking change carries its `!`, its `BREAKING CHANGE` note and its `CHANGELOG.md` entry, all in the same pull request (1.3, 6.7).
+
+Open the pull request from your branch into `main` (6.8).
 
 ## The rules
 
@@ -218,7 +245,7 @@ class ChatKind(Enum):
 
 ```python
 def chunk(text: str, size: int) -> list[str]:
-    """Split text into pieces of at most ``size`` characters.
+    """Split text into pieces of at most `size` characters.
 
     Args:
         text: The text to split.
@@ -228,7 +255,7 @@ def chunk(text: str, size: int) -> list[str]:
         The pieces, in order.
 
     Raises:
-        ValueError: If ``size`` is not positive.
+        ValueError: If `size` is not positive.
 
     Example:
         >>> chunk("abcde", 2)
