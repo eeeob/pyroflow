@@ -20,7 +20,10 @@ from pyrogram.types import Message
 
 import pyroflow
 from pyroflow.dispatcher.coordinated_dispatcher import coordinated_dispatcher as coordinated_module
-from pyroflow.dispatcher.coordinated_dispatcher.coordinated_dispatcher import ZeroWaitCounter
+from pyroflow.dispatcher.coordinated_dispatcher.coordinated_dispatcher import (
+    ArrivalOrder,
+    ZeroWaitCounter,
+)
 from pyroflow.dispatcher import CoordinatedDispatcher
 from pyroflow.dispatcher.dispatcher import _HANDLER_WORKER, _HANDLER_HOLD, Dispatcher
 from pyroflow.enums import WorkersPolicy
@@ -33,7 +36,12 @@ from pyroflow.errors import (
     ListenerWorkersBusy,
 )
 from pyroflow.models import MessageKey
-from pyroflow.dispatcher.coordinated_dispatcher.models import _HandlerHold, _Lane, _UpdateToRun
+from pyroflow.dispatcher.coordinated_dispatcher.models import (
+    _HandlerHold,
+    _Lane,
+    _UpdateToParse,
+    _UpdateToRun,
+)
 from pyroflow.update_listener import MessageListener
 
 from ...conftest import make_message
@@ -167,6 +175,7 @@ class _Bot:
         await _until(
             lambda: (
                 dispatcher.updates_queue.empty()
+                and dispatcher.arrival_order.all_admitted.is_set()
                 and dispatcher.unfinished_updates is not None
                 and dispatcher.unfinished_updates._count == 0
             )
@@ -1183,15 +1192,15 @@ async def test_a_raw_update_with_no_parser_reaches_raw_handlers() -> None:
     assert seen == [raw]
 
 
-async def test_the_reader_parses_one_update_at_a_time() -> None:
+async def test_the_reader_reads_no_more_than_workers_ahead() -> None:
     bot = _Bot(workers=2)
     gate = asyncio.Event()
     async with _running(bot):
         for number in range(5):
-            _send_slow(bot, _SlowParse(make_message(CHAT, USER, number), gate))
+            _send_slow(bot, _SlowParse(make_message(CHAT, USER + number, number), gate))
         await asyncio.sleep(0.02)
 
-        assert bot.dispatcher.updates_queue.qsize() == 4
+        assert bot.dispatcher.updates_queue.qsize() == 3
 
         gate.set()
         await bot.settle()
@@ -1232,7 +1241,8 @@ async def test_no_reader_runs_with_no_updates() -> None:
 
 
 async def test_a_new_user_is_not_kept_behind_a_flood() -> None:
-    bot = _Bot(workers=1, key=by_user)
+    # The worker left free parses the flood into its lane while the first handler runs.
+    bot = _Bot(workers=2, key=by_user)
     order: list[tuple[int, int]] = []
 
     async def record(_: object, message: Message) -> None:
@@ -1249,20 +1259,26 @@ async def test_a_new_user_is_not_kept_behind_a_flood() -> None:
     assert order.index((8, 4)) < order.index((USER, 3))
 
 
-async def test_a_reply_needs_no_free_worker() -> None:
+async def test_without_a_policy_a_reply_is_parsed_only_once_a_worker_is_free() -> None:
     bot = _Bot(workers=1)
+    outcomes: list[str] = []
 
     async def ask(_: object, message: Message) -> None:
-        await bot.ask()
+        if message.id != 1:
+            bot.handled.append(message.id)
+            return
+        with pytest.raises(ListenerTimeout):
+            await bot.ask(timeout=0.05)
+        outcomes.append("timed out")
 
     bot.on(ask)
     async with _running(bot):
         bot.send(1)
         await _until(lambda: bot.listener.listeners)
         bot.send(2)
-        await _until(lambda: bot.replies)
+        await _until(lambda: bot.handled)
 
-    assert bot.replies == [2]
+    assert (outcomes, bot.replies, bot.handled) == (["timed out"], [], [2])
 
 
 # --- what running the offers apart from the wait fixes ----------------------
@@ -1536,6 +1552,23 @@ async def test_stop_waits_for_an_update_still_parsing() -> None:
     assert bot.handled == [1, 2]
 
 
+def test_init_orders_the_arrivals_for_the_workers_of_the_client() -> None:
+    bot = _Bot(workers=4)
+
+    assert bot.dispatcher.arrival_order.numbers_given == 0
+    assert bot.dispatcher.arrival_order.read_slots._value == 4
+
+
+async def test_start_opens_a_new_arrival_order() -> None:
+    bot = _Bot()
+    arrival_order = bot.dispatcher.arrival_order
+
+    await bot.dispatcher.start()
+
+    assert bot.dispatcher.arrival_order is not arrival_order
+    await asyncio.wait_for(bot.dispatcher.stop(), 5)
+
+
 async def test_start_opens_a_new_run() -> None:
     bot = _Bot()
     ready = bot.dispatcher.worker_instructions
@@ -1627,7 +1660,7 @@ async def test_a_coordinated_worker_clears_an_inherited_handler_hold() -> None:
 # --- who parses, and how many tasks ------------------------------------------
 
 
-async def test_the_reader_parses_and_each_update_adds_no_task() -> None:
+async def test_the_workers_parse_and_each_update_adds_no_task() -> None:
     bot = _Bot(workers=2)
     parsed_by: list[asyncio.Task | None] = []
     during: list[int] = []
@@ -1643,17 +1676,20 @@ async def test_the_reader_parses_and_each_update_adds_no_task() -> None:
     async with _running(bot):
         await asyncio.sleep(0.01)
         reader = bot.dispatcher.reader_task
+        workers = set(bot.dispatcher.handler_worker_tasks)
         before = len(asyncio.all_tasks())
         bot.send(*range(1, 51))
         await _until(lambda: len(bot.handled) == 50)
 
-    assert parsed_by == [reader] * 50
+    assert reader not in parsed_by
+    assert set(parsed_by) <= workers
     assert max(during) == before
 
 
-async def test_with_every_worker_waiting_the_reader_parses_the_reply() -> None:
-    bot = _Bot(workers=1)
+async def test_with_a_policy_the_worker_left_free_parses_the_reply() -> None:
+    bot = _Bot(workers=2, policy=WorkersPolicy.REJECT)
     parsed_by: list[asyncio.Task | None] = []
+    asking: list[asyncio.Task | None] = []
 
     async def parse(update: _Packet, users: object, chats: object) -> tuple[object, type]:
         parsed_by.append(asyncio.current_task())
@@ -1661,24 +1697,26 @@ async def test_with_every_worker_waiting_the_reader_parses_the_reply() -> None:
 
     async def ask(_: object, message: Message) -> None:
         if message.id == 1:
+            asking.append(asyncio.current_task())
             await bot.ask()
 
     bot.dispatcher.update_parsers[_Packet] = parse
     bot.on(ask)
 
     async with _running(bot):
+        workers = set(bot.dispatcher.handler_worker_tasks)
         bot.send(1)
         await _until(lambda: bot.dispatcher.listeners[Message].listeners)
-        reader = bot.dispatcher.reader_task
         bot.send(2)
         await _until(lambda: bot.replies)
 
     assert bot.replies == [2]
-    assert parsed_by[-1] is reader
+    assert parsed_by[-1] in workers
+    assert parsed_by[-1] is not asking[0]
 
 
 async def test_a_flood_behind_a_waiting_handler_does_not_block_its_reply() -> None:
-    bot = _Bot(workers=1)
+    bot = _Bot(workers=2, policy=WorkersPolicy.REJECT)
 
     async def ask(_: object, message: Message) -> None:
         if message.id == 1:
@@ -1693,28 +1731,6 @@ async def test_a_flood_behind_a_waiting_handler_does_not_block_its_reply() -> No
 
     assert bot.replies == [2]
     assert bot.handled == [1, *range(3, 201)]
-
-
-async def test_the_reader_lets_others_run_while_it_parses_a_backlog() -> None:
-    bot = _Bot(workers=1)
-    gate = asyncio.Event()
-
-    async def hold(_: object, message: Message) -> None:
-        bot.handled.append(message.id)
-        await gate.wait()
-
-    bot.on(hold)
-
-    async with _running(bot):
-        bot.send(1)
-        await _until(lambda: bot.handled)
-        bot.send(*range(2, 102), user=USER + 1)
-        await asyncio.sleep(0)
-
-        assert bot.dispatcher.updates_queue.qsize() > 0
-
-        gate.set()
-        await bot.settle()
 
 
 async def test_the_offer_task_clears_an_inherited_handler_hold() -> None:
@@ -1762,21 +1778,21 @@ async def test_stop_ends_the_offer_task() -> None:
 
 
 def _reading(bot: _Bot) -> CoordinatedDispatcher:
-    """Set up what `start` sets up, so `_read_updates` can run with no workers."""
+    """Set up what `start` sets up, so `_parse_and_place` can run with no workers."""
     bot.dispatcher.unfinished_updates = ZeroWaitCounter()
+    bot.dispatcher.arrival_order = ArrivalOrder(1)
     return bot.dispatcher
 
 
 async def _parse_one(
     dispatcher: CoordinatedDispatcher, parsed: object, handler_type: type = MessageHandler
 ) -> None:
-    packet = (_Packet(parsed, handler_type), {}, {})
-    dispatcher.updates_queue.put_nowait(packet)  # ty: ignore[invalid-argument-type]
-    reader = asyncio.ensure_future(dispatcher._read_updates(1))
-    await _until(dispatcher.updates_queue.empty)
-    await asyncio.sleep(0)
-    reader.cancel()
-    await asyncio.gather(reader, return_exceptions=True)
+    """Read, parse and place one update as the reader and a worker would."""
+    arrival_order = dispatcher.arrival_order
+    await arrival_order.read_slots.acquire()
+    raw_update = (_Packet(parsed, handler_type), {}, {})
+    update_to_parse = _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]
+    await dispatcher._parse_and_place(update_to_parse)
 
 
 async def test_async_counter_wait_ends_when_the_count_is_back_at_zero() -> None:
@@ -1792,6 +1808,98 @@ async def test_async_counter_wait_ends_when_the_count_is_back_at_zero() -> None:
 
     counter.decrement()
     await asyncio.wait_for(waiter, 1)
+
+
+def _to_parse(arrival_order: ArrivalOrder, update: object) -> _UpdateToParse:
+    raw_update = (update, {}, {})
+    return _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]
+
+
+def test_arrival_order_gives_numbers_in_turn() -> None:
+    arrival_order = ArrivalOrder(2)
+
+    assert [arrival_order.give_next_number() for _ in range(3)] == [0, 1, 2]
+    assert not arrival_order.all_admitted.is_set()
+
+
+def test_arrival_order_admits_in_the_order_numbered() -> None:
+    arrival_order = ArrivalOrder(2)
+    first, second = make_entry(), make_entry()
+    arrival_order.give_next_number()
+    arrival_order.give_next_number()
+
+    assert arrival_order.admit_in_order(1, second) == []
+    assert arrival_order.admit_in_order(0, first) == [first, second]
+    assert arrival_order.all_admitted.is_set()
+
+
+def test_arrival_order_skips_an_update_that_failed_to_parse() -> None:
+    arrival_order = ArrivalOrder(2)
+    entry = make_entry()
+    arrival_order.give_next_number()
+    arrival_order.give_next_number()
+
+    assert arrival_order.admit_in_order(0, None) == []
+    assert arrival_order.admit_in_order(1, entry) == [entry]
+
+
+async def test_arrival_order_frees_a_read_slot_per_update_admitted() -> None:
+    arrival_order = ArrivalOrder(1)
+    await arrival_order.read_slots.acquire()
+    arrival_order.give_next_number()
+
+    assert arrival_order.read_slots.locked()
+
+    arrival_order.admit_in_order(0, make_entry())
+
+    assert not arrival_order.read_slots.locked()
+
+
+async def test_arrival_order_wait_ends_once_all_are_admitted() -> None:
+    arrival_order = ArrivalOrder(1)
+    await asyncio.wait_for(arrival_order.wait_until_all_admitted(), 1)
+    arrival_order.give_next_number()
+    waiter = asyncio.ensure_future(arrival_order.wait_until_all_admitted())
+
+    await asyncio.sleep(0)
+    assert not waiter.done()
+
+    arrival_order.admit_in_order(0, None)
+    await asyncio.wait_for(waiter, 1)
+
+
+async def test_parse_places_the_updates_in_the_order_read() -> None:
+    dispatcher = _reading(_Bot())
+    arrival_order = dispatcher.arrival_order = ArrivalOrder(2)
+    first = _to_parse(arrival_order, _Packet(make_message(CHAT, USER, 1), MessageHandler))
+    second = _to_parse(arrival_order, _Packet(make_message(CHAT, USER + 1, 2), MessageHandler))
+
+    await dispatcher._parse_and_place(second)
+
+    assert dispatcher.worker_instructions.empty()
+
+    await dispatcher._parse_and_place(first)
+
+    assert dispatcher.worker_instructions.get_nowait().parsed_update.id == 1
+    assert dispatcher.worker_instructions.get_nowait().parsed_update.id == 2
+
+
+async def test_a_cancelled_parse_still_queues_what_is_due_behind_it() -> None:
+    dispatcher = _reading(_Bot())
+    arrival_order = dispatcher.arrival_order = ArrivalOrder(2)
+    dispatcher.update_parsers[_SlowParse] = _parse_slow
+    first = _to_parse(arrival_order, _SlowParse(make_message(CHAT, USER, 1), asyncio.Event()))
+    second = _to_parse(arrival_order, _Packet(make_message(CHAT, USER + 1, 2), MessageHandler))
+    parse_first = asyncio.ensure_future(dispatcher._parse_and_place(first))
+    await asyncio.sleep(0)
+    await dispatcher._parse_and_place(second)
+    parse_first.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await parse_first
+
+    assert dispatcher.worker_instructions.get_nowait().parsed_update.id == 2
+    assert arrival_order.all_admitted.is_set()
 
 
 async def test_parse_posts_the_first_update_of_a_lane_and_queues_the_next() -> None:

@@ -24,6 +24,16 @@ _RawUpdate: TypeAlias = tuple[raw.base.Update, dict[int, raw.base.User], dict[in
 
 
 @dataclass(eq=False, slots=True)
+class _UpdateToParse:
+    """An update read and not yet parsed; the instruction to parse it."""
+
+    arrival_number: int
+    """Its place in the order read, from `ArrivalOrder.give_next_number`."""
+    raw_update: _RawUpdate
+    """The update, raw."""
+
+
+@dataclass(eq=False, slots=True)
 class _UpdateToRun:
     """An update on its way through the dispatcher, parsed; the instruction to run it."""
 

@@ -6,7 +6,12 @@ from collections import deque
 from typing import get_origin
 
 from pyroflow.dispatcher.coordinated_dispatcher import models as models_module
-from pyroflow.dispatcher.coordinated_dispatcher.models import _HandlerHold, _Lane, _RawUpdate
+from pyroflow.dispatcher.coordinated_dispatcher.models import (
+    _HandlerHold,
+    _Lane,
+    _RawUpdate,
+    _UpdateToParse,
+)
 
 from .conftest import make_entry
 
@@ -17,6 +22,13 @@ def test_module_exports_nothing() -> None:
 
 def test_packet_is_a_tuple() -> None:
     assert get_origin(_RawUpdate) is tuple
+
+
+def test_update_to_parse_keeps_its_number_and_raw_update() -> None:
+    raw_update = (object(), {}, {})
+    update_to_parse = _UpdateToParse(3, raw_update)  # ty: ignore[invalid-argument-type]
+
+    assert (update_to_parse.arrival_number, update_to_parse.raw_update) == (3, raw_update)
 
 
 def test_entry_starts_free_and_never_offered() -> None:
