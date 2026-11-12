@@ -66,11 +66,14 @@ def by_chat(update: Any) -> int:
 
 
 async def _until(condition: Callable[[], object], timeout: float = 5) -> None:
-    async def poll() -> None:
-        while not condition():
-            await asyncio.sleep(0.002)
+    # Polled in the calling task: before 3.12, `asyncio.wait_for` runs its coroutine in a task of its own.
+    deadline = asyncio.get_running_loop().time() + timeout
 
-    await asyncio.wait_for(poll(), timeout)
+    while not condition():
+        if asyncio.get_running_loop().time() > deadline:
+            raise asyncio.TimeoutError
+
+        await asyncio.sleep(0.002)
 
 
 def _ids(*ids: int) -> filters.Filter:
@@ -1342,9 +1345,12 @@ async def test_a_cancelled_wait_leaves_the_offers_running() -> None:
             return
 
         first = asyncio.ensure_future(bot.ask(user=USER, filters=_ids(3), timeout=3))
-        await asyncio.sleep(0)
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(bot.ask(user=None, filters=_paused(gate, inside)), 0.05)
+        # Started together, so neither inherits what the other declines.
+        second = asyncio.ensure_future(bot.ask(user=None, filters=_paused(gate, inside)))
+        await _until(lambda: inside)
+        second.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await second
         cut.append(True)
         results.append(await first)
 
