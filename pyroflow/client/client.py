@@ -45,11 +45,10 @@ if TYPE_CHECKING:
 class Client(PyroClient):
     """Pyrogram's `Client`, patched in place with listeners and the `ask_*` methods.
 
-    Attach the per-update-type systems before the client starts with
-    `register_listener`. An update claimed by a listener never reaches the
-    normal handlers. Like
-    `pyrogram.Client`, every `async` method can also be called synchronously
-    from outside an event loop.
+    Attach one listener per update type with `register_listener` before the
+    client starts. An update claimed by a listener never reaches the normal
+    handlers. Like `pyrogram.Client`, every `async` method can also be called
+    synchronously from outside an event loop.
     """
 
     # `patch_cls` makes pyroflow's `Dispatcher` the same class as pyrogram's at runtime.
@@ -138,8 +137,11 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for the update type of `key`.
+            TypeError: If `key` is not exactly the `__key_type__` of that listener.
             ListenerTimeout: If the timeout expires before an update arrives.
             ListenerCancelled: If the wait is cancelled.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`).
             ListenerAlreadyExists: If the listener refuses a second wait on
                 the key (`DuplicatePolicy.REJECT`).
         """
@@ -176,6 +178,8 @@ class Client(PyroClient):
             RuntimeError: If no listener is registered for `Message`.
             ListenerTimeout: If the timeout expires before a message arrives.
             ListenerCancelled: If the wait is cancelled.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`).
             ListenerAlreadyExists: If the listener refuses a second wait on
                 the key (`DuplicatePolicy.REJECT`).
         """
@@ -221,6 +225,8 @@ class Client(PyroClient):
             RuntimeError: If no listener is registered for `CallbackQuery`.
             ListenerTimeout: If the timeout expires before a press arrives.
             ListenerCancelled: If the wait is cancelled.
+            ListenerWorkersBusy: If the wait would start inside a handler with
+                no worker to spare (see `WorkersPolicy`).
             ListenerAlreadyExists: If the listener refuses a second wait on
                 the key (`DuplicatePolicy.REJECT`).
         """
@@ -270,8 +276,9 @@ class Client(PyroClient):
             context: The context given to the `ask_*` method, or `None`.
 
         Returns:
-            The context of the wait; `context` itself if it holds a message
-            already, or if `ask_context_message` is off.
+            The context of the wait: `context` itself if it holds a message
+            already, or if `ask_context_message` is off; otherwise one with
+            `sent` as `message`, new when `context` is `None`.
         """
         if not self.ask_context_message:
             return context
@@ -311,8 +318,10 @@ class Client(PyroClient):
                 `ask(chat_id, question, mode, listen_..., **kw)`.
             chat_id: The first argument of `ask`, or `None` if it takes none.
             question: The first question.
-            mode: The second argument of `ask` for the first question.
-            retry_mode: The second argument of `ask` for each retry.
+            mode: The positional argument of `ask` after `question`, for the
+                first question.
+            retry_mode: The positional argument of `ask` after `question`, for
+                each retry.
             parse: `(answer, kw) -> AskAgain | value`, sync or async, and light,
                 as it runs on the event loop: `AskAgain` asks again, and
                 anything else is returned.
@@ -418,14 +427,16 @@ class Client(PyroClient):
                 `ask_context_message` on (see `setup_pyroflow`), it gets the
                 sent or edited message as `message`, on a copy, unless it
                 holds one. So `on_error_func` can edit or delete the question.
-            listen_filters: A Pyrogram filter the answer must pass besides its key.
+            listen_filters: A Pyrogram filter the answer must pass besides its key;
+                `None` applies the listener's `strict_filter`, with `strict` on.
             listen_strict: What an update that matches the key but fails
                 `listen_filters` does: `True` ends the wait with
                 `ListenerRejected`, `False` skips it and keeps waiting.
                 Without `listen_strict`, a rejected update that cannot come
                 again leaves the wait open until `listen_timeout`, or forever
                 without one; see the warning in `UpdateListener.listen`.
-            listen_timeout: Seconds to wait before raising `ListenerTimeout`.
+            listen_timeout: Seconds to wait before raising `ListenerTimeout`;
+                `None` uses the listener's `timeout`.
             **kw: Passed to `send_message` or `edit_message_text`.
 
         Returns:
@@ -599,11 +610,12 @@ class Client(PyroClient):
         """Send or edit a message, then wait for a press on its buttons.
 
         Like `ask`, but the press is awaited on `from_sent` of the listener's
-        `__key_type__` for the message: from any user, so narrow it with
-        `listen_filters`.
+        `__key_type__` for the message: from `listen_user_id`, or from any user
+        without it.
 
         Pass `reply_markup`: a question without buttons cannot be answered, and
-        its wait stays open until `listen_timeout`, or forever without one.
+        its wait stays open until `listen_timeout`, or the listener's `timeout`,
+        or forever without either.
 
         Args:
             chat_id: Chat to send to, or that holds the message to edit.
@@ -806,8 +818,8 @@ class Client(PyroClient):
 
         With `edit_message_id` only the first question edits that message; after a
         rejection each question is sent as a new message, since Telegram
-        refuses an edit that changes nothing. To send it to a topic, name the
-        topic in the `kw` of `AskAgain`.
+        refuses an edit that changes nothing. A retry sends only the `kw` of
+        `AskAgain`, so name the topic there.
 
         Args:
             chat_id: As in `ask`.
@@ -821,7 +833,8 @@ class Client(PyroClient):
             listen_strict: As in `ask`; a rejection by `listen_filters` ends
                 the loop, not only the wait.
             listen_timeout: As in `ask`, for each wait on its own.
-            **kw: Passed to `send_message` or `edit_message_text`.
+            **kw: Passed to `send_message` or `edit_message_text`, for the
+                first question.
 
         Returns:
             The value `parse` returned.
@@ -902,6 +915,10 @@ class Client(PyroClient):
 
         Like `ask_until`, but each question is a rich message and a new
         question from `parse` is an `InputRichMessage`.
+
+        A retry with the `kw` it was given raises `TypeError` when that `kw`
+        holds an edit-only argument such as `link_preview_options`, which
+        `send_rich_message` does not take.
 
         Args:
             chat_id: As in `ask`.
@@ -1011,7 +1028,8 @@ class Client(PyroClient):
             listen_filters: As in `ask_until`.
             listen_strict: As in `ask_until`.
             listen_timeout: As in `ask`, for each wait on its own.
-            **kw: Passed to `send_message` or `edit_message_text`.
+            **kw: Passed to `send_message` or `edit_message_text`, for the
+                first question.
 
         Returns:
             The value `parse` returned.
@@ -1092,6 +1110,10 @@ class Client(PyroClient):
 
         Like `ask_callback_query_until`, but each question is a rich message
         and a new question from `parse` is an `InputRichMessage`.
+
+        A retry with the `kw` it was given raises `TypeError` when that `kw`
+        holds an edit-only argument such as `link_preview_options`, which
+        `send_rich_message` does not take.
 
         Args:
             chat_id: As in `ask`.

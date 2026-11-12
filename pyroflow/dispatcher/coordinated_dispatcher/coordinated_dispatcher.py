@@ -120,8 +120,9 @@ class CoordinatedDispatcher(Dispatcher):
     right after creating the client, before anything is registered:
     `client.dispatcher = CoordinatedDispatcher(client, key_functions=[...])`.
     What was registered on the client's previous dispatcher is not carried
-    over, and a client that has started keeps reading the dispatcher it
-    started with.
+    over. Replace it only before `start`: on a started client the new
+    dispatcher is never started, so it drops every update, and the old
+    workers are never stopped.
 
     The `key_functions` extract the key of an update: the first to give a key
     decides, and `None` from one passes the update to the next. Updates of one
@@ -137,7 +138,7 @@ class CoordinatedDispatcher(Dispatcher):
     listeners and then run its handlers. A handler holds its lane
     until it ends, its waits included. While it runs,
     one offer pass task shared by all the lanes offers the lane's
-    `waiting_updates` to the waits, so no worker is needed for a reply.
+    `waiting_updates` to the waits, so no worker is needed to offer a reply.
 
     Everything lives in this process; nothing is shared between sessions.
 
@@ -261,7 +262,7 @@ class CoordinatedDispatcher(Dispatcher):
             self.offer_pass_task = asyncio.create_task(self._run_offer_passes())
 
     async def stop(self, *args: object, **kw: object) -> None:
-        """Stop as usual, then wait for the reader and the offers, so `start` can follow at once.
+        """Stop as usual, then wait for the reader and the offer pass task, so `start` can follow at once.
 
         Args:
             *args: Passed to `Dispatcher.stop`.
@@ -327,7 +328,7 @@ class CoordinatedDispatcher(Dispatcher):
 
                     if lane is not None:
                         if lane.handler_hold is not None:
-                            # Nothing below suspends, so the lane moves on between two offers.
+                            # Nothing suspends after this await, so the lane moves on between offers.
                             await lane.handler_hold.wait_offer_lock()
 
                             lane.handler_hold = None
@@ -350,18 +351,11 @@ class CoordinatedDispatcher(Dispatcher):
         yet placed, so the parses queued stay few.
 
         Reads the stop sentinels of `Dispatcher.stop`, waits for the updates
-        read to be over, and then stops the workers and the offer task.
+        read to be over, and then stops the workers and the offer pass task.
 
         Warning:
-            This task only reads; the replies are parsed by the workers too.
-            Without a `workers_policy` (`Client.setup_pyroflow`), once every
-            worker waits inside a handler, no worker is left to parse: the
-            reply stays queued, the waits run to their timeout, and those
-            without one, with every worker, hang for good. A policy keeps
-            one worker out of the waits, but counts only a wait in the
-            worker's own task: one in `asyncio.gather`, in a task the handler
-            starts, or in a sync handler can still take the last worker.
-            Bound such waits with a timeout.
+            This task only reads; the workers parse the replies too. See the
+            class warning on `workers_policy`.
 
         Args:
             workers: How many workers the run has, and so how many sentinels end the reading.
@@ -414,7 +408,10 @@ class CoordinatedDispatcher(Dispatcher):
             )
             parsed = _UpdateToRun(update_to_parse.raw_update, parsed_update, handler_type)
         except Exception:
-            log.exception("Error parsing an update; it is dropped")
+            log.exception(
+                "Error parsing an update of type %s; it is dropped",
+                type(update_to_parse.raw_update[0]).__name__,
+            )
         finally:
             # Even a cancelled parse fills its turn, or nothing behind it would ever be placed.
             for update_to_run in self.arrival_order.admit_in_order(
@@ -438,7 +435,8 @@ class CoordinatedDispatcher(Dispatcher):
                                 self.lanes_by_key[function_and_key] = _Lane(function_and_key)
                         except Exception:
                             log.exception(
-                                "Error in a key function; the update goes to the next one"
+                                "Error in key function %r; the update goes to the next one",
+                                function,
                             )
                             continue
 
@@ -462,7 +460,7 @@ class CoordinatedDispatcher(Dispatcher):
                         lane.handler_hold.request_offer_pass(self.offer_pass_requests)
 
     async def _run_offer_passes(self) -> None:
-        """Run the offer passes in `offer_pass_requests`, outside any lock.
+        """Run the offer passes in `offer_pass_requests`.
 
         Each offer pass offers the `waiting_updates` of a lane to the waits, in
         order: each update once since the handler's last wait started. What a
@@ -474,6 +472,7 @@ class CoordinatedDispatcher(Dispatcher):
         Runs in its own task, not in a task that waits, so a wait reaches its
         future at once, and a filter that waits delays only other offers.
         """
+        # The task must not carry the hold of a handler it was started from.
         _HANDLER_HOLD.set(None)
 
         while True:

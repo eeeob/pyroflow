@@ -1,4 +1,4 @@
-"""Internal bot command helpers: the `mark_bot_commands` decorator and command entry expansion."""
+"""Bot command helpers: the public `mark_bot_commands` decorator and the internal command entry expansion."""
 
 from __future__ import annotations as _annotations
 

@@ -223,12 +223,6 @@ def test_the_base_dispatcher_is_not_patched() -> None:
     assert type(_bare_client().dispatcher) is Dispatcher
 
 
-# --- installing it ----------------------------------------------------------
-
-
-# --- extract_key ------------------------------------------------------------
-
-
 # --- the hold and the queue -------------------------------------------------
 
 
@@ -852,9 +846,6 @@ async def test_a_worker_cancelled_in_its_handler_hands_over_the_backlog() -> Non
     assert bot.handled == [1, 2, 3]
 
 
-# --- handlers ---------------------------------------------------------------
-
-
 # --- with the rest of the library -------------------------------------------
 
 
@@ -975,7 +966,7 @@ async def test_a_cancelled_wait_ends_its_handler_and_frees_the_key() -> None:
 
 
 async def test_listen_drops_the_hold_from_its_frame_once_the_wait_fails() -> None:
-    # The traceback of the error keeps the frame of `listen`, as in gotcha 12.
+    # The traceback of the error keeps the frame of `listen`, so `listen` drops its locals.
     hold = _HandlerHold(_Lane((0, CHAT)), 0)
     # Registered on the bot's client, so `listen` takes the hold.
     listener = _Bot().listener
@@ -1021,9 +1012,6 @@ async def test_a_hold_keeps_no_declined_update_alive() -> None:
     gc.collect()
 
     assert len(hold.declined_by_handler_waits) == 0
-
-
-# --- turns ------------------------------------------------------------------
 
 
 # --- stopping and restarting ------------------------------------------------
@@ -2010,7 +1998,7 @@ async def _offer_pass(
     take: Collection[int] = (),
     during: Callable[[Any], object] | None = None,
 ) -> list[int]:
-    """Run the offer task over the holds `offers` has, and return the ids it offered.
+    """Run the offer pass task over the holds in `offer_pass_requests`, and return the ids it offered.
 
     Args:
         dispatcher: The dispatcher.
@@ -2220,7 +2208,7 @@ async def test_a_handler_that_ends_during_an_offer_keeps_its_worker() -> None:
 
 
 def _admit(dispatcher: CoordinatedDispatcher, *updates: _UpdateToRun) -> None:
-    """Place `updates` in their chat's lanes as `_read_updates` does; the setup these tests need."""
+    """Place `updates` in their chat's lanes as `_parse_and_place` does; the setup these tests need."""
 
     for update_to_run in updates:
         function_and_key = (0, sequencing.chat_key(update_to_run.parsed_update))
@@ -2411,14 +2399,14 @@ async def test_a_worker_opening_a_hold_with_a_backlog_asks_for_an_offer_pass(
 
 
 def _keyed(*functions: Any) -> CoordinatedDispatcher:
-    """A dispatcher with `functions`, whose reader can run alone."""
+    """A dispatcher with `functions`, whose `_parse_and_place` can run with no workers."""
     dispatcher = _reading(_Bot())
     dispatcher.key_functions = functions
     return dispatcher
 
 
 async def _lane_of(dispatcher: CoordinatedDispatcher, update: object) -> _Lane | None:
-    """Have the reader place `update`, and return the lane it gave it."""
+    """Parse and place `update` as a worker would, and return the lane it gave it."""
     await _parse_one(dispatcher, update)
 
     if not dispatcher.worker_instructions.empty():

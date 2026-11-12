@@ -40,8 +40,8 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
     The commands are the ones declared with `mark_bot_commands`. Put the mixin
     first, as in `class MyClient(BotCommandsMixin, Client)`. `start` publishes
-    the commands of every registered handler after connecting (so `plugins`
-    handlers are included) and before the dispatcher starts (so the first
+    the commands of every registered handler once the `plugins` are loaded
+    and the client is connected, and before the dispatcher starts (so the first
     updates already see them), and `stop` deletes them before disconnecting. Each
     `(language_code, scope)` group is one Telegram call, so different scopes
     never overwrite each other.
@@ -195,6 +195,9 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             *args: Passed to `pyrogram.Client.stop`.
             remove_commands: `False` keeps the commands on Telegram after stopping.
             **kw: Passed to `pyrogram.Client.stop`.
+
+        Returns:
+            The client, as `pyrogram.Client.stop` returns it.
         """
         if remove_commands:
             await safe_await(self.remove_bot_commands(), return_exc=True, log_exc=True)

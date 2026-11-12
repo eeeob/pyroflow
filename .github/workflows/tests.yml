@@ -4,10 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Every job installs from uv.lock, so a dependency release published after
-  # the last `uv lock` is exercised by nothing until someone relocks. test-ceil
-  # resolves fresh and catches it, which only helps if something runs it
-  # without a push.
+  # test, lint and typecheck install from uv.lock; test-minimal and test-ceil
+  # resolve fresh, so they catch a dependency release published after the last
+  # `uv lock`. The schedule runs them even without a push.
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch: {}

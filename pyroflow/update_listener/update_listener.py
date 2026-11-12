@@ -75,15 +75,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         duplicate_policy: What `listen` does when the key already has a
             waiting listener; `DuplicatePolicy.REPLACE` if `None`.
         extract_key_func: `(update) -> key | None`, sync, used by
-            `extract_key`; `None` skips the update. It runs inline on the
-            event loop, so it must be fast. `None` uses `from_update` of
-            `__key_type__`.
+            `extract_key`; a returned `None` skips the update. It runs inline
+            on the event loop, so it must be fast. Passing `None` uses
+            `from_update` of `__key_type__`.
         on_error_func: `(exc, listener_model) -> object`, sync or async and
             light, as it runs on the event loop; called when a `ListenerError` ends a wait (a timeout, a
             cancellation, an eviction or a strict rejection), after the wait
             is removed and before `listen` raises the error. Errors raised
-            before a wait starts, `ListenerAlreadyExists` and
-            `ListenerWorkersBusy`, are not reported. A failing callback is
+            before a wait starts, `ListenerAlreadyExists`,
+            `ListenerWorkersBusy` and the `ListenerCancelled` of a stopped
+            listener, are not reported. A failing callback is
             logged and never hides the error.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         resolve_scope: Which matching waits `resolve` gives an update to:
@@ -405,7 +406,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         The listener is registered before this coroutine first yields, so it
         takes the first matching update the dispatcher handles after the
-        call. Also callable as `listener(...)`.
+        call. In a handler under a `CoordinatedDispatcher`, it may first wait
+        for an offer under way to end. Also callable as `listener(...)`.
 
         Inside a handler, the wait holds the worker running it, so the
         `WorkersPolicy` of the client this listener is registered on applies
@@ -435,7 +437,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
-                waiting, including when a newer listener replaces it.
+                waiting; `ListenerReplaced`, its subclass, when a newer
+                listener replaces it.
             ListenerRejected: If `strict` is true, or `strict_filter` applies,
                 and an update whose key matches fails the filter.
             ListenerEvicted: If `WorkersPolicy.CANCEL_OLDEST` ended this
@@ -501,7 +504,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         hold = _HANDLER_HOLD.get()
 
         # A wait of a coordinated handler starts between two offers of its lane, never during
-        # one; once the handler ended there is nothing to wait for. Nothing below suspends
+        # one; once the handler ended there is no offer to wait for, and the wait goes on as
+        # a plain one. Nothing below suspends
         # before the wait is registered, so the lock is not kept.
         if hold is not None:
             await hold.wait_offer_lock(handler_active_required=True)
@@ -631,7 +635,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             Whether at least one listener took the update.
 
         Raises:
-            TypeError: If `update` is not an instance of `__update_type__`.
+            TypeError: If `update` is not an instance of `__update_type__`, or
+                `extract_key_func` returns other than exactly a `__key_type__`
+                or `None`.
         """
         self.validate_update(update)
 

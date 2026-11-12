@@ -143,8 +143,8 @@ class MessageKey(ListenerKey[Message]):
             update: The message.
 
         Returns:
-            The key of the message, or `None` for outgoing, service, empty or
-            edited messages, messages sent by this account, and messages
+            The key of the message, or `None` for outgoing, service, empty,
+            edited or edit-hidden messages, messages sent by this account, and messages
             without a chat.
 
         Example:

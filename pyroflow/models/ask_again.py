@@ -21,7 +21,7 @@ class AskAgain(Generic[QuestionT]):
     question: QuestionT
     """The next question: a text, or an `InputRichMessage` in the rich methods."""
     kw: dict[str, Any] = field(default_factory=dict)
-    """The arguments of the next question; empty sends it with none."""
+    """The keyword arguments of the next question, in place of the previous ones; the `listen_*` arguments stay."""
 
 
 # pytrove's `MaybeAwaitableCallable` spelled out: it loses `UpdateType` at runtime on Python 3.12 and 3.13.

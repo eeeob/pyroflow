@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
+"""Logger for listener and handler errors."""
 
 _HANDLER_WORKER: Final[ContextVar[asyncio.Task[None] | None]] = ContextVar(
     "pyroflow_handler_worker", default=None
@@ -102,7 +103,7 @@ class Dispatcher(PyroDispatcher):
         """Stop the listeners, then the original dispatcher.
 
         The listeners go first: their waiters fail, so a handler blocked in
-        `ask_*` method returns and the original `stop` can drain the workers.
+        an `ask_*` method returns and the original `stop` can drain the workers.
 
         Args:
             *args: Passed directly to the original dispatcher.
@@ -187,7 +188,7 @@ class Dispatcher(PyroDispatcher):
         try:
             return await listener.resolve(parsed_update)
         except Exception:
-            log.exception("Unexpected error in handle_listen")
+            log.exception("Unexpected error in handle_listen for %s", type(parsed_update).__name__)
             return False
 
     async def handle_update(

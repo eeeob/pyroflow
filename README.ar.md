@@ -8,7 +8,7 @@
 
 > هذه ترجمة لـ [README.md](README.md). عند أي اختلاف، النص الإنجليزي هو المرجع.
 
-```
+```bash
 pip install pyroflow
 ```
 
@@ -132,7 +132,7 @@ async def on_order(client, message):
 
 دالة المفتاح ترجع مفتاحاً، أو `None` لتمرير الـ update إلى الدالة التالية. الـ handler يمسك مفتاحه حتى ينتهي، بما في ذلك أثناء انتظاره في `ask`. الـ update المنتظر في الطابور لا يأخذ worker، فالمستخدم الذي يرسل 12 رسالة لا يبطئ غيره، والـ update الذي يأتي دوره يُعرض على الانتظارات المفتوحة قبل أن تعمل الـ handlers.
 
-> ⚠️ **ثبّته أولاً**، مباشرة بعد `Client(...)` وقبل أي handler أو `register_listener` أو `setup_pyroflow`: ما سُجّل قبله يبقى على الـ dispatcher القديم ولا يعمل أبداً، وبلا أي خطأ.
+> ⚠️ **ثبّته أولاً**، مباشرة بعد `Client(...)` وقبل أي handler أو `register_listener`: ما سُجّل قبله يبقى على الـ dispatcher القديم ولا يعمل أبداً، وبلا أي خطأ.
 >
 > ⚠️ **الانتظار بلا مهلة يجمّد مفتاحه.** المفتاح يبقى ممسوكاً أثناء الانتظار، فالـ handler الخاص بـ `/cancel` في تلك المحادثة مجرد update آخر في الطابور. مرّر `listen_timeout`.
 
@@ -186,7 +186,7 @@ page = await pages.build(2)
 await message.reply("Products:", reply_markup=page.markup)
 ```
 
-**فلاتر نصية:** `pyroflow.filters` يضيف `startswith` و`endswith` و`equal` و`registered_command`، الذي يمرر فقط الأوامر المسجلة لهذا البوت.
+**فلاتر نصية:** `pyroflow.filters` يضيف `startswith` و`endswith` و`equal` و`split_text` و`registered_command`، الذي يمرر فقط الأوامر المسجلة لهذا البوت.
 
 ```python
 from pyroflow import MessageListener, filters
@@ -212,13 +212,13 @@ client = Bot("my_session")
 async def on_start(client, message): ...
 ```
 
-**الأخطاء:** كل خطأ يرث من `PyroflowError`. `ListenerTimeout` و`ListenerCancelled` (ومنه `ListenerReplaced` و`ListenerRejected` و`ListenerEvicted`) و`ListenerWorkersBusy` و`ListenerAttemptsExhausted` كلها في `pyroflow.errors`.
+**الأخطاء:** كل خطأ يرث من `PyroflowError`، وأخطاء الانتظار من `ListenerError`: `ListenerTimeout` و`ListenerCancelled` (ومنه `ListenerReplaced` و`ListenerRejected` و`ListenerEvicted`) و`ListenerAlreadyExists` و`ListenerWorkersBusy` و`ListenerAttemptsExhausted`، كلها في `pyroflow.errors`.
 
 ---
 
 ## التطوير
 
-المتطلب الوحيد هو [uv](https://docs.astral.sh/uv/).
+المتطلبان الوحيدان هما [uv](https://docs.astral.sh/uv/) و`make`.
 
 ```bash
 make sync        # install the locked environment

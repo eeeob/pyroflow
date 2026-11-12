@@ -38,7 +38,7 @@ lint:
 
 # tests/typing holds static type tests: assert_type checks, and calls that must
 # fail, marked with a `ty: ignore` that --error-on-warning turns into a failure
-# once unused. Skipped until the directory exists.
+# once unused. Skipped if the directory is absent.
 typecheck:
 	$(RUN) ty check pyroflow
 	$(if $(wildcard tests/typing),$(RUN) ty check --error-on-warning tests/typing)
@@ -47,7 +47,7 @@ test:
 	$(RUN) pytest
 
 # Every `Example` section in a docstring is a doctest and must be correct.
-# Exit 5 is pytest's "no tests collected": no docstring has an example yet.
+# Exit 5 is pytest's "no tests collected": the recipe still passes with no examples.
 test-doctest:
 	$(RUN) pytest --doctest-modules pyroflow || [ $$? -eq 5 ]
 

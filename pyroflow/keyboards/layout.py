@@ -29,8 +29,8 @@ def arrange(
         The rows.
 
     Raises:
-        ValueError: If `columns` and `layout` come together, or a width is not
-            positive.
+        ValueError: If `columns` and `layout` come together, `layout` is
+            empty, or a width is not positive.
 
     Example:
         >>> arrange(["a", "b", "c", "d"], layout=[1, 2])

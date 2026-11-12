@@ -1,4 +1,4 @@
-"""Internal helpers: class patching, bot command helpers, update binding and ask error dispatch."""
+"""Internal helpers: class patching, bot command helpers, update binding and `call_maybe_async`."""
 
 from .patching import *
 from .bot_commands import *

@@ -129,8 +129,8 @@ async def call_maybe_async(
 ) -> _ResultT:
     """Call `func` with `args` and return its result, awaiting it when it is a coroutine function.
 
-    A plain coroutine function or bound coroutine method is awaited directly,
-    as Pyrogram's `Handler.check` does. Anything else goes through
+    A plain coroutine function or bound coroutine method is awaited directly.
+    Anything else goes through
     `pytrove.maybe_awaitable`: a wrapper or partial around a coroutine
     function is awaited, and a sync callable runs in a thread on `executor`.
     What a sync callable returns comes back as it is: a coroutine from an

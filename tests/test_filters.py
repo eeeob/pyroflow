@@ -1,9 +1,8 @@
 """pyroflow.filters: endswith / startswith / equal / split_text / registered_command.
 
 Each filter is exercised through Filter.__call__(client, update) — the exact
-path pyrogram.handlers.Handler.check() uses — rather than by reaching into
-the module's private helpers, so these pin the actual contract other code
-relies on.
+path pyrogram.handlers.Handler.check() uses — so these pin the actual
+contract other code relies on. A few private helpers have tests of their own.
 """
 
 from __future__ import annotations as _annotations

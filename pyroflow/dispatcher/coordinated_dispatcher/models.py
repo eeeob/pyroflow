@@ -46,7 +46,7 @@ class _UpdateToRun:
     lane: _Lane | None = None
     """The lane the update takes its turn in; `None` if it runs free."""
     offered_at_generation: int = -1
-    """The dispatcher's `wait_generation` when the waits were last offered it; `-1` if never."""
+    """The hold's `last_wait_generation` when the update was last offered; `-1` if never."""
 
 
 @dataclass(eq=False, slots=True)
@@ -54,14 +54,14 @@ class _HandlerHold:
     """The claim of one running handler on its lane, until the handler ends.
 
     `CoordinatedDispatcher` opens it and names it the lane's `handler_hold`
-    while the handler runs, notes the waits of the handler, and runs its
-    offer passes.
+    while the handler runs, and runs its offer passes; `UpdateListener.listen`
+    notes the waits of the handler through `note_handler_wait`.
     """
 
     lane: _Lane
     """The lane."""
     last_wait_generation: int
-    """The dispatcher's `wait_generation` when this handler last started a wait."""
+    """The dispatcher's `wait_generation` when this handler last started a wait, or when it started."""
     offer_pass_active: bool = False
     """Whether an offer pass of this hold is requested or under way."""
     offer_pass_position: int = 0
@@ -146,7 +146,7 @@ class _Lane:
     waiting_updates: deque[_UpdateToRun] = field(default_factory=deque)
     """The updates behind the one running, oldest first."""
     handler_hold: _HandlerHold | None = None
-    """The hold of the running handler; `None` until the handler starts."""
+    """The hold of the running handler; `None` while no handler runs."""
     turn_taken: bool = False
     """Whether an update of the lane is running or posted."""
 

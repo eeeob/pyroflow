@@ -49,7 +49,7 @@ class DuplicatePolicy(StrEnum):
     REJECT = auto()
     """Refuse the new listener by raising `ListenerAlreadyExists`."""
     REPLACE = auto()
-    """Cancel the existing listener, then register the new one."""
+    """End the existing listener with `ListenerReplaced`, then register the new one."""
 
 
 class ListenerScope(StrEnum):

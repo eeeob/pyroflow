@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.dispatcher.coordinated_dispatcher.models`: the data the sequencer moves around."""
+"""Tests for `pyroflow.dispatcher.coordinated_dispatcher.models`: the data `CoordinatedDispatcher` moves around."""
 
 from __future__ import annotations as _annotations
 

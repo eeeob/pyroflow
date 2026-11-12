@@ -1,8 +1,8 @@
 """Pyrogram arguments the `Client.ask_*` methods accept, for type checkers.
 
 Each class stands alone, with every argument any supported kurigram accepts,
-so an argument may be unknown to the installed one; a comment names the
-versions of such an argument, and of those Pyrogram deprecated. What would
+so an argument may be unknown to the installed one; a comment marks those
+Pyrogram deprecated. What would
 put the question off, such as `schedule_date`, stays out: `ask` waits for the
 answer to a question asked now.
 """

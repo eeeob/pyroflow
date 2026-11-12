@@ -1,4 +1,4 @@
-"""Data models: the keys a wait is filed under, its context and its model, and a built page of a keyboard."""
+"""Data models: the keys a wait is filed under, its context and its model, `AskAgain` of the `ask_*_until` methods, and the page and options of a `Pagination`."""
 
 from .ask_again import *
 from .listener_key import *

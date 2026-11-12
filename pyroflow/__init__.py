@@ -1,4 +1,4 @@
-"""Conversation extensions for Pyrogram: the `ask_*` methods and listeners.
+"""Conversation extensions for Pyrogram: the `ask_*` methods, listeners, the `CoordinatedDispatcher`, text filters and inline keyboards.
 
 Importing this package patches Pyrogram's classes in place.
 """

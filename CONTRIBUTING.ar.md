@@ -20,7 +20,7 @@
 كل أمر هو `recipe` في `make`. الـ `Makefile` هو المكان الوحيد الذي تُكتب فيه الأوامر، و`CI` والـ `pre-commit hooks` تستدعي الـ `recipes` نفسها.
 
 ```bash
-make sync    # the locked environment, with every extra and every tooling group
+make sync    # the locked environment, with every tooling group
 make hooks   # run `make lint` and `make typecheck` before each commit
 ```
 
@@ -74,14 +74,14 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 | `make format` | `ruff format` على المكتبة والاختبارات | قبل الـ `commit` |
 | `make lint` | `ruff check` وفحص التنسيق | مع كل `commit` (`hook`) |
 | `make typecheck` | `ty` على المكتبة، وعلى `tests/typing/` مع اعتبار التحذيرات أخطاء | مع كل `commit` (`hook`) |
-| `make test` | الاختبارات في البيئة المقفلة مع كل الـ `extras` | مع كل تغيير |
+| `make test` | الاختبارات في البيئة المقفلة | مع كل تغيير |
 | `make test-doctest` | كل `Example` في الـ `docstrings` بوصفه `doctest` | عند إضافة مثال أو تغييره |
 | `make test-minimal` | الاستيراد والاختبارات في بيئة جديدة مثبّتة من المصدر | عند لمس الاستيرادات أو الاعتماديات |
 | `make test-floor` | الاختبارات مع كل اعتمادية على أدنى إصدار يسمح به حدها الأدنى، على أقدم Python | عند إضافة اعتمادية أو تغيير حد |
 | `make test-ceil` | الاختبارات مع كل اعتمادية على أحدث إصدار لها، على أحدث Python | عند إضافة اعتمادية أو تغيير حد |
 | `make build` | الـ `sdist` والـ `wheel` | عند لمس التحزيم |
 
-يشغّل `CI` كل الفحوص أعلاه عدا `make format` و`make build` على كل `pull request`، ويشغّل `recipes` الاختبار على كل إصدار Python مدعوم (1.1).
+يشغّل `CI` كل الفحوص أعلاه عدا `make format` و`make build` على كل `pull request`، ويشغّل `make test` و`make test-minimal` على كل إصدار Python مدعوم، و`make test-floor` و`make test-ceil` على الأقدم والأحدث (1.1).
 
 لا تُضيَّق مجموعة قواعد، ولا يُوسَّع استثناء، في `pyproject.toml` لكي يمرّ تغيير (1.10).
 

@@ -37,8 +37,8 @@ class Pagination(ABC, Generic[_T]):
 
     Args:
         items: Everything to page through, as a sequence that can be sliced,
-            or a function called as `(offset, limit)`, sync or async, that
-            returns one batch.
+            or a function called as `(offset, limit)`, sync (run in a thread)
+            or async, that returns one batch.
         item: Builds the `InlineKeyboardButton` of an item.
         count: How many items there are, as an `ItemCount`. `None` uses the
             length of a sequence, and leaves the count of a function unknown.

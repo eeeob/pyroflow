@@ -20,7 +20,7 @@ The mechanical rules are enforced by `ruff` and `ty`, configured only in `pyproj
 Every command is a `make` recipe. The `Makefile` is the one place commands are written down, and CI and the pre-commit hooks call the same recipes.
 
 ```bash
-make sync    # the locked environment, with every extra and every tooling group
+make sync    # the locked environment, with every tooling group
 make hooks   # run `make lint` and `make typecheck` before each commit
 ```
 
@@ -74,14 +74,14 @@ Nothing touches a real server, the network or Telegram (0.3).
 | `make format` | `ruff format` on the library and the tests | before committing |
 | `make lint` | `ruff check` and the format check | on each commit (hook) |
 | `make typecheck` | `ty` on the library, and on `tests/typing/` with warnings as errors | on each commit (hook) |
-| `make test` | the suite in the locked environment with every extra | on every change |
+| `make test` | the suite in the locked environment | on every change |
 | `make test-doctest` | every docstring `Example` as a doctest | when adding or changing an example |
 | `make test-minimal` | import and the suite in a fresh environment installed from source | when touching imports or dependencies |
 | `make test-floor` | the suite with every dependency at the lowest version its floor allows, on the oldest Python | when adding a dependency or changing a bound |
 | `make test-ceil` | the suite with every dependency at its newest release, on the newest Python | when adding a dependency or changing a bound |
 | `make build` | the sdist and the wheel | when touching packaging |
 
-CI runs every check above except `make format` and `make build` on each pull request, and the test recipes on every supported Python (1.1).
+CI runs every check above except `make format` and `make build` on each pull request, with `make test` and `make test-minimal` on every supported Python, and `make test-floor` and `make test-ceil` on the oldest and the newest (1.1).
 
 A rule set is never narrowed, nor an ignore widened, in `pyproject.toml` to make a change pass (1.10).
 

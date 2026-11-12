@@ -124,7 +124,8 @@ class Message(PyroMessage):
             listen_strict: Whether an update that fails `listen_filters` ends
                 the wait with `ListenerRejected` instead of being skipped; see
                 `Client.ask`.
-            listen_timeout: Seconds to wait before raising `ListenerTimeout`.
+            listen_timeout: Seconds to wait before raising `ListenerTimeout`;
+                `None` uses the listener's `timeout`.
             **kw: Passed to `edit` or `reply`.
 
         Returns:
@@ -298,7 +299,8 @@ class Message(PyroMessage):
         `__key_type__` for the message sent or edited.
 
         Pass `reply_markup`: a question without buttons cannot be answered, and
-        its wait stays open until `listen_timeout`, or forever without one.
+        its wait stays open until `listen_timeout`, or the listener's `timeout`,
+        or forever without either.
 
         Args:
             text: The text to send or edit.
@@ -510,7 +512,7 @@ class Message(PyroMessage):
             listen_strict: As in `ask`; a rejection by `listen_filters` ends
                 the loop, not only the wait.
             listen_timeout: As in `ask`, for each wait on its own.
-            **kw: Passed to `edit` or `reply`.
+            **kw: Passed to `edit` or `reply`, for the first question.
 
         Returns:
             The value `parse` returned.
@@ -586,6 +588,10 @@ class Message(PyroMessage):
 
         Like `ask_until`, but each question is a rich message and a new
         question from `parse` is an `InputRichMessage`.
+
+        A retry with the `kw` it was given raises `TypeError` when that `kw`
+        holds an edit-only argument such as `link_preview_options`, which
+        `reply_rich` does not take.
 
         Args:
             rich_message: The first question.
@@ -687,7 +693,7 @@ class Message(PyroMessage):
             listen_filters: As in `ask_until`.
             listen_strict: As in `ask_until`.
             listen_timeout: As in `ask`, for each wait on its own.
-            **kw: Passed to `edit` or `reply`.
+            **kw: Passed to `edit` or `reply`, for the first question.
 
         Returns:
             The value `parse` returned.
@@ -763,6 +769,10 @@ class Message(PyroMessage):
 
         Like `ask_callback_query_until`, but each question is a rich message
         and a new question from `parse` is an `InputRichMessage`.
+
+        A retry with the `kw` it was given raises `TypeError` when that `kw`
+        holds an edit-only argument such as `link_preview_options`, which
+        `reply_rich` does not take.
 
         Args:
             rich_message: The first question.

@@ -5,7 +5,8 @@ These tests parse every source file with the 3.10 grammar
 feature newer than the declared floor leaks into runtime code unguarded.
 
 They run on any interpreter (they never execute the scanned code), so
-they guard the 3.10 floor even while the suite itself runs on 3.14.
+they guard the 3.10 floor even while the suite itself runs on a newer
+interpreter.
 """
 
 from __future__ import annotations as _annotations
@@ -59,7 +60,7 @@ def test_310_grammar_rejects_newer_syntax(source: str) -> None:
 def test_strenum_import_is_version_guarded() -> None:
     """``StrEnum`` is 3.11+ — still newer than the 3.10 floor. It must never
     be imported at module top level; a ``sys.version_info`` fallback has to
-    guard it (regression guard for C1)."""
+    guard it."""
     tree = _parse(PKG_ROOT / "enums.py")
     top_level_imports = [
         node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))
@@ -68,8 +69,7 @@ def test_strenum_import_is_version_guarded() -> None:
         if isinstance(node, ast.ImportFrom) and node.module == "enum":
             names = {alias.name for alias in node.names}
             assert "StrEnum" not in names, (
-                "StrEnum imported unguarded at module level in enums.py "
-                "(breaks Python 3.10 — see audit finding C1)"
+                "StrEnum imported unguarded at module level in enums.py (breaks Python 3.10)"
             )
 
 

@@ -66,7 +66,7 @@ class ListenerModel(Generic[UpdateType]):
     """
 
     key: ListenerKey[UpdateType]
-    """The slot the listener is registered under."""
+    """The key the listener is registered under."""
     future: asyncio.Future
     """Resolved with the matching update, or failed with an error."""
     context: ListenerContext | None = None
@@ -82,7 +82,7 @@ class ListenerModel(Generic[UpdateType]):
     declined_updates: weakref.WeakValueDictionary[int, PyroUpdate] = field(
         default_factory=weakref.WeakValueDictionary
     )
-    """The updates `resolve` skips for this wait, by `id`, mostly those that failed `filters`; weak."""
+    """The updates `resolve` skips for this wait, by `id`: those that failed `filters`, and what earlier waits of the same coordinated handler declined; weak."""
     on_declined_update: Callable[[PyroUpdate], object] | None = None
     """Called by `decline` with the update; set by the `CoordinatedDispatcher` of the wait."""
 

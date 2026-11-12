@@ -2,7 +2,7 @@
 
 Importing ``pyroflow`` here is deliberate and must happen before any test
 runs: ``@patch_cls`` monkey-patches Pyrogram's ``Client``, ``Dispatcher``,
-``Message`` and ``CallbackQuery`` in-place at import time, and the whole
+``Message``, ``CallbackQuery`` and ``User`` in-place at import time, and the whole
 suite relies on that global patch being active.
 """
 

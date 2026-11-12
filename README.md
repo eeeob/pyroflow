@@ -8,7 +8,7 @@
 
 > Arabic translation: [README.ar.md](README.ar.md). If the two differ, this English text is the reference.
 
-```
+```bash
 pip install pyroflow
 ```
 
@@ -132,7 +132,7 @@ async def on_order(client, message):
 
 A key function returns a key, or `None` to pass the update to the next one. The handler holds its key until it ends, including while it waits in `ask`. A queued update takes no worker, so a user who sends 12 messages does not slow other users, and an update whose turn comes is offered to the open waits before its handlers run.
 
-> ⚠️ **Install it first**, right after `Client(...)` and before any handler, `register_listener` or `setup_pyroflow`: what was registered earlier stays on the old dispatcher and never runs, with no error.
+> ⚠️ **Install it first**, right after `Client(...)` and before any handler or `register_listener`: what was registered earlier stays on the old dispatcher and never runs, with no error.
 >
 > ⚠️ **A wait with no timeout freezes its key.** The key stays held during the wait, so a `/cancel` handler of that chat is just another queued update. Pass `listen_timeout`.
 
@@ -186,7 +186,7 @@ page = await pages.build(2)
 await message.reply("Products:", reply_markup=page.markup)
 ```
 
-**Text filters:** `pyroflow.filters` adds `startswith`, `endswith`, `equal` and `registered_command`, which passes only the commands set for this bot.
+**Text filters:** `pyroflow.filters` adds `startswith`, `endswith`, `equal`, `split_text` and `registered_command`, which passes only the commands set for this bot.
 
 ```python
 from pyroflow import MessageListener, filters
@@ -212,13 +212,13 @@ client = Bot("my_session")
 async def on_start(client, message): ...
 ```
 
-**Errors:** every error derives from `PyroflowError`. `ListenerTimeout`, `ListenerCancelled` (with `ListenerReplaced`, `ListenerRejected`, `ListenerEvicted`), `ListenerWorkersBusy` and `ListenerAttemptsExhausted` are in `pyroflow.errors`.
+**Errors:** every error derives from `PyroflowError`, and those of waiting from `ListenerError`: `ListenerTimeout`, `ListenerCancelled` (with `ListenerReplaced`, `ListenerRejected`, `ListenerEvicted`), `ListenerAlreadyExists`, `ListenerWorkersBusy` and `ListenerAttemptsExhausted`, all in `pyroflow.errors`.
 
 ---
 
 ## Development
 
-The only prerequisite is [uv](https://docs.astral.sh/uv/).
+The only prerequisites are [uv](https://docs.astral.sh/uv/) and `make`.
 
 ```bash
 make sync        # install the locked environment
