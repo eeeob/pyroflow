@@ -1087,6 +1087,16 @@ async def test_listen_reports_to_an_async_func_after_removing_the_wait() -> None
     assert seen == [False]
 
 
+async def test_listen_calls_a_sync_on_error_func_on_the_event_loop() -> None:
+    threads: list[threading.Thread] = []
+    lis = _make(on_error_func=lambda exc, model: threads.append(threading.current_thread()))
+
+    with pytest.raises(ListenerTimeout):
+        await lis.listen(MessageKey(1), timeout=0.01)
+
+    assert threads == [threading.current_thread()]
+
+
 async def test_listen_logs_a_failing_on_error_func_and_raises_the_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

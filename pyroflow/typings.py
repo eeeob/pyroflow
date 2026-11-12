@@ -9,7 +9,7 @@ from typing import (
 )
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
-from pytrove.typings import MaybeList
+from pytrove.typings import MaybeAwaitableCallable as _MaybeAwaitableCallable, MaybeList
 
 
 UpdateType = TypeVar("UpdateType", bound=PyroUpdate)
@@ -39,6 +39,17 @@ CoordinationKeyT: TypeAlias = Hashable
 """What a `CoordinatedDispatcher` groups updates by: any hashable value."""
 
 
+MaybeAwaitableCallable: TypeAlias = _MaybeAwaitableCallable
+"""A sync callable, or one whose result is awaited; pytrove's `MaybeAwaitableCallable` itself.
+
+Warning:
+    It is called on the event loop itself, sync or not, never in a thread. A
+    sync function that is slow or blocks, on I/O or heavy work, stops every
+    update until it returns. Keep it light; for heavy work, pass an
+    `async def` that awaits `asyncio.to_thread`.
+"""
+
+
 __all__ = (
     "UpdateType",
     "QuestionT",
@@ -47,4 +58,5 @@ __all__ = (
     "BotCommandPartsT",
     "BotCommandGroupKeyT",
     "CoordinationKeyT",
+    "MaybeAwaitableCallable",
 )

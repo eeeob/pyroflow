@@ -5,6 +5,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import inspect
+import threading
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -855,6 +856,20 @@ async def test_until_takes_a_sync_or_async_parse(
         await getattr(c, method)(100, question, parse=make_parse(AskAgain(question), None)) is last
     )
     assert ask.await_count == 2
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_calls_a_sync_parse_on_the_event_loop(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, _ = _until_client(asked, make_answer())
+    threads: list[threading.Thread] = []
+
+    await getattr(c, method)(
+        100, question, parse=lambda *_: threads.append(threading.current_thread())
+    )
+
+    assert threads == [threading.current_thread()]
 
 
 @pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)

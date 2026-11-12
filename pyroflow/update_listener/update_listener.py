@@ -7,6 +7,8 @@ import logging
 from abc import ABC
 from typing import Any, TYPE_CHECKING, TypedDict, cast
 
+from pytrove import call_sync_or_await
+
 from ..typings import UpdateType
 from ..dispatcher.dispatcher import _HANDLER_WORKER, _HANDLER_HOLD
 from ..utils import UpdateBound, call_maybe_async, get_update_executor
@@ -27,9 +29,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from pyrogram.filters import Filter
-    from pytrove.typings import MaybeCoroutineCallable, Number
+    from pytrove.typings import Number
 
     from ..client import Client
+    from ..typings import MaybeAwaitableCallable
     from ..dispatcher import CoordinatedDispatcher
     from ..models import ListenerContext, ListenerKey
 
@@ -75,8 +78,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             `extract_key`; `None` skips the update. It runs inline on the
             event loop, so it must be fast. `None` uses `from_update` of
             `__key_type__`.
-        on_error_func: `(exc, listener_model) -> object`, sync or async,
-            called when a `ListenerError` ends a wait (a timeout, a
+        on_error_func: `(exc, listener_model) -> object`, sync or async and
+            light, as it runs on the event loop; called when a `ListenerError` ends a wait (a timeout, a
             cancellation, an eviction or a strict rejection), after the wait
             is removed and before `listen` raises the error. Errors raised
             before a wait starts, `ListenerAlreadyExists` and
@@ -128,7 +131,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self,
         duplicate_policy: DuplicatePolicy | None = None,
         extract_key_func: Callable[[UpdateType], ListenerKey[UpdateType] | None] | None = None,
-        on_error_func: MaybeCoroutineCallable[[ListenerError, ListenerModel], object] | None = None,
+        on_error_func: MaybeAwaitableCallable[[ListenerError, ListenerModel], object] | None = None,
         timeout: Number | None = None,
         resolve_scope: ListenerScope = ListenerScope.FIRST,
         strict_filter: Filter | None = None,
@@ -589,7 +592,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             if error is not None and (on_error := self.on_error_func) is not None:
                 try:
-                    await call_maybe_async(on_error, error, listener)
+                    await call_sync_or_await(on_error, error, listener)
                 except Exception:
                     log.exception("Error in on_error_func of the listener for %s", key)
 

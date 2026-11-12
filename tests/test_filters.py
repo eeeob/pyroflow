@@ -373,11 +373,11 @@ async def test_split_text_async_callable_rule_rejects_falsy_result() -> None:
     assert await matches(flt, make_message(text="x")) is False
 
 
-async def test_split_text_sync_callable_rule_runs_on_the_client_executor() -> None:
-    threads: list[str] = []
+async def test_split_text_sync_callable_rule_runs_on_the_event_loop() -> None:
+    threads: list[threading.Thread] = []
 
     def is_digits(part: str) -> bool:
-        threads.append(threading.current_thread().name)
+        threads.append(threading.current_thread())
         return part.isdigit()
 
     flt = filters.split_text(is_digits)
@@ -385,7 +385,7 @@ async def test_split_text_sync_callable_rule_runs_on_the_client_executor() -> No
         client = SimpleNamespace(executor=executor)
         assert await flt(client, make_message(text="42")) is True
         assert await flt(client, make_message(text="4x")) is False
-    assert threads and all(name.startswith("filters-test") for name in threads)
+    assert threads == [threading.current_thread()] * 2
 
 
 async def test_split_text_callable_rule_exception_propagates() -> None:

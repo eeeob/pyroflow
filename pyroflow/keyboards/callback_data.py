@@ -19,9 +19,10 @@ if TYPE_CHECKING:
     from enum import EnumMeta as EnumType
 
     from pyrogram.filters import Filter
-    from pytrove.typings import MaybeCoroutineCallable, NestedContainer
+    from pytrove.typings import NestedContainer
 
     from ..client import Client
+    from ..typings import MaybeAwaitableCallable
 
 if sys.version_info >= (3, 11):
     from typing import dataclass_transform
@@ -385,7 +386,7 @@ class CallbackData(Generic[_P, _T]):
     def filter_rules(
         self,
         /,
-        **rules: MaybeCoroutineCallable[[str], bool]
+        **rules: MaybeAwaitableCallable[[str], bool]
         | NestedContainer[str]
         | EnumType
         | re.Pattern[str],

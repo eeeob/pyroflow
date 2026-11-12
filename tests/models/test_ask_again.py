@@ -3,6 +3,7 @@
 from __future__ import annotations as _annotations
 
 import dataclasses
+from collections.abc import Awaitable
 from typing import Any, get_args
 
 import pytest
@@ -42,4 +43,4 @@ def test_ask_parser_is_generic_on_the_update_the_question_and_the_result() -> No
     params, result = get_args(AskParser[Message, str, int])
 
     assert params == [Message, dict[str, Any]]
-    assert {AskAgain[str], int} <= set(get_args(result))
+    assert set(get_args(result)) == {AskAgain[str], int, Awaitable[AskAgain[str] | int]}

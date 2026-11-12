@@ -154,6 +154,15 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** the `parse` of the `ask_*_until` methods, `on_error_func`,
+  and `split_text` and `CallbackData.filter_rules` rules are called on the
+  event loop through `pytrove.call_sync_or_await`, sync or not, never in a
+  thread: a slow sync one stops every update until it returns. Their type is
+  the new `pyroflow.typings.MaybeAwaitableCallable`, pytrove's own, and what
+  a sync one returns is awaited if it can be. `Pagination` items and
+  `ItemCount` functions still run a sync function in a thread.
+  Migration: keep these functions light, or make a heavy one an `async def`
+  that awaits `asyncio.to_thread`.
 - **BREAKING:** registering a listener binds it to the client
   (`UpdateListener.client`); registering one already bound to another client
   raises `ValueError`, and unregistering unbinds it. `listen` on a listener
@@ -253,9 +262,9 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `ask_callback_query_rich_until` accept `business_connection_id`, as
   `send_rich_message` does since kurigram 2.2.27.
 - Faster dispatch: `UpdateListener.resolve` returns at once when no wait is
-  open, and listener filters, `on_error_func`, handler
-  callbacks and `split_text` rules that are coroutine functions are awaited
-  directly (the new `pyroflow.utils.call_maybe_async`). A listener filter
+  open, and listener filters and handler callbacks that are coroutine
+  functions are awaited directly (the new `pyroflow.utils.call_maybe_async`).
+  A listener filter
   no longer captures the caller's stack on every call. An error in a
   listener filter or in `on_error_func` is now logged by the
   `pyroflow.update_listener.update_listener` logger instead of `pytrove`'s.

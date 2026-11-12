@@ -6,6 +6,7 @@ from collections.abc import Hashable
 
 from typing import get_args, get_origin
 
+import pytrove.typings
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
 import pyroflow.typings
@@ -37,6 +38,10 @@ def test_coordination_key_is_any_hashable_value() -> None:
     assert pyroflow.typings.CoordinationKeyT is Hashable
 
 
+def test_maybe_awaitable_callable_is_the_one_of_pytrove() -> None:
+    assert pyroflow.typings.MaybeAwaitableCallable is pytrove.typings.MaybeAwaitableCallable
+
+
 def test_typings_all() -> None:
     assert set(pyroflow.typings.__all__) == {
         "UpdateType",
@@ -46,4 +51,5 @@ def test_typings_all() -> None:
         "BotCommandPartsT",
         "BotCommandGroupKeyT",
         "CoordinationKeyT",
+        "MaybeAwaitableCallable",
     }

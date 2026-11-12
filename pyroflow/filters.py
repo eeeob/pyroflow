@@ -25,6 +25,7 @@ from pyrogram.types import (
     BotCommandScopeDefault,
 )
 from pytrove import (
+    call_sync_or_await,
     gather_abort,
     iter_flat_cont,
     is_container,
@@ -33,16 +34,16 @@ from pytrove import (
 
 from .enums import CommandUsernamePolicy
 from .types import Message
-from .utils import call_maybe_async
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from pyrogram.types import User
-    from pytrove.typings import MaybeCoroutineCallable, NestedContainer
+    from pytrove.typings import NestedContainer
 
     from .client import Client
     from .types import CallbackQuery as Query
+    from .typings import MaybeAwaitableCallable
 
 
 # Not `pytrove.TG_BOT_COMMAND_PATTERN`: it refuses arguments, a name not starting with a
@@ -258,8 +259,8 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
 
 
 def _normalize_rule(
-    rule: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
-) -> frozenset[str] | re.Pattern[str] | MaybeCoroutineCallable[[str], bool]:
+    rule: MaybeAwaitableCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
+) -> frozenset[str] | re.Pattern[str] | MaybeAwaitableCallable[[str], bool]:
     """Turn one `split_text` rule into the form its matcher checks.
 
     Args:
@@ -407,15 +408,15 @@ def equal(*texts: NestedContainer[str | bytes]) -> Filter:
 
 
 def split_text(
-    *rules: MaybeCoroutineCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
+    *rules: MaybeAwaitableCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
     strip: bool = False,
     separator: str | None = None,
 ) -> Filter:
     r"""Split the update's text by `separator` and match each part against its `rules` entry.
 
     The update matches only when the text splits into exactly one part per
-    rule and every part satisfies its rule. A synchronous callable rule runs
-    in a thread on the client's executor. Callback data left as `bytes` never
+    rule and every part satisfies its rule. A callable rule runs on the event
+    loop, sync or not, so keep it light. Callback data left as `bytes` never
     matches.
 
     Args:
@@ -493,7 +494,7 @@ def split_text(
             elif isinstance(rule, re.Pattern):
                 if rule.fullmatch(part) is None:
                     return False
-            elif not await call_maybe_async(rule, part, executor=client.executor):
+            elif not await call_sync_or_await(rule, part):
                 return False
 
         return True

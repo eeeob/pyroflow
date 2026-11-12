@@ -2,7 +2,7 @@
 
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeAlias
 
@@ -24,12 +24,12 @@ class AskAgain(Generic[QuestionT]):
     """The arguments of the next question; empty sends it with none."""
 
 
-# Spelled out: pytrove's `MaybeCoroutineCallable` loses `UpdateType` at runtime on Python 3.12 and 3.13.
+# pytrove's `MaybeAwaitableCallable` spelled out: it loses `UpdateType` at runtime on Python 3.12 and 3.13.
 AskParser: TypeAlias = Callable[
     [UpdateType, dict[str, Any]],
-    AskAgain[QuestionT] | ResultT | Coroutine[Any, Any, AskAgain[QuestionT] | ResultT],
+    AskAgain[QuestionT] | ResultT | Awaitable[AskAgain[QuestionT] | ResultT],
 ]
-"""The `parse` of the `ask_*_until` methods: `AskAgain` asks again, anything else is returned."""
+"""The `parse` of the `ask_*_until` methods: `AskAgain` asks again, anything else is returned; light, as it runs on the loop."""
 
 
 __all__ = (

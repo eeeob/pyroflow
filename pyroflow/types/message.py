@@ -478,8 +478,9 @@ class Message(PyroMessage):
         """Repeat `ask` until `parse` returns a value.
 
         `parse` is called as `parse(answer, kw)`, sync or async, where `kw` is the
-        dict of keyword arguments of the question. What it returns decides what
-        happens next:
+        dict of keyword arguments of the question. It runs on the event loop,
+        so a slow sync `parse` stops every update; keep it light. What it
+        returns decides what happens next:
 
         - `AskAgain(question)`: rejected; `question` is asked with no arguments.
         - `AskAgain(question, new_kw)`: rejected; `question` is asked with

@@ -12,7 +12,9 @@ from pyrogram import (
 
 from ..errors import ListenerAttemptsExhausted
 from ..models import AskAgain, ListenerContext
-from ..utils import patch_cls, call_maybe_async, get_update_executor
+from pytrove import call_sync_or_await
+
+from ..utils import patch_cls
 from ..types import Message, CallbackQuery
 
 if TYPE_CHECKING:
@@ -311,8 +313,9 @@ class Client(PyroClient):
             question: The first question.
             mode: The second argument of `ask` for the first question.
             retry_mode: The second argument of `ask` for each retry.
-            parse: `(answer, kw) -> AskAgain | value`, sync or async: `AskAgain`
-                asks again, and anything else is returned.
+            parse: `(answer, kw) -> AskAgain | value`, sync or async, and light,
+                as it runs on the event loop: `AskAgain` asks again, and
+                anything else is returned.
             attempts: How many times to ask, or `None` for no limit.
             kw: The arguments of the first question.
             listen_user_id: Passed to `ask`.
@@ -346,7 +349,7 @@ class Client(PyroClient):
         while True:
             asked += 1
             answer = await ask(*target, question, mode, **(listen_kw | kw))
-            result = await call_maybe_async(parse, answer, kw, executor=get_update_executor(answer))
+            result = await call_sync_or_await(parse, answer, kw)
 
             if not isinstance(result, AskAgain):
                 return result
@@ -785,8 +788,9 @@ class Client(PyroClient):
         """Repeat `ask` until `parse` returns a value.
 
         `parse` is called as `parse(answer, kw)`, sync or async, where `kw` is the
-        dict of keyword arguments of the question. What it returns decides what
-        happens next:
+        dict of keyword arguments of the question. It runs on the event loop,
+        so a slow sync `parse` stops every update; keep it light. What it
+        returns decides what happens next:
 
         - `AskAgain(question)`: rejected; `question` is asked with no arguments.
         - `AskAgain(question, new_kw)`: rejected; `question` is asked with
