@@ -22,7 +22,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
-from pyroflow.dispatcher.dispatcher import _HANDLER_WORKER
+from pyroflow.dispatcher.dispatcher import _HANDLER_HOLD, _HANDLER_WORKER
 from pyroflow.enums import DuplicatePolicy, ListenerScope
 from pyroflow.errors import (
     ListenerAlreadyExists,
@@ -196,6 +196,8 @@ def test_init_defaults() -> None:
     assert lis.timeout is None
     assert lis.resolve_scope is ListenerScope.FIRST
     assert lis.strict_filter is None
+    assert lis.filters_timeout is None
+    assert lis.client is None
     assert lis.listeners == {}
     assert lis.is_closed is False
     assert lis._shapes == {}
@@ -210,6 +212,7 @@ def test_init_stores_arguments() -> None:
         timeout=3,
         resolve_scope=ListenerScope.ALL,
         strict_filter=TEXT_A,
+        filters_timeout=0.5,
     )
     assert lis.duplicate_policy is DuplicatePolicy.REJECT
     assert lis.extract_key_func is _key_of
@@ -217,6 +220,18 @@ def test_init_stores_arguments() -> None:
     assert lis.timeout == 3
     assert lis.resolve_scope is ListenerScope.ALL
     assert lis.strict_filter is TEXT_A
+    assert lis.filters_timeout == 0.5
+
+
+def test_init_rejects_a_key_of_another_update_type() -> None:
+    class Mixed(UpdateListener[Message]):
+        __update_type__ = Message
+        __key_type__ = CallbackQueryKey  # ty: ignore[invalid-assignment]
+
+    with pytest.raises(
+        TypeError, match="Mixed.__key_type__ CallbackQueryKey keys CallbackQuery, not Message"
+    ):
+        Mixed()
 
 
 def test_init_computes_the_exact_mask_of_the_key_type() -> None:
@@ -439,7 +454,7 @@ async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
 
 
 class _Holder:
-    """Stands in for the dispatcher of a worker: records what `listen` does with it."""
+    """Stands in for the dispatcher of a client: records what `listen` does with it."""
 
     def __init__(
         self,
@@ -448,7 +463,9 @@ class _Holder:
         has_policy: bool = True,
     ) -> None:
         self.error = error
-        self.client = SimpleNamespace(workers_policy=object() if has_policy else None)
+        self.client = SimpleNamespace(
+            dispatcher=self, workers_policy=object() if has_policy else None
+        )
         self.listener_waits: dict[ListenerModel, object] = {}
         self.entered: list[MessageKey] = []
         self.ended: list[tuple[object, ListenerModel]] = []
@@ -463,16 +480,17 @@ class _Holder:
             self.ended.append((listener, model))
 
 
-def _as_worker(holder: _Holder) -> object:
-    """Mark the running task as a worker of `holder`, as `Dispatcher.handler_worker` does."""
-    return _HANDLER_WORKER.set((holder, asyncio.current_task()))
+def _as_worker(lis: _Listener, holder: _Holder) -> object:
+    """Bind `lis` to the client of `holder`, and mark the running task as its worker."""
+    lis.client = holder.client  # ty: ignore[invalid-assignment]
+    return _HANDLER_WORKER.set(asyncio.current_task())
 
 
 async def _pending_on_a_worker(lis: _Listener, holder: _Holder, chat_id: int) -> asyncio.Task:
     """Start a wait in a task that is a worker of `holder`, and let it register."""
 
     async def wait() -> object:
-        _as_worker(holder)
+        _as_worker(lis, holder)
         return await lis.listen(MessageKey(chat_id))
 
     task = asyncio.ensure_future(wait())
@@ -523,9 +541,9 @@ async def test_listen_without_a_chat_takes_any_update() -> None:
 
 async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
     holder = _Holder()
-    token = _as_worker(holder)
+    lis = _make()
+    token = _as_worker(lis, holder)
     try:
-        lis = _make()
         with pytest.raises(ListenerTimeout):
             await lis.listen(MessageKey(100), timeout=0.01)
     finally:
@@ -540,9 +558,9 @@ async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
 
 async def test_listen_in_a_task_the_handler_spawned_is_not_counted() -> None:
     holder = _Holder()
-    token = _as_worker(holder)
+    lis = _make()
+    token = _as_worker(lis, holder)
     try:
-        lis = _make()
         with pytest.raises(ListenerTimeout):
             await asyncio.create_task(lis.listen(MessageKey(100), timeout=0.01))
     finally:
@@ -553,10 +571,11 @@ async def test_listen_in_a_task_the_handler_spawned_is_not_counted() -> None:
 
 async def test_listen_without_a_policy_leaves_the_dispatcher_alone() -> None:
     holder = _Holder(has_policy=False)
-    token = _as_worker(holder)
+    lis = _make()
+    token = _as_worker(lis, holder)
     try:
         with pytest.raises(ListenerTimeout):
-            await _make().listen(MessageKey(100), timeout=0.01)
+            await lis.listen(MessageKey(100), timeout=0.01)
     finally:
         _HANDLER_WORKER.reset(token)
 
@@ -565,9 +584,9 @@ async def test_listen_without_a_policy_leaves_the_dispatcher_alone() -> None:
 
 
 async def test_listen_refused_by_the_policy_registers_nothing() -> None:
-    token = _as_worker(_Holder(error=ListenerWorkersBusy(MessageKey(100))))
+    lis = _make()
+    token = _as_worker(lis, _Holder(error=ListenerWorkersBusy(MessageKey(100))))
     try:
-        lis = _make()
         with pytest.raises(ListenerWorkersBusy):
             await lis.listen(MessageKey(100))
     finally:
@@ -581,7 +600,7 @@ async def test_listen_refuses_a_duplicate_before_making_room_for_it() -> None:
     lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
     first = await _pending(lis, MessageKey(100))
     holder = _Holder()
-    token = _as_worker(holder)
+    token = _as_worker(lis, holder)
     try:
         with pytest.raises(ListenerAlreadyExists):
             await lis.listen(MessageKey(100))
@@ -598,7 +617,7 @@ async def test_listen_replacing_a_wait_that_holds_a_slot_skips_the_check() -> No
     lis = _make()
     holder = _Holder()
     first = await _pending_on_a_worker(lis, holder, 100)
-    token = _as_worker(holder)
+    token = _as_worker(lis, holder)
     try:
         with pytest.raises(ListenerTimeout):
             await lis.listen(MessageKey(100), timeout=0.01)
@@ -613,7 +632,7 @@ async def test_listen_replacing_a_wait_that_holds_a_slot_skips_the_check() -> No
 async def test_listen_refused_while_replacing_leaves_the_old_wait_open() -> None:
     lis = _make()
     first = await _pending(lis, MessageKey(100))
-    token = _as_worker(_Holder(error=ListenerWorkersBusy(MessageKey(100))))
+    token = _as_worker(lis, _Holder(error=ListenerWorkersBusy(MessageKey(100))))
     try:
         with pytest.raises(ListenerWorkersBusy):
             await lis.listen(MessageKey(100))
@@ -640,7 +659,7 @@ async def test_listen_replacing_a_wait_that_holds_no_worker_makes_room() -> None
     lis = _make()
     first = await _pending(lis, MessageKey(100))
     holder = _Holder()
-    token = _as_worker(holder)
+    token = _as_worker(lis, holder)
     try:
         with pytest.raises(ListenerTimeout):
             await lis.listen(MessageKey(100), timeout=0.01)
@@ -664,6 +683,30 @@ async def test_listen_on_a_worker_frees_the_slot_the_moment_the_wait_ends() -> N
     await _drain(task)
 
     assert len(holder.ended) == 1
+
+
+async def test_listen_unbound_on_a_worker_takes_no_policy() -> None:
+    lis = _make()
+    token = _HANDLER_WORKER.set(asyncio.current_task())
+    try:
+        # A bound listener would read `client.workers_policy` here.
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(MessageKey(100), timeout=0.01)
+    finally:
+        _HANDLER_WORKER.reset(token)
+
+    assert lis.listeners == {}
+
+
+async def test_listen_unbound_in_a_hold_takes_no_hold() -> None:
+    lis = _make()
+    # Not a hold: one that `listen` used would raise at `wait_offer_lock`.
+    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]
+    try:
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(MessageKey(100), timeout=0.01)
+    finally:
+        _HANDLER_HOLD.reset(token)
 
 
 async def test_listen_outside_a_worker_adds_only_the_cleanup_callback() -> None:
@@ -1267,6 +1310,66 @@ async def test_resolve_treats_a_failing_filter_as_a_rejection(
         assert not task.done()
     finally:
         await _drain(task)
+
+
+async def _sleeps(_: object, __: object, update: Message) -> bool:
+    await asyncio.sleep(1)
+    return True
+
+
+async def test_resolve_declines_an_update_whose_filter_runs_over_filters_timeout(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lis = _make(filters_timeout=0.01)
+    task = await _pending(lis, MessageKey(100, 7), filters=filters.create(_sleeps))
+    update = make_message(100, 7, 5)
+    try:
+        with caplog.at_level(logging.WARNING):
+            assert await asyncio.wait_for(lis.resolve(update), 0.5) is False
+        assert "ran over 0.01 seconds; the update is declined" in caplog.text
+        assert not task.done()
+        assert id(update) in lis.listeners[MessageKey(100, 7)].declined_updates
+    finally:
+        await _drain(task)
+
+
+async def test_resolve_rejects_a_strict_wait_whose_filter_runs_over_filters_timeout() -> None:
+    lis = _make(filters_timeout=0.01)
+    task = await _pending(lis, MessageKey(100, 7), filters=filters.create(_sleeps), strict=True)
+
+    assert await asyncio.wait_for(lis.resolve(make_message(100, 7, 5)), 0.5) is False
+    with pytest.raises(ListenerRejected):
+        await task
+
+
+async def test_resolve_stops_waiting_for_a_sync_filter_over_filters_timeout() -> None:
+    release = threading.Event()
+
+    def blocks(_: object, __: object, update: Message) -> bool:
+        release.wait(1)
+        return True
+
+    executor = ThreadPoolExecutor(1, thread_name_prefix="pyroflow-filter")
+    lis = _make(filters_timeout=0.01)
+    try:
+        task = await _pending(lis, MessageKey(100, 7), filters=filters.create(blocks))
+        update = make_message(100, 7, 5, _client=SimpleNamespace(executor=executor))
+
+        assert await asyncio.wait_for(lis.resolve(update), 0.5) is False
+        assert not task.done()
+        await _drain(task)
+    finally:
+        release.set()
+        executor.shutdown()
+
+
+async def test_resolve_gives_the_update_to_a_filter_that_passes_within_filters_timeout() -> None:
+    lis = _make(filters_timeout=1)
+    task = await _pending(lis, MessageKey(100, 7), filters=TEXT_A)
+    update = make_message(100, 7, 5, text="abc")
+
+    assert await lis.resolve(update) is True
+    assert await task is update
 
 
 # --- a key class with a field of its own -----------------------------------------

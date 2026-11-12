@@ -15,7 +15,6 @@ from .models import _HandlerHold, _Lane, _RawUpdate, _UpdateToRun
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from pyrogram import Client as PyroClient
     from pyrogram.handlers import Handler as PyroHandler
     from pyrogram.types import Update as PyroUpdate
 
@@ -87,8 +86,9 @@ class CoordinatedDispatcher(Dispatcher):
         Bound the waits of coordinated handlers with a timeout.
 
     Args:
-        client: The client whose dispatcher this replaces.
+        *args: Passed to `Dispatcher`: the client whose dispatcher this replaces.
         key_functions: `(update) -> key`, sync, as updates are placed in order.
+        **kw: Passed to `Dispatcher`.
 
     Example:
         >>> def chat_key(update):
@@ -102,12 +102,12 @@ class CoordinatedDispatcher(Dispatcher):
 
     def __init__(
         self,
-        client: PyroClient,
-        *,
+        *args: object,
         key_functions: Iterable[Callable[[PyroUpdate], CoordinationKeyT | None]] = (),
+        **kw: object,
     ) -> None:
         """Initialise the dispatcher; see the class docstring for the parameters."""
-        super().__init__(client)
+        super().__init__(*args, **kw)
 
         self.key_functions = tuple(key_functions)
         """The key functions, in order."""
@@ -207,9 +207,7 @@ class CoordinatedDispatcher(Dispatcher):
     async def handler_worker(self) -> None:
         """Carry out what `worker_instructions` holds until it tells this worker to stop."""
         # Always called from a task.
-        worker_token = _HANDLER_WORKER.set(
-            (self, cast("asyncio.Task[None]", asyncio.current_task()))
-        )
+        worker_token = _HANDLER_WORKER.set(cast("asyncio.Task[None]", asyncio.current_task()))
         # A client started inside a handler must not take that handler's hold for its own.
         outer_hold_token = _HANDLER_HOLD.set(None)
 
@@ -233,7 +231,7 @@ class CoordinatedDispatcher(Dispatcher):
                     # An update that runs free keeps the worker's `None`.
                     if lane is not None:
                         lane.handler_hold = _HandlerHold(lane, self.wait_generation)
-                        handler_hold_token = _HANDLER_HOLD.set((self, lane.handler_hold))
+                        handler_hold_token = _HANDLER_HOLD.set(lane.handler_hold)
                         lane.handler_hold.request_offer_pass(self.offer_pass_requests)
 
                     await self.handle_update(

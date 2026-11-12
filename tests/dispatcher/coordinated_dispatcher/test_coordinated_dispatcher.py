@@ -11,7 +11,7 @@ import gc
 import logging
 import random
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pyrogram import ContinuePropagation, StopPropagation, filters
@@ -406,8 +406,7 @@ async def test_a_queued_update_runs_in_a_worker() -> None:
     inside: list[bool] = []
 
     async def probe(_: object, message: Message) -> None:
-        holder = _HANDLER_WORKER.get()
-        inside.append(holder is not None and holder[1] is asyncio.current_task())
+        inside.append(_HANDLER_WORKER.get() is asyncio.current_task())
         await asyncio.sleep(0.01)
 
     bot.on(probe)
@@ -664,8 +663,8 @@ async def test_each_handler_runs_in_a_hold_of_its_own() -> None:
         await _until(lambda: len(seen) == 2)
         await bot.settle()
 
-    assert all(dispatcher is bot.dispatcher and hold.handler_ended() for dispatcher, hold in seen)
-    assert seen[0][1] is not seen[1][1]
+    assert all(isinstance(hold, _HandlerHold) and hold.handler_ended() for hold in seen)
+    assert seen[0] is not seen[1]
 
 
 async def test_a_client_started_inside_a_handler_takes_no_hold_from_it() -> None:
@@ -965,10 +964,10 @@ async def test_a_cancelled_wait_ends_its_handler_and_frees_the_key() -> None:
 
 async def test_listen_drops_the_hold_from_its_frame_once_the_wait_fails() -> None:
     # The traceback of the error keeps the frame of `listen`, as in gotcha 12.
-    dispatcher = _Bot().dispatcher
     hold = _HandlerHold(_Lane((0, CHAT)), 0)
-    listener = MessageListener()
-    token = _HANDLER_HOLD.set((dispatcher, hold))
+    # Registered on the bot's client, so `listen` takes the hold.
+    listener = _Bot().listener
+    token = _HANDLER_HOLD.set(hold)
     try:
         waiter = asyncio.ensure_future(listener.listen(MessageKey(CHAT)))
         await asyncio.sleep(0)
@@ -2247,7 +2246,7 @@ async def test_a_worker_opens_the_hold_at_the_current_wait_generation() -> None:
     holds: list[Any] = []
 
     async def record(_: object, message: Message) -> None:
-        holds.append(cast("Any", _HANDLER_HOLD.get())[1])
+        holds.append(_HANDLER_HOLD.get())
 
     bot.on(record)
 
@@ -2276,7 +2275,7 @@ async def test_a_worker_opening_a_hold_with_a_backlog_asks_for_an_offer_pass(
     monkeypatch.setattr(_HandlerHold, "request_offer_pass", record_request)
 
     async def handler(_: object, message: Message) -> None:
-        holds[message.id] = cast("Any", _HANDLER_HOLD.get())[1]
+        holds[message.id] = _HANDLER_HOLD.get()
         if message.id == 1:
             await release.wait()
 
@@ -2316,6 +2315,22 @@ async def _lane_of(dispatcher: CoordinatedDispatcher, update: object) -> _Lane |
         for lane in dispatcher.lanes_by_key.values()
         if lane.waiting_updates and lane.waiting_updates[-1].parsed_update is update
     )
+
+
+def test_init_passes_the_other_arguments_to_dispatcher(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    original = Dispatcher.__init__
+
+    def record(self: Dispatcher, client: object, *args: object, **kw: object) -> None:
+        received.append((args, kw))
+        original(self, client)
+
+    client = _bare_client()
+    monkeypatch.setattr(Dispatcher, "__init__", record)
+
+    CoordinatedDispatcher(client, "extra", key_functions=[sequencing.chat_key], flag=True)
+
+    assert received == [(("extra",), {"flag": True})]
 
 
 def test_it_starts_with_its_key_functions_and_no_lane() -> None:

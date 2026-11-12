@@ -169,7 +169,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             )
             self.bot_command_groups.clear()
 
-    async def initialize(self) -> None:
+    async def initialize(self, *args: Any, **kw: Any) -> None:
         """Publish the commands, then initialize the client as usual.
 
         `start` calls this once connected and its `plugins` loaded, and it
@@ -177,9 +177,13 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         are published. A failure to publish, such as a command name Telegram
         rejects, is logged and does not fail `start`: the client is connected
         by then.
+
+        Args:
+            *args: Passed to `pyrogram.Client.initialize`.
+            **kw: Passed to `pyrogram.Client.initialize`.
         """
         await safe_await(self.push_bot_commands(), return_exc=True, log_exc=True)
-        await super().initialize()
+        await super().initialize(*args, **kw)
 
     async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
         """Delete the published commands, then stop the client as usual.

@@ -65,6 +65,7 @@ class FakeListener:
     """A listener stand-in bound to `Message`: records its lifecycle and what it resolves."""
 
     __update_type__ = Message
+    client: object = None
 
     def __init__(
         self,
@@ -99,6 +100,7 @@ class FakeListener:
 
 def make_client(**kw: Any) -> SimpleNamespace:
     kw.setdefault("workers", 0)
+    kw.setdefault("workers_policy", None)
     return SimpleNamespace(
         executor=None,
         start_handler=None,
@@ -110,7 +112,10 @@ def make_client(**kw: Any) -> SimpleNamespace:
 
 
 def make_real_dispatcher(**kw: Any) -> Dispatcher:
-    return Dispatcher(make_client(**kw))
+    dispatcher = Dispatcher(make_client(**kw))
+    # A listener registered on it is bound to this client, and `listen` reads its dispatcher.
+    dispatcher.client.dispatcher = dispatcher
+    return dispatcher
 
 
 async def test_init_runs_the_original_and_sets_an_empty_registry() -> None:
@@ -226,6 +231,52 @@ async def test_register_listener_stores_it_by_update_type() -> None:
     dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]
 
     assert dispatcher.listeners == {Message: listener}
+
+
+def test_register_listener_binds_the_listener_to_the_client() -> None:
+    dispatcher = make_real_dispatcher()
+    listener = MessageListener()
+
+    dispatcher.register_listener(listener)
+
+    assert listener.client is dispatcher.client
+
+
+def test_register_listener_refuses_a_listener_of_another_client() -> None:
+    first, second = make_real_dispatcher(), make_real_dispatcher()
+    listener = MessageListener()
+    first.register_listener(listener)
+
+    with pytest.raises(ValueError, match="MessageListener is already registered on another client"):
+        second.register_listener(listener)
+
+    assert second.listeners == {}
+    assert listener.client is first.client
+
+
+def test_register_listener_takes_a_listener_bound_to_the_same_client() -> None:
+    first = make_real_dispatcher()
+    listener = MessageListener()
+    first.register_listener(listener)
+    # Another dispatcher of the same client, as when a `CoordinatedDispatcher` replaces it.
+    second = Dispatcher(first.client)
+
+    second.register_listener(listener)
+
+    assert second.listeners == {Message: listener}
+    assert listener.client is first.client
+
+
+async def test_unregister_listener_unbinds_it_even_when_stop_fails() -> None:
+    dispatcher = make_real_dispatcher()
+    listener = FakeListener(error=RuntimeError("stop broke"))
+    dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]
+
+    with pytest.raises(RuntimeError, match="stop broke"):
+        await dispatcher.unregister_listener(Message)
+
+    assert listener.client is None
+    assert dispatcher.listeners == {}
 
 
 async def test_register_listener_rejects_a_second_for_the_same_type() -> None:
@@ -1037,9 +1088,10 @@ async def test_a_wait_replacing_one_takes_its_slot_with_no_slot_free() -> None:
     dispatcher = await _started_dispatcher(workers=2)
     dispatcher.client.workers_policy = WorkersPolicy.REJECT
     listener = MessageListener()
+    listener.client = dispatcher.client
 
     async def wait() -> object:
-        token = _HANDLER_WORKER.set((dispatcher, asyncio.current_task()))
+        token = _HANDLER_WORKER.set(asyncio.current_task())
         try:
             return await listener.listen(MessageKey(chat_id=1))
         finally:
@@ -1067,6 +1119,7 @@ async def test_a_wait_replacing_one_that_holds_no_slot_is_refused_with_no_slot_f
     dispatcher = await _started_dispatcher(workers=2)
     dispatcher.client.workers_policy = WorkersPolicy.REJECT
     listener = MessageListener()
+    listener.client = dispatcher.client
     _hold_a_worker(dispatcher, 9)
     old = asyncio.ensure_future(
         listener.listen(MessageKey(chat_id=1))
@@ -1108,7 +1161,7 @@ async def test_handler_worker_marks_the_worker_for_listen_and_clears_it_after() 
 
     await dispatcher.handler_worker()
 
-    assert seen == [(dispatcher, asyncio.current_task())]
+    assert seen == [asyncio.current_task()]
     assert _HANDLER_WORKER.get() is None
 
 
@@ -1230,7 +1283,7 @@ def _on_a_worker(dispatcher: Dispatcher, script: Callable[[], Awaitable[object]]
     """Run `script` as a worker of `dispatcher`, to reach more waits at once than real workers."""
 
     async def run() -> object:
-        token = _HANDLER_WORKER.set((dispatcher, asyncio.current_task()))
+        token = _HANDLER_WORKER.set(asyncio.current_task())
         try:
             return await script()
         finally:
@@ -1365,6 +1418,7 @@ async def test_stress_waits_racing_for_one_key_leave_one_owner(
     dispatcher = await _started_dispatcher(workers=3)
     dispatcher.client.workers_policy = WorkersPolicy.CANCEL_OLDEST
     listener = MessageListener(duplicate_policy=duplicates)
+    listener.client = dispatcher.client
     owner = _on_a_worker(dispatcher, lambda: listener.listen(MessageKey(chat_id=1)))
     await asyncio.sleep(0.01)
 
@@ -1390,6 +1444,7 @@ async def test_stress_cancelling_the_task_of_a_wait_frees_its_slot() -> None:
     dispatcher = await _started_dispatcher(workers=3)
     dispatcher.client.workers_policy = WorkersPolicy.REJECT
     listener = MessageListener()
+    listener.client = dispatcher.client
     holders = [
         _on_a_worker(dispatcher, lambda c=c: listener.listen(MessageKey(chat_id=c))) for c in (1, 2)
     ]

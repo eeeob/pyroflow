@@ -89,7 +89,7 @@ from pyroflow.models import MessageKey
 
 client = Client("my_session")
 messages = MessageListener()
-client.register_listener(messages)
+client.register_listener(messages)  # bound to this client; another client refuses it
 
 @client.on_message()
 async def on_confirm(client, message):
@@ -280,6 +280,8 @@ while True:
 `listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does.
 
 To filter every wait that passes no `listen_filters`, give the listener a `strict_filter`, such as `MessageListener(strict_filter=~filters.command("cancel"))`. An update that fails it ends the wait with `ListenerRejected`.
+
+A slow filter holds up the updates behind it. `filters_timeout` bounds it: `MessageListener(filters_timeout=2)` declines an update whose filter runs over 2 seconds, as if it failed, and logs it. A sync filter's thread still runs to the end. The first fetch of `registered_command()` goes on in the background, so only the update that ran over is declined.
 
 **Registered commands.** `pyroflow.filters.registered_command()` passes a message whose text or caption is a command registered for this bot, with or without arguments. `/cmd@this_bot` passes; `/cmd@other_bot`, an unknown command and plain text do not. The commands come from `client.get_bot_commands()` for each of the filter's `scopes` (by default `registered_command.DEFAULT_SCOPES`, the four that need no chat or user) in each of its `language_codes` (by default `""`), fetched at once on first use and kept by the filter with the bot's usernames until the client starts again, so commands set meanwhile are seen after a restart. A failed fetch, as on a user account, raises its error unchanged and cancels the other fetches, and the next command fetches again. Each `registered_command()` filter fetches for itself. `registered_command(ephemeral=False)` leaves out commands marked `is_ephemeral`, and `username_policy` (a `CommandUsernamePolicy` from `pyroflow.enums`) sets which `@username` passes: `OPTIONAL` (the default) takes none or the bot's, `REQUIRED` only the bot's, `None` none or any, `ANY_REQUIRED` any but not none, and `FORBIDDEN` none.
 

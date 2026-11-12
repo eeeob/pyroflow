@@ -19,4 +19,4 @@ if TYPE_CHECKING:
         assert base.client is client
 
     def _check_rejects(client: Client) -> None:
-        CoordinatedDispatcher(client, [chat_key])  # ty: ignore[too-many-positional-arguments]
+        CoordinatedDispatcher(client, key_functions=[1])  # ty: ignore[invalid-argument-type]

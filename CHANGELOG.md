@@ -10,6 +10,10 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Added
 
+- `UpdateListener(filters_timeout=...)`: seconds a wait's filter may run on
+  one update. An update whose filter runs longer is declined and logged, as
+  if the filter failed, so a strict wait ends with `ListenerRejected`. A sync
+  filter's thread runs on until it returns.
 - `CoordinatedDispatcher`: opt-in, one update at a time per key.
   `client.dispatcher = CoordinatedDispatcher(client, key_functions=[...])`.
   Key functions extract the key of
@@ -150,6 +154,12 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 ### Changed
 
+- **BREAKING:** registering a listener binds it to the client
+  (`UpdateListener.client`); registering one already bound to another client
+  raises `ValueError`, and unregistering unbinds it. A wait counts toward
+  `workers_policy`, and joins the hold of a `CoordinatedDispatcher` handler,
+  only on a registered listener. Affects code that shares one listener between
+  clients. Migration: give each client a listener of its own.
 - **Breaking:** `from pyroflow import *` now brings the names of
   `pyroflow.filters` and `pyroflow.keyboards` instead of the two modules, so
   star-import users lose the names `filters` and `keyboards`. To migrate, call
@@ -208,7 +218,8 @@ Every breaking change lists what changed, who is affected and how to migrate.
   `ListenerKey(chat_id, user_id, message_id)`.
 - **BREAKING:** a subclass of `UpdateListener` sets `__key_type__`.
   `extract_key` and `extract_key_func` are sync and return a `__key_type__` or
-  `None`; anything else raises `TypeError`. Affects custom listeners and code
+  `None`; anything else raises `TypeError`, and so does creating a listener
+  whose `__key_type__` keys another update type. Affects custom listeners and code
   passing an async `extract_key_func` or awaiting `extract_key`.
   Migration: set `__key_type__ = MessageKey` (or your own `ListenerKey`
   subclass) on a custom listener, make `extract_key_func` a plain function that

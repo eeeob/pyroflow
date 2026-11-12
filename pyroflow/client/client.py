@@ -236,18 +236,20 @@ class Client(PyroClient):
         """Register a listener for its declared update type.
 
         Only one listener per update type, and only before the client starts.
+        The listener is bound to this client, so one listener serves one client.
 
         Args:
             listener: The listener to register.
 
         Raises:
             RuntimeError: If the client is already running.
-            ValueError: If a listener is already registered for that update type.
+            ValueError: If a listener is already registered for that update
+                type, or the listener is registered on another client.
         """
         self.dispatcher.register_listener(listener)
 
     async def unregister_listener(self, update_type: type[pyro_types.Update]) -> None:
-        """Unregister and stop the listener for the given update type.
+        """Unregister and stop the listener for the given update type, and unbind it.
 
         Does nothing if no listener is registered for that type.
 

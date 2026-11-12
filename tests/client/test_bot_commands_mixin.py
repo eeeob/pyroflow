@@ -55,8 +55,8 @@ class _MixinBase(pyroflow.Client):
             raise self.delete_error
         return True
 
-    async def initialize(self) -> None:
-        self.calls.append(("initialize",))
+    async def initialize(self, *args: object, **kw: object) -> None:
+        self.calls.append(("initialize", args, kw) if args or kw else ("initialize",))
 
     async def stop(self, *args: object, **kw: object) -> str:
         self.calls.append(("stop", args, kw))
@@ -298,6 +298,14 @@ async def test_initialize_publishes_the_commands_before_the_dispatcher_starts() 
     await c.initialize()
 
     assert c.calls == [("set", [a], {}), ("initialize",)]
+
+
+async def test_initialize_passes_its_arguments_on() -> None:
+    c = _MixedFake()
+
+    await c.initialize(1, flag=True)
+
+    assert c.calls[-1] == ("initialize", (1,), {"flag": True})
 
 
 async def test_initialize_logs_a_failed_publish_and_still_initializes(

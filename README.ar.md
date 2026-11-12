@@ -97,7 +97,7 @@ from pyroflow.models import MessageKey
 
 client = Client("my_session")
 messages = MessageListener()
-client.register_listener(messages)
+client.register_listener(messages)  # bound to this client; another client refuses it
 
 @client.on_message()
 async def on_confirm(client, message):
@@ -304,6 +304,8 @@ while True:
 `listen_strict` يقرر للفلتر كله: مع `filters.text & ~filters.command("cancel")` و`listen_strict=True`، تنهي الصورة السؤال كما ينهيه الأمر.
 
 ولفلترة كل انتظار لا يمرر `listen_filters`، أعطِ الـ listener قيمة `strict_filter`، مثل `MessageListener(strict_filter=~filters.command("cancel"))`. والـ update الذي يفشل فيه ينهي الانتظار بـ `ListenerRejected`.
+
+والفلتر البطيء يؤخر الـ updates التي خلفه، و`filters_timeout` يحدّه: `MessageListener(filters_timeout=2)` يرفض الـ update الذي يتجاوز فلتره ثانيتين، كأنه فشل، ويسجّل ذلك في الـ log. أما خيط الفلتر الـ sync فيكمل حتى ينتهي. وجلب `registered_command()` الأول يكمل في الخلفية، فلا يُرفض إلا الـ update الذي تجاوز المهلة.
 
 **الأوامر المسجلة.** يمرر `pyroflow.filters.registered_command()` الرسالة التي نصها أو `caption` فيها أمر مسجل لهذا الـ bot، بوسائط أو بدونها. فالأمر `/cmd@this_bot` يمر، أما `/cmd@other_bot` والأمر المجهول والنص العادي فلا. وتأتي الأوامر من `client.get_bot_commands()` لكل نطاق في `scopes` (الافتراضي `registered_command.DEFAULT_SCOPES`، أي النطاقات الأربعة التي لا تحتاج شاتاً ولا مستخدماً) بكل لغة في `language_codes` (الافتراضي `""`)، تُجلب معاً عند أول استعمال ويحتفظ بها الفلتر مع usernames الـ bot حتى يُشغَّل الـ client من جديد، فتظهر الأوامر المضافة بعد إعادة التشغيل. والجلب الفاشل، كما في حساب مستخدم، يرفع خطأه كما هو ويلغي بقية الطلبات، ويُعاد الجلب مع الأمر التالي. وكل فلتر `registered_command()` يجلب لنفسه. و`registered_command(ephemeral=False)` يستثني الأوامر المعلّمة بـ `is_ephemeral`، و`username_policy` (قيمة `CommandUsernamePolicy` من `pyroflow.enums`) يحدد أي `@username` يمر: `OPTIONAL` (الافتراضي) بلا username أو username الـ bot، و`REQUIRED` username الـ bot فقط، و`None` بلا username أو أي username، و`ANY_REQUIRED` أي username لا بدونه، و`FORBIDDEN` بلا username فقط.
 

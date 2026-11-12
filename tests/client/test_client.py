@@ -347,6 +347,7 @@ class _Stoppable:
     """A listener stand-in that records being stopped."""
 
     __update_type__ = Message
+    client: object = None
 
     def __init__(self) -> None:
         self.stopped = False
@@ -361,11 +362,13 @@ async def test_register_and_unregister_listener_forward_to_the_dispatcher() -> N
 
     assert c.register_listener(item) is None
     assert c.dispatcher.listeners == {Message: item}
+    assert item.client is c
 
     await c.unregister_listener(Message)
 
     assert c.dispatcher.listeners == {}
     assert item.stopped is True
+    assert item.client is None
 
 
 # --- the ask_* methods --------------------------------------------------------

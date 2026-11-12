@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from pyrogram.types import Update as PyroUpdate
 
     from ..client import Client
-    from .coordinated_dispatcher import CoordinatedDispatcher
     from .coordinated_dispatcher.models import _HandlerHold
     from ..models import ListenerKey, ListenerModel
     from ..typings import UpdateType
@@ -31,15 +30,15 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_HANDLER_WORKER: Final[ContextVar[tuple[Dispatcher, asyncio.Task[None]] | None]] = ContextVar(
+_HANDLER_WORKER: Final[ContextVar[asyncio.Task[None] | None]] = ContextVar(
     "pyroflow_handler_worker", default=None
 )
-"""The dispatcher and worker task running the current handler, or `None` outside one."""
+"""The worker task running the current handler, or `None` outside one."""
 
-_HANDLER_HOLD: Final[ContextVar[tuple[CoordinatedDispatcher, _HandlerHold] | None]] = ContextVar(
+_HANDLER_HOLD: Final[ContextVar[_HandlerHold | None]] = ContextVar(
     "pyroflow_handler_hold", default=None
 )
-"""The dispatcher and the hold of the coordinated handler running here; the tasks it starts inherit them."""
+"""The hold of the coordinated handler running here; the tasks it starts inherit it."""
 
 
 @patch_cls(setter=setattr)
@@ -166,14 +165,17 @@ class Dispatcher(PyroDispatcher):
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.
 
-        Only one listener per update type, and only before the dispatcher starts.
+        Only one listener per update type, and only before the dispatcher
+        starts. The listener is bound to this dispatcher's client, and a
+        listener bound to another client is refused.
 
         Args:
             listener: The listener to register.
 
         Raises:
             RuntimeError: If the dispatcher is already running.
-            ValueError: If a listener is already registered for that update type.
+            ValueError: If a listener is already registered for that update
+                type, or the listener is registered on another client.
         """
         if self.is_started:
             msg = "Cannot register listener while dispatcher is already running"
@@ -185,12 +187,18 @@ class Dispatcher(PyroDispatcher):
             msg = f"UpdateListener for {update_type!r} is already registered"
             raise ValueError(msg)
 
+        if listener.client is not None and listener.client is not self.client:
+            msg = f"{type(listener).__name__} is already registered on another client"
+            raise ValueError(msg)
+
         self.listeners[update_type] = listener
+        listener.client = self.client
 
     async def unregister_listener(self, update_type: type[PyroUpdate]) -> None:
-        """Unregister and stop the listener for the given update type.
+        """Unregister and stop the listener for the given update type, and unbind it.
 
-        Does nothing if no listener is registered for that type.
+        Does nothing if no listener is registered for that type. The listener
+        is unbound from its client even if stopping it fails.
 
         Args:
             update_type: The Pyrogram update class whose listener to remove.
@@ -198,7 +206,10 @@ class Dispatcher(PyroDispatcher):
         listener = self.listeners.pop(update_type, None)
 
         if listener is not None:
-            await listener.stop()
+            try:
+                await listener.stop()
+            finally:
+                listener.client = None
 
     async def handle_listen(self, parsed_update: PyroUpdate) -> bool:
         """Offer the update to the listener registered for its type.
@@ -292,7 +303,7 @@ class Dispatcher(PyroDispatcher):
         worker keeps running.
         """
         # Always called from a task.
-        token = _HANDLER_WORKER.set((self, cast("asyncio.Task[None]", asyncio.current_task())))
+        token = _HANDLER_WORKER.set(cast("asyncio.Task[None]", asyncio.current_task()))
         # A client started inside a coordinated handler must not take that handler's hold.
         hold_token = _HANDLER_HOLD.set(None)
 

@@ -5,7 +5,7 @@ from __future__ import annotations as _annotations
 import asyncio
 import logging
 from abc import ABC
-from typing import Any, TYPE_CHECKING, TypedDict
+from typing import Any, TYPE_CHECKING, TypedDict, cast
 
 from ..typings import UpdateType
 from ..dispatcher.dispatcher import _HANDLER_WORKER, _HANDLER_HOLD
@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from pyrogram.filters import Filter
     from pytrove.typings import MaybeCoroutineCallable, Number
 
+    from ..client import Client
+    from ..dispatcher import CoordinatedDispatcher
     from ..models import ListenerContext, ListenerKey
 
 
@@ -57,7 +59,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     of `None` skips the update.
 
     Every waiting listener lives in this process: an update is matched only
-    against the listeners of the client that received it.
+    against the listeners of the client that received it. A listener belongs
+    to the one client it is registered on (`client`).
 
     A `listen` can also carry a Pyrogram filter. An update whose key matches
     but that fails the filter is skipped, and the listener keeps waiting; with
@@ -84,7 +87,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             `ListenerScope.ALL` every one.
         strict_filter: Pyrogram filter for a `listen` that passes no
             `filters`; an update that fails it ends the wait, as with `strict`.
+        filters_timeout: Seconds a wait's filter may run on one update; one
+            that runs longer counts as failed (logged), so a slow filter does
+            not hold up the dispatcher. A sync filter's thread cannot be
+            stopped and runs on until it returns. `None` sets no limit.
         **kw: Passed to the next class in the MRO.
+
+    Raises:
+        TypeError: If `__key_type__` keys another update type than `__update_type__`.
 
     Example:
         >>> from pyrogram.types import Chat, Message
@@ -107,6 +117,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     __key_type__: type[ListenerKey[UpdateType]]
     """The `ListenerKey` class the waits of this listener are keyed by."""
 
+    client: Client | None = None
+    """The client this listener is registered on; `None` while unregistered."""
+
     def __init__(
         self,
         duplicate_policy: DuplicatePolicy | None = None,
@@ -115,10 +128,20 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         timeout: Number | None = None,
         resolve_scope: ListenerScope = ListenerScope.FIRST,
         strict_filter: Filter | None = None,
+        filters_timeout: Number | None = None,
         **kw: object,
     ) -> None:
         """Initialise the listener; see the class docstring for the parameters."""
         super().__init__(**kw)
+
+        key_update_type = self.__key_type__.__update_type__
+
+        if key_update_type is not self.__update_type__:
+            msg = (
+                f"{type(self).__name__}.__key_type__ {self.__key_type__.__name__} keys "
+                f"{key_update_type.__name__}, not {self.__update_type__.__name__}"
+            )
+            raise TypeError(msg)
 
         if duplicate_policy is None:
             duplicate_policy = DuplicatePolicy.REPLACE
@@ -140,6 +163,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         """Which matching waits `resolve` gives an update to."""
         self.strict_filter = strict_filter
         """Filter for a `listen` that passes no `filters`; an update that fails it ends the wait."""
+        self.filters_timeout = filters_timeout
+        """Seconds a wait's filter may run on one update before it counts as failed; `None` for no limit."""
 
         self.listeners: dict[ListenerKey[UpdateType], ListenerModel[UpdateType]] = {}
         """Waiting listeners, by key; changed only through `_add` and `_remove`."""
@@ -366,8 +391,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         call. Also callable as `listener(...)`.
 
         Inside a handler, the wait holds the worker running it, so the
-        client's `WorkersPolicy` applies first (see
-        `Client.setup_pyroflow`).
+        `WorkersPolicy` of the client this listener is registered on applies
+        first (see `Client.setup_pyroflow`). An unregistered listener takes
+        no policy and no hold of a coordinated handler.
 
         Args:
             key: The key to wait on, a `__key_type__`; a `None` field matches
@@ -443,14 +469,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             )
             raise TypeError(msg)
 
+        client = self.client
         # Read here alone, with no `current_task` check: a wait in a sync handler or a spawned task counts.
-        hold = _HANDLER_HOLD.get()
+        hold = _HANDLER_HOLD.get() if client is not None else None
 
         # A wait of a coordinated handler starts between two offers of its lane, never during
         # one; once the handler ended there is nothing to wait for. Nothing below suspends
         # before the wait is registered, so the lock is not kept.
         if hold is not None:
-            await hold[1].wait_offer_lock(handler_active_required=True)
+            await hold.wait_offer_lock(handler_active_required=True)
 
         if self.is_closed:
             raise ListenerCancelled(key)
@@ -468,15 +495,16 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             filters, strict = self.strict_filter, True
 
         dispatcher = None
-        holder = _HANDLER_WORKER.get()
+        worker = _HANDLER_WORKER.get()
 
         # Only a wait in the worker task itself is counted, not one in a task the handler spawned.
         if (
-            holder is not None
-            and (policy := holder[0].client.workers_policy) is not None
-            and asyncio.current_task() is holder[1]
+            client is not None
+            and (policy := client.workers_policy) is not None
+            and worker is not None
+            and worker is asyncio.current_task()
         ):
-            dispatcher = holder[0]
+            dispatcher = client.dispatcher
 
             # A wait replacing one that holds a slot takes that slot, so it needs no check.
             if current not in dispatcher.listener_waits:
@@ -512,8 +540,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         error: ListenerError | None = None
 
         try:
-            if hold is not None:
-                hold[1].note_handler_wait(hold[0], listener)
+            # `client` is set whenever `hold` is; a hold comes only from a `CoordinatedDispatcher`.
+            if hold is not None and client is not None:
+                hold.note_handler_wait(cast("CoordinatedDispatcher", client.dispatcher), listener)
 
             return await future
         except ListenerError as exc:
@@ -552,8 +581,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         A waiting listener whose filter passes takes the update: with
         `ListenerScope.FIRST` only the first one does, with `ListenerScope.ALL`
-        every one does. A listener whose filter fails, or raises (logged), is
-        skipped and keeps waiting, or, when `strict`, fails with
+        every one does. A listener whose filter fails, raises (logged), or
+        runs over `filters_timeout` (logged), is skipped and keeps waiting,
+        or, when `strict`, fails with
         `ListenerRejected`; either way the next candidate is tried. A sync
         filter runs on the client's executor. A wait whose filter failed an
         update skips it if it is offered again, as a `CoordinatedDispatcher`
@@ -604,12 +634,22 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
             if listener.filters is not None:
                 try:
-                    passed = await call_maybe_async(
-                        listener.filters.__call__,
-                        update._client,  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
-                        update,
-                        executor=get_update_executor(update),
+                    passed = await asyncio.wait_for(
+                        call_maybe_async(
+                            listener.filters.__call__,
+                            update._client,  # ty: ignore[unresolved-attribute]  # Pyrogram sets `_client` on every object in `Object.__init__`
+                            update,
+                            executor=get_update_executor(update),
+                        ),
+                        self.filters_timeout,
                     )
+                except asyncio.TimeoutError:
+                    log.warning(
+                        "The filter of the listener for %s ran over %s seconds; the update is declined",
+                        sub,
+                        self.filters_timeout,
+                    )
+                    passed = False
                 except Exception:
                     log.exception("Error in the filter of the listener for %s", sub)
                     passed = False
