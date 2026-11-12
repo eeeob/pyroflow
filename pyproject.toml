@@ -43,8 +43,8 @@ classifiers = [
 # Every dependency has a floor and, by default, no ceiling; the reason for each
 # bound sits beside it.
 dependencies = [
-    # `Message.ask_rich` calls `Message.reply_rich` and `Message.edit(rich_message=...)`,
-    # and `ephemeral_message_parameters` is new in this version.
+    # 2.2.27 calls `Dispatcher.handler_worker()` with no lock, which the patched one
+    # matches; `Message.ask_rich` needs `reply_rich` and `edit(rich_message=...)`.
     "kurigram>=2.2.27",
     # yield_control is a pytrove 2.0 API.
     "pytrove>=2.0.0",
