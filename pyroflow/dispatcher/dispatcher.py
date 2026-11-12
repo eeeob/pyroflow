@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from pyrogram.types import Update as PyroUpdate
 
+    from ..client import Client
     from .coordinated_dispatcher import CoordinatedDispatcher
     from .coordinated_dispatcher.models import _HandlerHold
     from ..models import ListenerKey, ListenerModel
@@ -52,6 +53,9 @@ class Dispatcher(PyroDispatcher):
     of each group under the lock.
     """
 
+    client: Client
+    """The client this dispatcher serves."""
+
     old__init__: Callable[..., None]
     """Original Pyrogram initializer, kept by `patch_cls`."""
     oldstart: Callable[..., Awaitable[None]]
@@ -68,15 +72,13 @@ class Dispatcher(PyroDispatcher):
         """
         self.old__init__(*args, **kw)
 
-        self.listeners: dict[type[PyroUpdate], UpdateListener[Any, Any]] = {}
+        self.listeners: dict[type[PyroUpdate], UpdateListener[Any]] = {}
         """Registered listener per update type."""
 
         self.is_started = False
         """Whether the dispatcher is running; registration is refused while it is."""
 
-        self.workers_policy: WorkersPolicy | None = None
-        """What a wait inside a handler does when the workers run short; `None` does nothing."""
-        self.listener_waits: dict[ListenerModel, UpdateListener[Any, Any]] = {}
+        self.listener_waits: dict[ListenerModel, UpdateListener[Any]] = {}
         """The waits inside handlers that hold their worker, oldest first."""
 
     async def start(self, *args: object, **kw: object) -> None:
@@ -132,7 +134,7 @@ class Dispatcher(PyroDispatcher):
         not waiting, and a new wait of its goes through here too.
 
         Args:
-            policy: The dispatcher's `workers_policy`.
+            policy: The client's `workers_policy`.
             key: The key the wait is on.
 
         Raises:
@@ -162,7 +164,7 @@ class Dispatcher(PyroDispatcher):
         """
         self.listener_waits.pop(listener_model, None)
 
-    def register_listener(self, listener: UpdateListener[UpdateType, Any]) -> None:
+    def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.
 
         Only one listener per update type, and only before the dispatcher starts.

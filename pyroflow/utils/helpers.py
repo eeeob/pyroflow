@@ -34,6 +34,8 @@ class UpdateBound(Generic[UpdateType]):
         TypeError: Expected Message, got str
     """
 
+    __slots__ = ()
+
     __update_type__: type[UpdateType]
     """The Pyrogram update class this subclass is bound to."""
 
@@ -131,6 +133,8 @@ async def call_maybe_async(
     as Pyrogram's `Handler.check` does. Anything else goes through
     `pytrove.maybe_awaitable`: a wrapper or partial around a coroutine
     function is awaited, and a sync callable runs in a thread on `executor`.
+    What a sync callable returns comes back as it is: a coroutine from an
+    object with `async def __call__`, or from a sync function, is not awaited.
     An error `func` raises propagates unchanged, and nothing is logged, so
     no stack is captured on each call.
 
@@ -140,7 +144,7 @@ async def call_maybe_async(
         executor: The executor a sync `func` runs on; `None` for the loop's default.
 
     Returns:
-        What `func` returned, awaited when it is a coroutine.
+        What `func` returned, awaited when `func` is a coroutine function.
 
     Example:
         >>> import asyncio

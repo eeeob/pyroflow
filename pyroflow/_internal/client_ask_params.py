@@ -2,7 +2,9 @@
 
 Each class stands alone, with every argument any supported kurigram accepts,
 so an argument may be unknown to the installed one; a comment names the
-versions of such an argument, and of those Pyrogram deprecated.
+versions of such an argument, and of those Pyrogram deprecated. What would
+put the question off, such as `schedule_date`, stays out: `ask` waits for the
+answer to a question asked now.
 """
 
 from __future__ import annotations as _annotations
@@ -10,8 +12,6 @@ from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from pyrogram import enums as pyro_enums, types as pyro_types
 
 
@@ -38,10 +38,6 @@ class AskSendKw(TypedDict, total=False):
     """Show the caption above the media."""
     reply_parameters: pyro_types.ReplyParameters | None
     """Reply options."""
-    schedule_date: datetime | None
-    """Date to send the message at."""
-    repeat_period: int | None
-    """Interval in seconds to repeat the message at."""
     protect_content: bool | None
     """Protect the message from forwarding and saving."""
     business_connection_id: str | None
@@ -85,8 +81,6 @@ class AskEditKw(TypedDict, total=False):
     """Entities to use instead of `parse_mode`."""
     link_preview_options: pyro_types.LinkPreviewOptions | None
     """Link preview options for the message."""
-    schedule_date: datetime | None
-    """Date to send the edited message at."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram
@@ -129,10 +123,14 @@ class AskRichSendKw(TypedDict, total=False):
 class AskRichEditKw(TypedDict, total=False):
     """What the `Client.ask_*_rich` methods accept when they edit to a rich message."""
 
-    schedule_date: datetime | None
-    """Date to send the edited message at."""
+    link_preview_options: pyro_types.LinkPreviewOptions | None
+    """Link preview options for the message."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
+    show_caption_above_media: bool | None  # deprecated in Pyrogram
+    """Show the caption above the media."""
+    disable_web_page_preview: bool | None  # deprecated in Pyrogram
+    """Disable the link preview."""
 
 
 __all__ = (

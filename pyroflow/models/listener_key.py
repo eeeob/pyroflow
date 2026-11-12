@@ -2,10 +2,14 @@
 
 from __future__ import annotations as _annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from typing import ClassVar, TYPE_CHECKING
 
 from pytrove import classproperty
+
+from ..typings import UpdateType
+from ..utils import UpdateBound
 
 if TYPE_CHECKING:
     import sys
@@ -16,24 +20,25 @@ if TYPE_CHECKING:
         from typing_extensions import Self
 
     from ..types import CallbackQuery, Message
+else:
+    # `..types` imports this package, and `patch_cls` makes these the very same classes.
+    from pyrogram.types import CallbackQuery, Message
 
 
 @dataclass(frozen=True, slots=True)
-class ListenerKey:
+class ListenerKey(ABC, UpdateBound[UpdateType]):
     """Identifies what a wait takes: each field narrows it, and `None` means any value.
 
-    A subclass adds the fields of its update type. The key holds the values
-    as given, and changes none of them. A field marked `exact` in its
-    metadata is always compared, `None` included, so it splits the waits
-    rather than narrowing them.
+    A subclass sets `__update_type__`, adds the fields of its update type and
+    defines `from_update` and `from_sent`. The key holds the values as given,
+    and changes none of them. A field
+    marked `exact` in its metadata is always compared, `None` included, so
+    it splits the waits rather than narrowing them.
 
     Example:
-        >>> ListenerKey(1).to_dict()
-        {'chat_id': 1}
+        >>> MessageKey(1).chat_id
+        1
     """
-
-    chat_id: int | None = None
-    """The chat the wait is in, or `None` for any chat."""
 
     if TYPE_CHECKING:
         # Spelled out for type checkers, which cannot solve the decorator `classproperty(cached=True)`.
@@ -63,6 +68,31 @@ class ListenerKey:
             """
             return tuple(f.name for f in fields(cls) if f.metadata.get("exact"))
 
+    @classmethod
+    @abstractmethod
+    def from_update(cls, update: UpdateType) -> Self | None:
+        """Key an incoming update; the listeners take it as their key extractor.
+
+        Args:
+            update: The update.
+
+        Returns:
+            The key of the update, or `None` if it should not be listened to.
+        """
+
+    @classmethod
+    @abstractmethod
+    def from_sent(cls, sent: Message, user_id: int | None = None) -> Self:
+        """Key the answer to a message just sent or edited; the `ask` methods wait on it.
+
+        Args:
+            sent: The message sent or edited.
+            user_id: The user to wait for, or `None` for any user.
+
+        Returns:
+            The key of the answer.
+        """
+
     def to_tuple(self) -> tuple[object, ...]:
         """Return the key's values, in field order.
 
@@ -83,7 +113,7 @@ class ListenerKey:
 
 
 @dataclass(frozen=True, slots=True)
-class MessageKey(ListenerKey):
+class MessageKey(ListenerKey[Message]):
     """Identifies the messages a wait takes: by chat, sender and topic.
 
     Example:
@@ -91,6 +121,11 @@ class MessageKey(ListenerKey):
         MessageKey(chat_id=None, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
     """
 
+    __update_type__ = Message  # ty: ignore[invalid-attribute-override]  # a frozen dataclass makes its attributes read-only to ty
+    """The update this key is made from."""
+
+    chat_id: int | None = None
+    """The chat the wait is in, or `None` for any chat."""
     user_id: int | None = None
     """The sender, or `None` for any sender."""
     message_thread_id: int | None = None
@@ -101,27 +136,41 @@ class MessageKey(ListenerKey):
     """Whether the wait takes ephemeral messages, and only them."""
 
     @classmethod
-    def from_message(cls, message: Message) -> Self:
+    def from_update(cls, update: Message) -> Self | None:
         """Key an incoming message by its chat, sender and topics.
 
         Args:
-            message: The message; it must have a chat.
+            update: The message.
 
         Returns:
-            The key of the message.
+            The key of the message, or `None` for outgoing, service, empty or
+            edited messages, messages sent by this account, and messages
+            without a chat.
 
         Example:
             >>> from pyrogram.types import Chat, Message, User
-            >>> MessageKey.from_message(Message(id=5, chat=Chat(id=1), from_user=User(id=2)))
+            >>> update = Message(id=5, chat=Chat(id=1), from_user=User(id=2))
+            >>> MessageKey.from_update(update)
             MessageKey(chat_id=1, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
         """
+        if (
+            update.outgoing
+            or update.service
+            or getattr(update.from_user, "is_self", False)
+            or update.empty
+            or update.edit_date
+            or update.edit_hidden
+            or update.chat is None
+        ):
+            return None
+
         return cls(
-            message.chat.id,  # ty: ignore[unresolved-attribute]  # the caller passes a message with a chat
+            update.chat.id,
             # `from_user` can be `None` (an anonymous admin, a channel post).
-            getattr(message.from_user, "id", None),
-            message.message_thread_id,
-            message.direct_messages_topic_id,
-            message.ephemeral_message_id is not None,
+            getattr(update.from_user, "id", None),
+            update.message_thread_id,
+            update.direct_messages_topic_id,
+            update.ephemeral_message_id is not None,
         )
 
     @classmethod
@@ -150,7 +199,7 @@ class MessageKey(ListenerKey):
 
 
 @dataclass(frozen=True, slots=True)
-class CallbackQueryKey(ListenerKey):
+class CallbackQueryKey(ListenerKey[CallbackQuery]):
     """Identifies the button presses a wait takes: by chat, user and message, or inline message.
 
     Example:
@@ -158,6 +207,11 @@ class CallbackQueryKey(ListenerKey):
         CallbackQueryKey(chat_id=1, user_id=None, message_id=3, inline_message_id=None, ephemeral=False)
     """
 
+    __update_type__ = CallbackQuery  # ty: ignore[invalid-attribute-override]  # a frozen dataclass makes its attributes read-only to ty
+    """The update this key is made from."""
+
+    chat_id: int | None = None
+    """The chat the wait is in, or `None` for any chat."""
     user_id: int | None = None
     """The user who presses, or `None` for any user."""
     message_id: int | None = None
@@ -168,7 +222,7 @@ class CallbackQueryKey(ListenerKey):
     """Whether the wait takes presses on ephemeral messages, and only them."""
 
     @classmethod
-    def from_callback_query(cls, query: CallbackQuery) -> Self | None:
+    def from_update(cls, update: CallbackQuery) -> Self | None:
         """Key a press by its message's chat, the user and the message.
 
         A press on an ephemeral message is keyed with no `message_id` and
@@ -177,7 +231,7 @@ class CallbackQueryKey(ListenerKey):
         `inline_message_id`.
 
         Args:
-            query: The callback query.
+            update: The callback query.
 
         Returns:
             The key of the press, or `None` if it has neither a message
@@ -188,21 +242,21 @@ class CallbackQueryKey(ListenerKey):
             >>> query = CallbackQuery(
             ...     id="q", from_user=User(id=2), chat_instance="c", message=Message(id=3, chat=Chat(id=1))
             ... )
-            >>> CallbackQueryKey.from_callback_query(query)
+            >>> CallbackQueryKey.from_update(query)
             CallbackQueryKey(chat_id=1, user_id=2, message_id=3, inline_message_id=None, ephemeral=False)
         """
-        m = query.message
+        m = update.message
 
         if m is None or m.chat is None:
-            if query.inline_message_id is None:
+            if update.inline_message_id is None:
                 return None
 
-            return cls(user_id=query.from_user.id, inline_message_id=query.inline_message_id)
+            return cls(user_id=update.from_user.id, inline_message_id=update.inline_message_id)
 
         if m.ephemeral_message_id is not None:
-            return cls(m.chat.id, query.from_user.id, ephemeral=True)
+            return cls(m.chat.id, update.from_user.id, ephemeral=True)
 
-        return cls(m.chat.id, query.from_user.id, m.id)
+        return cls(m.chat.id, update.from_user.id, m.id)
 
     @classmethod
     def from_sent(cls, sent: Message, user_id: int | None = None) -> Self:

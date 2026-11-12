@@ -148,7 +148,7 @@ class _Bot:
     async def ask(self, user: int | None = USER, **kw: Any) -> int:
         """Wait in `self.listener` with a bound, and record the reply."""
         kw.setdefault("timeout", 5)
-        reply = await self.listener.listen(chat_id=CHAT, user_id=user, **kw)
+        reply = await self.listener.listen(MessageKey(CHAT, user), **kw)
         self.replies.append(reply.id)
         return reply.id
 
@@ -495,8 +495,8 @@ async def test_gathered_waits_in_spawned_tasks_both_count() -> None:
     async def ask(_: object, message: Message) -> None:
         bot.handled.append(message.id)
         await asyncio.sleep(0.01)
-        by_user_wait = bot.listener.listen(CHAT, USER, filters=_ids(2), timeout=5)
-        by_chat_wait = bot.listener.listen(CHAT, filters=_ids(3), timeout=5)
+        by_user_wait = bot.listener.listen(MessageKey(CHAT, USER), filters=_ids(2), timeout=5)
+        by_chat_wait = bot.listener.listen(MessageKey(CHAT), filters=_ids(3), timeout=5)
         replies.extend(await asyncio.gather(by_user_wait, by_chat_wait))
 
     bot.on(ask)
@@ -539,7 +539,7 @@ async def test_strict_filter_ends_a_wait_and_sends_the_update_to_the_handlers() 
         bot.handled.append(message.id)
         if message.id == 1:
             try:
-                await bot.listener.listen(CHAT, USER)
+                await bot.listener.listen(MessageKey(CHAT, USER))
             except ListenerRejected:
                 outcomes.append("rejected")
 
@@ -719,7 +719,7 @@ async def test_a_foreign_wait_gets_an_update_that_arrives_while_the_queue_is_off
                 await bot.ask(filters=_paused(gate, inside, passes=False))
 
     async def wait_for_8() -> None:
-        foreign.append((await bot.listener.listen(chat_id=CHAT, user_id=8, timeout=5)).id)
+        foreign.append((await bot.listener.listen(MessageKey(CHAT, 8), timeout=5)).id)
 
     bot.on(ask)
     async with _running(bot):
@@ -756,7 +756,7 @@ async def test_a_foreign_wait_filters_a_queued_update_once() -> None:
     bot.on(ask)
     async with _running(bot):
         waiting = asyncio.ensure_future(
-            bot.listener.listen(chat_id=CHAT, user_id=8, filters=filters.create(count), timeout=5)
+            bot.listener.listen(MessageKey(CHAT, 8), filters=filters.create(count), timeout=5)
         )
         bot.send(1)
         await _until(lambda: 1 in bot.handled)
@@ -848,7 +848,7 @@ async def test_reject_policy_refuses_the_wait_and_frees_the_key() -> None:
         bot.handled.append(message.id)
         if message.id in (1, 2):
             try:
-                await bot.listener.listen(CHAT, message.from_user.id, timeout=5)
+                await bot.listener.listen(MessageKey(CHAT, message.from_user.id), timeout=5)
             except ListenerWorkersBusy:
                 busy.append(message.id)
 
@@ -879,7 +879,7 @@ async def test_cancel_oldest_ends_the_wait_and_runs_its_backlog() -> None:
             except ListenerEvicted:
                 evicted.append(message.id)
         elif message.id == 3:
-            await bot.listener.listen(CHAT, 8, timeout=5)
+            await bot.listener.listen(MessageKey(CHAT, 8), timeout=5)
             second.set()
 
     bot.on(ask)
@@ -904,11 +904,13 @@ async def test_a_replaced_wait_ends_its_handler_and_frees_the_key() -> None:
         bot.handled.append(message.id)
         if message.id == 1:
             try:
-                await bot.listener.listen(CHAT, timeout=5, filters=_ids(99))
+                await bot.listener.listen(MessageKey(CHAT), timeout=5, filters=_ids(99))
             except ListenerReplaced:
                 outcomes.append("replaced")
         elif message.id == 3:
-            outcomes.append((await bot.listener.listen(CHAT, timeout=5, filters=_ids(4))).id)
+            outcomes.append(
+                (await bot.listener.listen(MessageKey(CHAT), timeout=5, filters=_ids(4))).id
+            )
 
     bot.on(ask)
     async with _running(bot):
@@ -961,7 +963,7 @@ async def test_listen_drops_the_hold_from_its_frame_once_the_wait_fails() -> Non
     listener = MessageListener()
     token = _HANDLER_HOLD.set((dispatcher, hold))
     try:
-        waiter = asyncio.ensure_future(listener.listen(CHAT))
+        waiter = asyncio.ensure_future(listener.listen(MessageKey(CHAT)))
         await asyncio.sleep(0)
     finally:
         _HANDLER_HOLD.reset(token)
@@ -1266,7 +1268,7 @@ async def test_a_filter_that_opens_a_wait_does_not_freeze_the_key() -> None:
 
     async def waiting_filter(_: object, __: object, update: Message) -> bool:
         with pytest.raises(ListenerTimeout):
-            await bot.listener.listen(chat_id=CHAT, user_id=USER + 1, timeout=0.01)
+            await bot.listener.listen(MessageKey(CHAT, USER + 1), timeout=0.01)
         inner.append("ended")
         return False
 
@@ -1473,7 +1475,6 @@ async def test_load_keeps_order_and_exclusion_and_loses_nothing(
 
 async def test_it_takes_nothing_from_the_dispatcher_it_replaces() -> None:
     client = _bare_client()
-    client.setup_pyroflow(workers_policy=WorkersPolicy.REJECT)
     listener = MessageListener()
     client.register_listener(listener)
     handler = MessageHandler(lambda *_: None)
@@ -1485,7 +1486,6 @@ async def test_it_takes_nothing_from_the_dispatcher_it_replaces() -> None:
     dispatcher = CoordinatedDispatcher(client, key_functions=[by_user])
 
     assert (dispatcher.listeners, dict(dispatcher.groups)) == ({}, {})
-    assert dispatcher.workers_policy is None
     assert dispatcher.updates_queue.empty()
     assert old.listeners == {Message: listener}
     assert old.groups == {1: [handler]}

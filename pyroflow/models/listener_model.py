@@ -13,7 +13,8 @@ from typing import Generic, TYPE_CHECKING
 from pyrogram.filters import Filter
 from pyrogram.types import Update as PyroUpdate
 
-from ..typings import KeyT
+from ..typings import UpdateType
+from .listener_key import ListenerKey
 
 if TYPE_CHECKING:
     from ..types import Message
@@ -43,7 +44,7 @@ class ListenerContext(SimpleNamespace):
 
 
 @dataclass(slots=True, eq=False)
-class ListenerModel(Generic[KeyT]):
+class ListenerModel(Generic[UpdateType]):
     """A registered listener: its key, the future its update resolves, its context and filter.
 
     `done_callbacks` run inside `resolve` and `set_exc`, right after the future
@@ -64,7 +65,7 @@ class ListenerModel(Generic[KeyT]):
         (True, 'update')
     """
 
-    key: KeyT
+    key: ListenerKey[UpdateType]
     """The slot the listener is registered under."""
     future: asyncio.Future
     """Resolved with the matching update, or failed with an error."""
@@ -74,7 +75,9 @@ class ListenerModel(Generic[KeyT]):
     """Pyrogram filter an update must pass besides the key, or `None` for none."""
     strict: bool = False
     """Whether an update that matches the key but fails `filters` ends the wait."""
-    done_callbacks: list[Callable[[ListenerModel[KeyT]], object]] = field(default_factory=list)
+    done_callbacks: list[Callable[[ListenerModel[UpdateType]], object]] = field(
+        default_factory=list
+    )
     """Called with the model, in order, as soon as it is marked done."""
     declined_updates: weakref.WeakValueDictionary[int, PyroUpdate] = field(
         default_factory=weakref.WeakValueDictionary
@@ -83,22 +86,22 @@ class ListenerModel(Generic[KeyT]):
     on_declined_update: Callable[[PyroUpdate], object] | None = None
     """Called by `decline` with the update; set by the `CoordinatedDispatcher` of the wait."""
 
-    def add_done_callback(self, fn: Callable[[ListenerModel[KeyT]], object]) -> None:
+    def add_done_callback(self, fn: Callable[[ListenerModel[UpdateType]], object]) -> None:
         """Call `fn(self)` as soon as the listener is done; at once if it already is.
 
         Args:
             fn: The callback; its result is ignored.
 
         Example:
-            >>> from pyroflow.models import ListenerKey
+            >>> from pyroflow.models import MessageKey
             >>> async def main():
-            ...     listener = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+            ...     listener = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
             ...     seen = []
-            ...     listener.add_done_callback(lambda model: seen.append(model.key))
+            ...     listener.add_done_callback(lambda model: seen.append(model.key.chat_id))
             ...     listener.resolve("update")
             ...     return seen
             >>> asyncio.run(main())
-            [ListenerKey(chat_id=1)]
+            [1]
         """
         if self.done():
             fn(self)
@@ -118,10 +121,10 @@ class ListenerModel(Generic[KeyT]):
                 referenced is not noted.
 
         Example:
-            >>> from pyroflow.models import ListenerKey
+            >>> from pyroflow.models import MessageKey
             >>> from pyrogram.types import Message
             >>> async def main():
-            ...     listener = ListenerModel(ListenerKey(1), asyncio.get_running_loop().create_future())
+            ...     listener = ListenerModel(MessageKey(1), asyncio.get_running_loop().create_future())
             ...     update = Message(id=1)
             ...     listener.decline(update)
             ...     return id(update) in listener.declined_updates

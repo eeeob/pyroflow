@@ -5,6 +5,8 @@ from __future__ import annotations as _annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pyrogram.types import Update as PyroUpdate
+
     from .models import ListenerKey
 
 
@@ -65,6 +67,28 @@ class ListenerAlreadyExists(ListenerError):
     """A listener already exists for {value}"""  # noqa: D415  # the docstring is the runtime message template
 
 
+class ListenerAttemptsExhausted(ListenerError):
+    """No attempts left out of {value}"""  # noqa: D415  # the docstring is the runtime message template
+
+    value: int | None  # ty: ignore[invalid-attribute-override]  # raised by the `ask_*_until` loop, which holds no key
+    """How many questions were asked."""
+
+    def __init__(self, value: int | None = None, update: PyroUpdate | None = None) -> None:
+        """Keep the last rejected answer next to the number of attempts.
+
+        Args:
+            value: How many questions were asked.
+            update: The last rejected answer.
+
+        Example:
+            >>> str(ListenerAttemptsExhausted(5))
+            'No attempts left out of 5'
+        """
+        super().__init__(value)
+        self.update = update
+        """The last rejected answer."""
+
+
 __all__ = (
     "PyroflowError",
     "ListenerError",
@@ -75,4 +99,5 @@ __all__ = (
     "ListenerEvicted",
     "ListenerWorkersBusy",
     "ListenerAlreadyExists",
+    "ListenerAttemptsExhausted",
 )

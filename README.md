@@ -85,6 +85,7 @@ A `UpdateListener` is a typed queue bound to a Pyrogram update type. Any corouti
 ```python
 from pyroflow import Client, MessageListener
 from pyroflow.errors import ListenerTimeout
+from pyroflow.models import MessageKey
 
 client = Client("my_session")
 messages = MessageListener()
@@ -99,8 +100,7 @@ async def on_confirm(client, message):
 
     try:
         code_msg = await messages.listen(
-            chat_id=message.chat.id,
-            user_id=message.from_user.id,
+            MessageKey(message.chat.id, message.from_user.id),
             timeout=120,
         )
     except ListenerTimeout:
@@ -115,19 +115,20 @@ client.run()
 The client can wait too, on the listener registered for the update type:
 
 ```python
+code_msg = await client.listen(MessageKey(chat_id, user_id), timeout=120)
 code_msg = await client.listen_message(chat_id=chat_id, user_id=user_id, timeout=120)
 press = await client.listen_callback_query(chat_id=chat_id, message_id=message_id)
 client.get_listener(Message)   # the registered listener, or None
 ```
 
-`listen_message` and `listen_callback_query` take the fields of their key and the wait arguments, and raise `RuntimeError` when no listener is registered for their type. `get_listener` returns `None` instead of raising; use the listener it returns to look up or end waits, such as `client.get_listener(Message).cancel(key)`.
+`listen` takes a key and the wait arguments, and finds the listener from the key's `__update_type__`. `listen_message` and `listen_callback_query` take the fields of the key and the wait arguments, make the key with the listener's `__key_type__`, and raise `RuntimeError` when no listener is registered for their type. `get_listener` returns `None` instead of raising; use the listener it returns to look up or end waits, such as `client.get_listener(Message).cancel(key)`.
 
-Each listener waits on keys of its own class, from `pyroflow.models`, and its `listen` takes the same fields:
+Each listener waits on keys of its own class, from `pyroflow.models`, and its `listen` takes one:
 
 - `MessageListener`: `MessageKey(chat_id, user_id, message_thread_id, direct_messages_topic_id, ephemeral)`.
 - `CallbackQueryListener`: `CallbackQueryKey(chat_id, user_id, message_id, inline_message_id, ephemeral)`.
 
-A field left `None` matches any value, so `messages.listen()` takes the next message anywhere, and `messages.listen(user_id=7)` takes user 7 in any chat. A key holds the values as given, so to wait in a user's private chat pass `chat_id`: a private chat has the user's id. `inline_message_id` waits for a press on a message sent in inline mode; such a press has no chat, so it reaches a wait on its user, never a wait on a chat.
+A field left `None` matches any value, so `messages.listen(MessageKey())` takes the next message anywhere, and `messages.listen(MessageKey(user_id=7))` takes user 7 in any chat. A key holds the values as given, so to wait in a user's private chat pass `chat_id`: a private chat has the user's id. `inline_message_id` waits for a press on a message sent in inline mode; such a press has no chat, so it reaches a wait on its user, never a wait on a chat.
 
 **Topics.** `message_thread_id` waits in one forum topic, or in a topic of a bot's private chat. `direct_messages_topic_id` waits in one topic of a channel's direct messages chat. `ask` waits in the topic of the message it sent or edited. Kurigram leaves `message_thread_id` empty in a forum's General topic, so a question asked there waits on the whole chat.
 
@@ -235,7 +236,7 @@ Every `ask_*` takes `listen_user_id`, the user to wait for. Without it, anyone i
 |---|---|
 | `chat_id` | `Client` only: target chat |
 | `text` | Message text (`rich_message` in the `_rich` methods) |
-| `message_id` | `Client` only: if provided, edits the message instead of sending a new one |
+| `edit_message_id` | `Client` only: if provided, edits this message instead of sending a new one |
 | `force_send` | `Message` only: reply with a new message even when this one is `editable` |
 | `listen_timeout` | Seconds to wait before raising `ListenerTimeout` |
 | `listen_context` | A `ListenerContext` of values attached to the listener |
@@ -274,6 +275,8 @@ while True:
     except ListenerRejected:
         await message.reply("That is not a number.")
 ```
+
+[`ask_until()`](#ask_until) runs such a loop for you, with a `parse` function.
 
 `listen_strict` decides for the whole filter: with `filters.text & ~filters.command("cancel")` and `listen_strict=True`, a photo ends the question just like the command does.
 
@@ -340,7 +343,7 @@ To end a question from a button's handler, such as a "back" button on it, cancel
 > Give such waits a timeout (`listen_timeout` on `ask_*`, `timeout` on `listen` or on the listener), use `listen_strict=True` (`strict=True` on `listen`) when the first rejected update should end the wait, or end the wait yourself with `listener.cancel(key)`. Note that `listen_strict=True` ends the wait on **any** rejected update of the key, such as a photo while text is awaited.
 
 
-`ask_rich()` and `ask_callback_query_rich()` do the same with a rich message: they send with `send_rich_message`, or edit with `edit_message_text(rich_message=...)` when `message_id` is given. The `Message` methods call the message's own `edit`, `reply` and `reply_rich`, so they accept what those accept; use the `Client` methods for arguments such as `reply_parameters`.
+`ask_rich()` and `ask_callback_query_rich()` do the same with a rich message: they send with `send_rich_message`, or edit with `edit_message_text(rich_message=...)` when `edit_message_id` is given. The `Message` methods call the message's own `edit`, `reply` and `reply_rich`, so they accept what those accept; use the `Client` methods for arguments such as `reply_parameters`.
 
 ```python
 from pyrogram.types import InputRichMessage
@@ -352,7 +355,7 @@ answer = await client.ask_rich(
 )
 ```
 
-Ephemeral messages have ids that do not follow each other and can be reused, so no key holds one. `ephemeral=True` on `listen` waits on ephemeral updates. Only such a wait receives them, and a regular update never reaches it. An `ask_*` on or with an ephemeral message waits this way, for its `listen_user_id` when given. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
+Ephemeral messages have ids that do not follow each other and can be reused, so no key holds one. The `ephemeral` field of a key waits on ephemeral updates, as in `listen(MessageKey(ephemeral=True))`. Only such a wait receives them, and a regular update never reaches it. An `ask_*` on or with an ephemeral message waits this way, for its `listen_user_id` when given. Two ephemeral messages to one user share a key, so tell them apart with `listen_filters`.
 
 ---
 
@@ -360,6 +363,229 @@ Listeners can also be removed at runtime:
 
 ```python
 await client.unregister_listener(Message)
+```
+
+---
+
+### ask_until()
+
+`ask_until()` repeats `ask()` until a function you pass returns a value, and returns that value. `ask_rich_until()`, `ask_callback_query_until()` and `ask_callback_query_rich_until()` do the same for `ask_rich()`, `ask_callback_query()` and `ask_callback_query_rich()`. All four are on `Client` and on `Message`, eight methods in all, and each takes what the method it repeats takes, plus `parse`, which is required, and `attempts`.
+
+```python
+from pyrogram import filters
+from pyrogram.enums import ParseMode
+from pyroflow.errors import ListenerAttemptsExhausted
+from pyroflow.models import AskAgain
+
+async def parse_username(answer, kw):
+    if not answer.text.isascii():
+        return AskAgain("Latin letters only. Try again:")
+
+    if await is_taken(answer.text):
+        return AskAgain("<b>That name is taken.</b> Try another:", {"parse_mode": ParseMode.HTML})
+
+    return answer.text
+
+try:
+    username = await message.ask_until(
+        "Pick a username:",
+        parse=parse_username,
+        attempts=3,
+        listen_filters=filters.text & ~filters.command("cancel"),
+        listen_user_id=message.from_user.id,
+    )
+except ListenerAttemptsExhausted as exc:
+    await message.reply(f"Giving up after {exc.update.text!r}.")
+```
+
+`parse` is called as `parse(answer, kw)`, sync or async. `answer` is the update that arrived, and `kw` is the dict of the question's keyword arguments. What `parse` returns decides what happens next:
+
+| `parse` returns | What happens |
+|---|---|
+| `AskAgain(question)` | Rejected: this question is asked with no arguments |
+| `AskAgain(question, kw)` | Rejected: this question is asked with this `kw` |
+| Anything else, `None` included | Accepted: this value is returned to you |
+
+A question is a `str`, or an `InputRichMessage` in the `*_rich_until` methods. To repeat a question, return it in `AskAgain`, and to keep its arguments, pass on the `kw` that `parse` got. To get the answer itself, `return answer`.
+
+An answer that reaches `parse` was taken by the wait, so it reaches no handler even when rejected, and a command sent instead of an answer counts as one. `listen_filters` is the filter in front of `parse`: what fails it goes on to the handlers and the wait goes on, so `~filters.command("cancel")` above lets `/cancel` run. With `listen_strict=True`, an update that fails it raises `ListenerRejected` at once and ends the loop.
+
+Only the first question may edit a message, through `edit_message_id` on `Client` or an `editable` message on `Message`, and `force_send` applies to it alone. After a rejection each question is a new message, since Telegram refuses an edit that changes nothing. A retry sends only the `kw` in `AskAgain`, so put what it needs there, such as `message_thread_id` on `Client` (`Message` replies in its own topic), and it must hold what the send takes: `link_preview_options` in the rich methods raises `TypeError`. In the callback query methods, put `reply_markup` in it: the question goes out again with its keyboard, and each one waits for a press on its own buttons.
+
+With `attempts=None`, the default, it never gives up. Otherwise `ListenerAttemptsExhausted` is raised when `parse` rejects the answer to the last question, and its `update` holds that answer. Its `value` is the number of questions asked. `attempts` below 1 raises `ValueError` before anything is sent. `listen_timeout` applies to each wait on its own, and anything else `ask` or `parse` raises, such as `ListenerTimeout`, ends the loop at once.
+
+---
+
+## Keyboards
+
+`pyroflow.keyboards` builds inline keyboards. `arrange` splits a flat list of buttons into rows by `columns` or `layout`, one button per row without either:
+
+```python
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyroflow.keyboards import arrange
+
+buttons = [InlineKeyboardButton(text, callback_data=text) for text in "abcde"]
+
+keyboard = InlineKeyboardMarkup(arrange(buttons, columns=2))
+keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2]))
+keyboard = InlineKeyboardMarkup(arrange(buttons, layout=[1, 2], repeat=True))
+```
+
+`columns` is a fixed width. After the last size of `layout` its size goes on, and with `repeat=True` the layout starts over. `columns` with `layout`, or a width that is not positive, raises `ValueError`.
+
+`CallbackData` is a layout for `callback_data`: a prefix and the fields of a `CallbackFields` class. The type of a field is only a hint on `pack`, on `button` and on what `unpack` returns. To read a field as anything but text, write it with `parsed` and the function that converts it; a field without one stays text. `pack` builds the data, `button` builds an `InlineKeyboardButton` with it, and `unpack` returns the class with its fields read. `unpack_dict` returns the same values as a `dict`. The options of `dataclass` go on the class line, as in `class Product(CallbackFields, slots=True)`. For a layout without a class, `CallbackData.from_fields("product", namedtuple("Product", "id action"), slots=True)` builds one from a `namedtuple` and the options of `dataclass`: the names show as hints, and every field is text. An `Enum` member goes in by its value, and `sep` is one character.
+
+`filter` matches the callback queries of the layout on the fields you name and allows anything else in the data. `filter_equal` takes every field, as `pack` does, and passes only data equal to what `pack` builds. `filter_rules` takes for each field what `filters.split_text` takes: a text, a container of options, an `Enum` class, a compiled pattern or a function:
+
+```python
+from pyroflow.keyboards import CallbackData, CallbackFields, parsed
+
+class Product(CallbackFields):
+    id: int = parsed(int)
+    action: str
+
+product = CallbackData("product", Product)
+
+product.pack(id=7, action="buy")           # "product:7:buy"
+product.button("Buy", id=7, action="buy")  # an InlineKeyboardButton
+product.unpack("product:7:buy")            # Product(id=7, action="buy")
+
+@app.on_callback_query(product.filter(action="buy"))
+async def buy(client, query):
+    ...
+
+@app.on_callback_query(product.filter_rules(id=str.isdigit, action=["buy", "sell"]))
+async def act(client, query):
+    ...
+```
+
+Telegram documents no limit on buttons per row or per keyboard, so none is checked: keep keyboards small. `callback_data` is limited to 64 bytes. `CallbackData.pack` raises `ValueError` beyond that, and elsewhere, as in `page_data`, nothing checks it, so keep ids short.
+
+### Pagination
+
+`Pagination` is the base for a keyboard of one page of items with a bar to move between pages. `NumberedPagination`, `ArrowPagination` and `SlidingPagination` are its bars. `build` is async: it returns a `Page` with `number`, `items`, `total_pages`, `has_next` and the keyboard in `markup`. With a handler:
+
+```python
+from pyrogram import filters
+from pyroflow.keyboards import CallbackData, CallbackFields, NumberedPagination, parsed
+
+class ProductId(CallbackFields):
+    id: int = parsed(int)
+
+class Turn(CallbackFields):
+    page: int = parsed(int)
+
+product = CallbackData("product", ProductId)
+turn = CallbackData("products", Turn)
+
+pages = NumberedPagination(
+    products,
+    item=lambda item: product.button(item.name, id=item.id),
+    page_data=lambda number: turn.pack(page=number),
+)
+
+@app.on_message(filters.command("products"))
+async def show(client, message):
+    page = await pages.build()
+    await message.reply("Products:", reply_markup=page.markup)
+
+@app.on_callback_query(turn.filter())
+async def turn_page(client, query):
+    page = await pages.build(turn.unpack(query.data).page)
+    await query.message.edit_reply_markup(page.markup)
+```
+
+With `ask_callback_query`, keep turning pages until the press is on an item. `press.message` is the client's own message, so each question edits it and waits for the next press on its buttons:
+
+```python
+page = await pages.build()
+press = await message.ask_callback_query("Pick a product:", reply_markup=page.markup)
+
+while press.data.startswith("products:"):
+    page = await pages.build(turn.unpack(press.data).page)
+    press = await press.message.ask_callback_query("Pick a product:", reply_markup=page.markup)
+```
+
+`item` returns an `InlineKeyboardButton`. `arrangement`, a `PageArrangement` from `pyroflow.models`, says how many items a page holds and arranges them like `arrange`. These are all its valid sets, and any other mix raises `ValueError`. Without it, a page is five rows of one button each:
+
+| Options | `per_page` | Rows |
+|---|---|---|
+| `lines`, `columns` | `lines * columns` | `lines` rows of `columns` |
+| `per_page`, `columns` | `per_page` | rows of `columns`, the last may be shorter |
+| `layout` | the sum of `layout` | one row per size |
+| `layout`, `per_page` | `per_page`, at least the sum of `layout` | the last size goes on |
+| `layout`, `repeat`, `lines` | the sum of the first `lines` sizes | `lines` rows, the sizes cycling |
+| `layout`, `repeat`, `per_page` | `per_page` | the sizes cycling |
+
+```python
+from pyroflow.models import PageArrangement
+
+NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, columns=3))                   # 12 items in rows of 3
+NumberedPagination(products, item=item, arrangement=PageArrangement(layout=[1, 2, 3]))                     # 6 items
+NumberedPagination(products, item=item, arrangement=PageArrangement(lines=4, layout=[1, 2], repeat=True))  # 6 items: 1, 2, 1, 2
+```
+
+The current page's button is `disabled`, and no page shows twice. A single page has no bar. The bars, here on page 6 of 12:
+
+| Class | Bar | Its texts |
+|---|---|---|
+| `NumberedPagination` | `« 1` `‹ 5` `· 6 ·` `7 ›` `12 »` | `first`, `previous`, `current`, `next`, `last` |
+| `ArrowPagination` | `‹` `›` | `back`, `forward` |
+| `ArrowPagination(texts=ArrowBarTexts(counter="{page}/{pages}"))` | `‹` `6/12` `›` | `back`, `counter`, `forward` |
+| `SlidingPagination` | `1` `2` `3` `4` `5` `· 6 ·` `7` `8` | `page`, `current` |
+
+`SlidingPagination` shows every page by number, at most `size` at a time, 8 by default. The numbers come in fixed groups, and reaching the last one of a group brings the next group, keeping the page before it. Its size and texts go in `bar`, a `SlidingBar` from `pyroflow.models`.
+
+The texts of the other two go in `texts`: a `NumberedBarTexts` or an `ArrowBarTexts` from `pyroflow.models`. `{page}` and `{pages}` are filled in any of them. Without a known count `{pages}` shows `None`, so use it only with a count. `style`, a `BarStyle(nav, current)`, holds functions that get each button of the bar once it is built, to change it, `style` on the button that `item` returns colors an item, `header` holds fixed rows above the items, and `footer` holds fixed rows under the bar. `ButtonStyle.LINK` is for rich messages only, and Pyrogram refuses it on an inline button.
+
+```python
+from pyrogram.enums import ButtonStyle
+from pyrogram.types import InlineKeyboardButton
+from pyroflow.keyboards import ArrowPagination
+from pyroflow.models import ArrowBarTexts, BarStyle
+
+def primary(button):
+    button.style = ButtonStyle.PRIMARY
+
+def success(button):
+    button.style = ButtonStyle.SUCCESS
+
+pages = ArrowPagination(
+    products,
+    item=lambda item: InlineKeyboardButton(
+        item.name,
+        callback_data=f"product:{item.id}",
+        style=ButtonStyle.DANGER if item.sold_out else ButtonStyle.SUCCESS,
+    ),
+    page_data=lambda number: f"products:{number}",
+    texts=ArrowBarTexts(back="Back", forward="Next", counter="{page}/{pages}"),
+    style=BarStyle(nav=primary, current=success),
+    footer=[[InlineKeyboardButton("Close", callback_data="close")]],
+)
+```
+
+**Fetching lazily.** `items` can be a function called as `(offset, limit)`, sync or async, that returns one batch, so each `build` fetches only what its page needs. `count` is an `ItemCount` from `pyroflow.models`, which holds a number, or a sync or async function of no arguments read on every `build`. With `strict`, on by default, no item past it is fetched or shown. With `strict=False` it only sets how many pages there are, and each page is fetched whole. It applies to a sequence too. Without `count`, a sequence uses its length and the count of a function is unknown.
+
+```python
+from pyroflow.models import ItemCount
+
+async def fetch(offset, limit):
+    return await db.products(offset=offset, limit=limit)
+
+pages = NumberedPagination(fetch, item=item, count=ItemCount(db.count_products))
+pages = ArrowPagination(fetch, item=item)
+```
+
+With a count, a page out of range becomes the nearest one. Without one, each `build` fetches one item more than a page to tell whether another page follows, and `total_pages` is `None`. A page that comes back empty, such as one past the end, shows the first page instead, and with `first_if_empty=False` it stays empty, with the way back on its bar. `NumberedPagination` and `SlidingPagination` need the number of pages, so a function without `count` raises `TypeError`. `ArrowPagination` works either way, and its counter then uses `unknown_counter`, `{page}` by default.
+
+**Your own bar.** Subclass `Pagination` and write `nav_row`, which gets the page, the number of pages or `None`, and whether a page follows. `nav_button` builds a button to a page:
+
+```python
+from pyroflow.keyboards import Pagination
+
+class MorePagination(Pagination):
+    def nav_row(self, number, total_pages, has_next):
+        return [self.nav_button("More", number + 1, number, total_pages)] if has_next else []
 ```
 
 ---

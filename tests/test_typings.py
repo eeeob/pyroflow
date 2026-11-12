@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from collections.abc import Hashable
 
-from typing import ForwardRef, get_args, get_origin
+from typing import get_args, get_origin
 
 from pyrogram.types import BotCommand, BotCommandScope, Update as PyroUpdate
 
@@ -13,18 +13,12 @@ from pyroflow.typings import (
     BotCommandEntryT,
     BotCommandGroupKeyT,
     BotCommandPartsT,
-    KeyT,
     UpdateType,
 )
 
 
 def test_update_type_is_bound_to_pyrogram_update() -> None:
     assert UpdateType.__bound__ is PyroUpdate
-
-
-def test_key_type_is_bound_to_listener_key() -> None:
-    assert isinstance(KeyT.__bound__, ForwardRef)
-    assert KeyT.__bound__.__forward_arg__ == "ListenerKey"
 
 
 def test_bot_command_entry_shapes() -> None:
@@ -46,7 +40,8 @@ def test_coordination_key_is_any_hashable_value() -> None:
 def test_typings_all() -> None:
     assert set(pyroflow.typings.__all__) == {
         "UpdateType",
-        "KeyT",
+        "QuestionT",
+        "ResultT",
         "BotCommandEntryT",
         "BotCommandPartsT",
         "BotCommandGroupKeyT",

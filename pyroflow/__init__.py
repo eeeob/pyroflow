@@ -11,15 +11,14 @@ from .update_listener import *
 from .client import *
 from .dispatcher import *
 from .types import *
-
-# The one submodule exposed as an object rather than star-imported: its
-# filter factories stay namespaced as `pyroflow.filters.<name>`.
-from . import filters
+from .filters import *
+from .keyboards import *
 
 __all__ = (
     *update_listener.__all__,
     *client.__all__,
     *dispatcher.__all__,
     *types.__all__,
-    "filters",
+    *filters.__all__,
+    *keyboards.__all__,
 )

@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from typing_extensions import assert_type
 
-    from pyroflow.models import ListenerContext, ListenerModel, MessageKey
+    from pyroflow.models import ListenerContext, ListenerKey, ListenerModel
     from pyroflow.types import Message
 
     class _OrderContext(ListenerContext):
@@ -23,6 +23,6 @@ if TYPE_CHECKING:
         assert_type(order.message, Message | None)
         assert_type(model.context, ListenerContext | None)
 
-    def _check_model(model: ListenerModel[MessageKey]) -> None:
-        assert_type(model.key, MessageKey)
+    def _check_model(model: ListenerModel[Message]) -> None:
+        assert_type(model.key, ListenerKey[Message])
         ListenerModel[int]  # ty: ignore[invalid-type-arguments]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _annotations
 
-import copy
 from typing import (
     Any,
     Literal,
@@ -13,10 +12,8 @@ from typing import (
 
 from pyrogram.types import Message as PyroMessage
 
-from ..models import CallbackQueryKey, ListenerContext, MessageKey
 from ..utils import patch_cls
 from .callback_query import CallbackQuery
-from ..update_listener.update_listener import UpdateListener
 
 
 if TYPE_CHECKING:
@@ -38,6 +35,8 @@ if TYPE_CHECKING:
         MessageAskSendKw,
     )
     from ..client import Client
+    from ..models import AskParser, ListenerContext
+    from ..typings import ResultT
     from .user import User
 
 
@@ -110,9 +109,9 @@ class Message(PyroMessage):
         If this message is `editable` and `force_send` is `False`, it is edited
         with `edit`; otherwise a new message is sent with `reply`. Pyrogram
         fills in the topic, the business connection and the rest, as for any
-        call of those methods. The answer is awaited on `MessageKey.from_sent`
-        of the message sent or edited: from `listen_user_id`, or from any user
-        without it.
+        call of those methods. The answer is awaited on `from_sent` of the
+        listener's `__key_type__` for the message sent or edited: from
+        `listen_user_id`, or from any user without it.
 
         Args:
             text: The text to send or edit.
@@ -147,16 +146,10 @@ class Message(PyroMessage):
             msg = "Cannot call 'ask' on an empty message."
             raise ValueError(msg)
 
-        listener = self._client.get_listener(Message)
-
-        if listener is None:
-            msg = (
-                "No listener registered for Message. "
-                "Register one via client.register_listener() before calling ask()."
-            )
-            raise RuntimeError(msg)
-
-        m = cast(
+        listener = self._client.require_listener(Message)
+        # What `ask_*` accepts always gets a message back, and `patch_cls` makes pyrogram's
+        # `Message` the same class as pyroflow's at runtime.
+        sent = cast(
             "Message",
             await (
                 self.edit(text, **kw)
@@ -165,20 +158,9 @@ class Message(PyroMessage):
             ),
         )
 
-        key = MessageKey.from_sent(m, listen_user_id)
-        context = listen_context
-
-        if self._client.ask_context_message:
-            if context is None:
-                context = ListenerContext(message=m)
-            elif context.message is None:
-                context = copy.copy(context)
-                context.message = m
-
-        return await UpdateListener.listen(
-            listener,
-            key,
-            context=context,
+        return await listener.listen(
+            listener.__key_type__.from_sent(sent, listen_user_id),
+            context=self._client.context_with_message(sent, listen_context),
             filters=listen_filters,
             strict=listen_strict,
             timeout=listen_timeout,
@@ -253,16 +235,8 @@ class Message(PyroMessage):
             msg = "Cannot call 'ask_rich' on an empty message."
             raise ValueError(msg)
 
-        listener = self._client.get_listener(Message)
-
-        if listener is None:
-            msg = (
-                "No listener registered for Message. "
-                "Register one via client.register_listener() before calling ask_rich()."
-            )
-            raise RuntimeError(msg)
-
-        m = cast(
+        listener = self._client.require_listener(Message)
+        sent = cast(
             "Message",
             await (
                 self.edit(rich_message=rich_message, **kw)
@@ -271,20 +245,9 @@ class Message(PyroMessage):
             ),
         )
 
-        key = MessageKey.from_sent(m, listen_user_id)
-        context = listen_context
-
-        if self._client.ask_context_message:
-            if context is None:
-                context = ListenerContext(message=m)
-            elif context.message is None:
-                context = copy.copy(context)
-                context.message = m
-
-        return await UpdateListener.listen(
-            listener,
-            key,
-            context=context,
+        return await listener.listen(
+            listener.__key_type__.from_sent(sent, listen_user_id),
+            context=self._client.context_with_message(sent, listen_context),
             filters=listen_filters,
             strict=listen_strict,
             timeout=listen_timeout,
@@ -331,8 +294,11 @@ class Message(PyroMessage):
     ) -> CallbackQuery:
         """Send a new message or edit the current one, then wait for a press on its buttons.
 
-        Like `ask`, but the press is awaited on
-        `CallbackQueryKey.from_sent` of the message sent or edited.
+        Like `ask`, but the press is awaited on `from_sent` of the listener's
+        `__key_type__` for the message sent or edited.
+
+        Pass `reply_markup`: a question without buttons cannot be answered, and
+        its wait stays open until `listen_timeout`, or forever without one.
 
         Args:
             text: The text to send or edit.
@@ -359,16 +325,8 @@ class Message(PyroMessage):
             msg = "Cannot call 'ask_callback_query' on an empty message."
             raise ValueError(msg)
 
-        listener = self._client.get_listener(CallbackQuery)
-
-        if listener is None:
-            msg = (
-                "No listener registered for CallbackQuery. "
-                "Register one via client.register_listener() before calling ask_callback_query()."
-            )
-            raise RuntimeError(msg)
-
-        m = cast(
+        listener = self._client.require_listener(CallbackQuery)
+        sent = cast(
             "Message",
             await (
                 self.edit(text, **kw)
@@ -377,20 +335,9 @@ class Message(PyroMessage):
             ),
         )
 
-        key = CallbackQueryKey.from_sent(m, listen_user_id)
-        context = listen_context
-
-        if self._client.ask_context_message:
-            if context is None:
-                context = ListenerContext(message=m)
-            elif context.message is None:
-                context = copy.copy(context)
-                context.message = m
-
-        return await UpdateListener.listen(
-            listener,
-            key,
-            context=context,
+        return await listener.listen(
+            listener.__key_type__.from_sent(sent, listen_user_id),
+            context=self._client.context_with_message(sent, listen_context),
             filters=listen_filters,
             strict=listen_strict,
             timeout=listen_timeout,
@@ -465,17 +412,8 @@ class Message(PyroMessage):
             msg = "Cannot call 'ask_callback_query_rich' on an empty message."
             raise ValueError(msg)
 
-        listener = self._client.get_listener(CallbackQuery)
-
-        if listener is None:
-            msg = (
-                "No listener registered for CallbackQuery. "
-                "Register one via client.register_listener() "
-                "before calling ask_callback_query_rich()."
-            )
-            raise RuntimeError(msg)
-
-        m = cast(
+        listener = self._client.require_listener(CallbackQuery)
+        sent = cast(
             "Message",
             await (
                 self.edit(rich_message=rich_message, **kw)
@@ -484,23 +422,382 @@ class Message(PyroMessage):
             ),
         )
 
-        key = CallbackQueryKey.from_sent(m, listen_user_id)
-        context = listen_context
-
-        if self._client.ask_context_message:
-            if context is None:
-                context = ListenerContext(message=m)
-            elif context.message is None:
-                context = copy.copy(context)
-                context.message = m
-
-        return await UpdateListener.listen(
-            listener,
-            key,
-            context=context,
+        return await listener.listen(
+            listener.__key_type__.from_sent(sent, listen_user_id),
+            context=self._client.context_with_message(sent, listen_context),
             filters=listen_filters,
             strict=listen_strict,
             timeout=listen_timeout,
+        )
+
+    @overload
+    async def ask_until(
+        self,
+        text: str,
+        force_send: Literal[False] = False,
+        *,
+        parse: AskParser[Message, str, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskEditKw],
+    ) -> ResultT: ...
+    @overload
+    async def ask_until(
+        self,
+        text: str,
+        force_send: Literal[True],
+        *,
+        parse: AskParser[Message, str, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskSendKw],
+    ) -> ResultT: ...
+
+    async def ask_until(
+        self,
+        text: str,
+        force_send: bool = False,
+        *,
+        parse: AskParser[Message, str, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Any,
+    ) -> ResultT:
+        """Repeat `ask` until `parse` returns a value.
+
+        `parse` is called as `parse(answer, kw)`, sync or async, where `kw` is the
+        dict of keyword arguments of the question. What it returns decides what
+        happens next:
+
+        - `AskAgain(question)`: rejected; `question` is asked with no arguments.
+        - `AskAgain(question, new_kw)`: rejected; `question` is asked with
+          `new_kw`. Return the `kw` it was given to keep the arguments.
+        - Anything else, `None` included: returned to the caller.
+
+        An answer that reaches `parse` was taken by the wait, so it reaches no
+        handler even when rejected, and a command sent instead of an answer
+        counts as one. Let those through with `listen_filters`, for example
+        `~filters.command`: what fails `listen_filters` goes on to the handlers
+        without reaching `parse`, or with `listen_strict` raises
+        `ListenerRejected` at once.
+
+        On an `editable` message only the first question edits it; after a
+        rejection each question replies, since Telegram refuses an edit that
+        changes nothing.
+
+        Args:
+            text: The first question.
+            force_send: As in `ask`, for the first question; later ones always
+                reply.
+            parse: Decides what happens with each answer, as above.
+            attempts: How many times to ask, or `None` for no limit.
+            listen_user_id: As in `ask`.
+            listen_context: As in `ask`.
+            listen_filters: As in `ask`, a pre-filter in front of `parse`.
+            listen_strict: As in `ask`; a rejection by `listen_filters` ends
+                the loop, not only the wait.
+            listen_timeout: As in `ask`, for each wait on its own.
+            **kw: Passed to `edit` or `reply`.
+
+        Returns:
+            The value `parse` returned.
+
+        Raises:
+            ValueError: If `attempts` is not positive; nothing is sent then.
+            ListenerAttemptsExhausted: If `parse` rejects an answer when
+                `attempts` questions were asked; `update` holds that answer.
+            Anything else `ask` or `parse` raises, at once.
+        """
+        return await self._client.ask_repeatedly(
+            self.ask,
+            None,
+            text,
+            force_send,
+            True,
+            parse,
+            attempts,
+            kw,
+            listen_user_id=listen_user_id,
+            listen_context=listen_context,
+            listen_filters=listen_filters,
+            listen_strict=listen_strict,
+            listen_timeout=listen_timeout,
+        )
+
+    @overload
+    async def ask_rich_until(
+        self,
+        rich_message: InputRichMessage,
+        force_send: Literal[False] = False,
+        *,
+        parse: AskParser[Message, InputRichMessage, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskRichEditKw],
+    ) -> ResultT: ...
+    @overload
+    async def ask_rich_until(
+        self,
+        rich_message: InputRichMessage,
+        force_send: Literal[True],
+        *,
+        parse: AskParser[Message, InputRichMessage, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskRichSendKw],
+    ) -> ResultT: ...
+
+    async def ask_rich_until(
+        self,
+        rich_message: InputRichMessage,
+        force_send: bool = False,
+        *,
+        parse: AskParser[Message, InputRichMessage, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Any,
+    ) -> ResultT:
+        """Repeat `ask_rich` until `parse` returns a value.
+
+        Like `ask_until`, but each question is a rich message and a new
+        question from `parse` is an `InputRichMessage`.
+
+        Args:
+            rich_message: The first question.
+            force_send: As in `ask_until`.
+            parse: As in `ask_until`.
+            attempts: As in `ask_until`.
+            listen_user_id: As in `ask`.
+            listen_context: As in `ask`.
+            listen_filters: As in `ask_until`.
+            listen_strict: As in `ask_until`.
+            listen_timeout: As in `ask`, for each wait on its own.
+            **kw: Passed to `edit` or `reply_rich`, for the first question.
+
+        Returns:
+            The value `parse` returned.
+
+        Raises:
+            ValueError: If `attempts` is not positive; nothing is sent then.
+            ListenerAttemptsExhausted: If `parse` rejects an answer when
+                `attempts` questions were asked; `update` holds that answer.
+            Anything else `ask_rich` or `parse` raises, at once.
+        """
+        return await self._client.ask_repeatedly(
+            self.ask_rich,
+            None,
+            rich_message,
+            force_send,
+            True,
+            parse,
+            attempts,
+            kw,
+            listen_user_id=listen_user_id,
+            listen_context=listen_context,
+            listen_filters=listen_filters,
+            listen_strict=listen_strict,
+            listen_timeout=listen_timeout,
+        )
+
+    @overload
+    async def ask_callback_query_until(
+        self,
+        text: str,
+        force_send: Literal[False] = False,
+        *,
+        parse: AskParser[CallbackQuery, str, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskEditKw],
+    ) -> ResultT: ...
+    @overload
+    async def ask_callback_query_until(
+        self,
+        text: str,
+        force_send: Literal[True],
+        *,
+        parse: AskParser[CallbackQuery, str, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskSendKw],
+    ) -> ResultT: ...
+
+    async def ask_callback_query_until(
+        self,
+        text: str,
+        force_send: bool = False,
+        *,
+        parse: AskParser[CallbackQuery, str, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Any,
+    ) -> ResultT:
+        """Repeat `ask_callback_query` until `parse` returns a value.
+
+        Like `ask_until`, but each question waits for a press on its own
+        buttons, so pass `reply_markup`, and put it in the `kw` of each
+        `AskAgain`: a question without buttons cannot be answered, and its wait
+        stays open until `listen_timeout`, or forever without one. A rejected
+        press was taken by the wait like a rejected answer.
+
+        Args:
+            text: The first question.
+            force_send: As in `ask_until`.
+            parse: As in `ask_until`.
+            attempts: As in `ask_until`.
+            listen_user_id: As in `ask`.
+            listen_context: As in `ask`.
+            listen_filters: As in `ask_until`.
+            listen_strict: As in `ask_until`.
+            listen_timeout: As in `ask`, for each wait on its own.
+            **kw: Passed to `edit` or `reply`.
+
+        Returns:
+            The value `parse` returned.
+
+        Raises:
+            ValueError: If `attempts` is not positive; nothing is sent then.
+            ListenerAttemptsExhausted: If `parse` rejects a press when
+                `attempts` questions were asked; `update` holds that press.
+            Anything else `ask_callback_query` or `parse` raises, at once.
+        """
+        return await self._client.ask_repeatedly(
+            self.ask_callback_query,
+            None,
+            text,
+            force_send,
+            True,
+            parse,
+            attempts,
+            kw,
+            listen_user_id=listen_user_id,
+            listen_context=listen_context,
+            listen_filters=listen_filters,
+            listen_strict=listen_strict,
+            listen_timeout=listen_timeout,
+        )
+
+    @overload
+    async def ask_callback_query_rich_until(
+        self,
+        rich_message: InputRichMessage,
+        force_send: Literal[False] = False,
+        *,
+        parse: AskParser[CallbackQuery, InputRichMessage, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskRichEditKw],
+    ) -> ResultT: ...
+    @overload
+    async def ask_callback_query_rich_until(
+        self,
+        rich_message: InputRichMessage,
+        force_send: Literal[True],
+        *,
+        parse: AskParser[CallbackQuery, InputRichMessage, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Unpack[MessageAskRichSendKw],
+    ) -> ResultT: ...
+
+    async def ask_callback_query_rich_until(
+        self,
+        rich_message: InputRichMessage,
+        force_send: bool = False,
+        *,
+        parse: AskParser[CallbackQuery, InputRichMessage, ResultT],
+        attempts: int | None = None,
+        listen_user_id: int | None = None,
+        listen_context: ListenerContext | None = None,
+        listen_filters: Filter | None = None,
+        listen_strict: bool = False,
+        listen_timeout: Number | None = None,
+        **kw: Any,
+    ) -> ResultT:
+        """Repeat `ask_callback_query_rich` until `parse` returns a value.
+
+        Like `ask_callback_query_until`, but each question is a rich message
+        and a new question from `parse` is an `InputRichMessage`.
+
+        Args:
+            rich_message: The first question.
+            force_send: As in `ask_until`.
+            parse: As in `ask_until`.
+            attempts: As in `ask_until`.
+            listen_user_id: As in `ask`.
+            listen_context: As in `ask`.
+            listen_filters: As in `ask_until`.
+            listen_strict: As in `ask_until`.
+            listen_timeout: As in `ask`, for each wait on its own.
+            **kw: Passed to `edit` or `reply_rich`, for the first question.
+
+        Returns:
+            The value `parse` returned.
+
+        Raises:
+            ValueError: If `attempts` is not positive; nothing is sent then.
+            ListenerAttemptsExhausted: If `parse` rejects a press when
+                `attempts` questions were asked; `update` holds that press.
+            Anything else `ask_callback_query_rich` or `parse` raises, at once.
+        """
+        return await self._client.ask_repeatedly(
+            self.ask_callback_query_rich,
+            None,
+            rich_message,
+            force_send,
+            True,
+            parse,
+            attempts,
+            kw,
+            listen_user_id=listen_user_id,
+            listen_context=listen_context,
+            listen_filters=listen_filters,
+            listen_strict=listen_strict,
+            listen_timeout=listen_timeout,
         )
 
     @property

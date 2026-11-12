@@ -5,8 +5,8 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import inspect
-from datetime import datetime
-from unittest.mock import AsyncMock
+from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pyroflow
 import pytest
@@ -20,10 +20,15 @@ from pyrogram.types import (
 
 import pyroflow.client.client as client_module
 from pyroflow.enums import DuplicatePolicy, WorkersPolicy
-from pyroflow.errors import ListenerAlreadyExists
-from pyroflow.models import CallbackQueryKey, ListenerContext, MessageKey
+from pyroflow.errors import (
+    ListenerAlreadyExists,
+    ListenerAttemptsExhausted,
+    ListenerRejected,
+    ListenerReplaced,
+    ListenerTimeout,
+)
+from pyroflow.models import AskAgain, CallbackQueryKey, ListenerContext, MessageKey
 from pyroflow.types import CallbackQuery, Message
-from pyroflow.update_listener import UpdateListener
 
 from ..conftest import CALLBACK_MARKUP, make_callback_query, make_message
 
@@ -48,7 +53,7 @@ def test_setup_pyroflow_sets_the_values_and_returns_the_client() -> None:
     policy = WorkersPolicy.REJECT
 
     assert c.setup_pyroflow(workers_policy=policy, ask_context_message=True) is c
-    assert c.dispatcher.workers_policy is policy
+    assert c.workers_policy is policy
     assert c.ask_context_message is True
 
 
@@ -58,7 +63,7 @@ def test_setup_pyroflow_resets_what_it_leaves_out() -> None:
 
     c.setup_pyroflow()
 
-    assert c.dispatcher.workers_policy is None
+    assert c.workers_policy is None
     assert c.ask_context_message is False
 
 
@@ -73,23 +78,11 @@ def _cmd(name: str) -> BotCommand:
     return BotCommand(name, f"{name} description")
 
 
-@pytest.fixture(autouse=True)
-def _waits_reach_the_fake_listener(monkeypatch: pytest.MonkeyPatch) -> None:
-    # `ask_*` call `UpdateListener.listen` itself, past any override; send a fake's wait to the fake.
-    real = UpdateListener.listen
-
-    def listen(self: object, key: object, **kw: object) -> object:
-        if isinstance(self, UpdateListener):
-            return real(self, key, **kw)  # ty: ignore[invalid-argument-type]
-        return self.listen(key, **kw)  # ty: ignore[unresolved-attribute]
-
-    monkeypatch.setattr(UpdateListener, "listen", listen)
-
-
 class _RecordingListener:
     """Stands in for a registered UpdateListener: records its wait, returns a sentinel."""
 
-    def __init__(self) -> None:
+    def __init__(self, key_type: type = MessageKey) -> None:
+        self.__key_type__ = key_type
         self.calls: list[dict[str, object]] = []
         self.result = object()
 
@@ -114,7 +107,7 @@ def _ask_client(
     sent: Message | None = None, update_type: type[Message | CallbackQuery] = Message
 ) -> tuple[pyroflow.Client, _RecordingListener, _Recorder, _Recorder]:
     c = make_client().setup_pyroflow(ask_context_message=True)
-    listener = _RecordingListener()
+    listener = _RecordingListener(MessageKey if update_type is Message else CallbackQueryKey)
     c.dispatcher.listeners[update_type] = listener
     if sent is None:
         sent = make_message(chat_id=100, message_id=5, reply_markup=CALLBACK_MARKUP)
@@ -173,9 +166,121 @@ def test_get_listener_returns_none_when_unregistered() -> None:
     assert c.get_listener(CallbackQuery) is None
 
 
-async def test_listen_message_waits_on_a_message_key_of_the_fields() -> None:
+def test_require_listener_returns_the_registered_listener() -> None:
     c = make_client()
-    listener = _RecordingListener()
+    listener = object()
+    c.dispatcher.listeners[Message] = listener
+
+    assert c.require_listener(Message) is listener
+
+
+def test_require_listener_raises_without_one() -> None:
+    with pytest.raises(RuntimeError, match="No listener registered for CallbackQuery"):
+        make_client().require_listener(CallbackQuery)
+
+
+def test_context_with_message_leaves_the_context_when_off() -> None:
+    c = make_client().setup_pyroflow(ask_context_message=False)
+    context = ListenerContext()
+
+    assert c.context_with_message(make_message(), context) is context
+    assert c.context_with_message(make_message(), None) is None
+
+
+def test_context_with_message_builds_a_context_for_none() -> None:
+    c = make_client().setup_pyroflow(ask_context_message=True)
+    sent = make_message()
+
+    assert c.context_with_message(sent, None).message is sent
+
+
+def test_context_with_message_copies_a_context_without_a_message() -> None:
+    c = make_client().setup_pyroflow(ask_context_message=True)
+    sent = make_message()
+    context = ListenerContext(step=1)
+
+    result = c.context_with_message(sent, context)
+
+    assert result is not context
+    assert result.message is sent
+    assert result.step == 1
+    assert context.message is None
+
+
+def test_context_with_message_keeps_a_message_already_there() -> None:
+    c = make_client().setup_pyroflow(ask_context_message=True)
+    context = ListenerContext(message=make_message())
+
+    assert c.context_with_message(make_message(), context) is context
+
+
+@pytest.mark.parametrize(
+    ("chat_id", "target"),
+    [pytest.param(100, (100,), id="client"), pytest.param(None, (), id="message")],
+)
+async def test_ask_repeatedly_builds_each_call_of_ask(
+    chat_id: int | None, target: tuple[int, ...]
+) -> None:
+    answers = [make_message(), make_message()]
+    results = iter([AskAgain("next"), "done"])
+    calls: list[tuple[tuple[object, ...], dict[str, Any]]] = []
+    listen_kw = {
+        "listen_user_id": 7,
+        "listen_context": None,
+        "listen_filters": None,
+        "listen_strict": True,
+        "listen_timeout": 3,
+    }
+
+    async def ask(*args: object, **kw: Any) -> Message:
+        calls.append((args, kw))
+        return answers[len(calls) - 1]
+
+    result = await make_client().ask_repeatedly(
+        ask,
+        chat_id,
+        "first",
+        5,
+        None,
+        lambda *_: next(results),
+        None,
+        {"a": 1},
+        listen_user_id=7,
+        listen_strict=True,
+        listen_timeout=3,
+    )
+
+    assert result == "done"
+    assert calls == [
+        ((*target, "first", 5), {**listen_kw, "a": 1}),
+        ((*target, "next", None), listen_kw),
+    ]
+
+
+async def test_listen_passes_the_key_to_the_listener_of_its_update_type() -> None:
+    c = make_client()
+    messages, queries = _RecordingListener(MessageKey), _RecordingListener(CallbackQueryKey)
+    c.dispatcher.listeners[Message] = messages
+    c.dispatcher.listeners[CallbackQuery] = queries
+    key = CallbackQueryKey(1, 2, 3)
+
+    result = await c.listen(key, timeout=5)
+
+    assert result is queries.result
+    assert queries.calls == [{"key": key, "timeout": 5}]
+    assert messages.calls == []
+
+
+async def test_listen_without_a_listener_for_the_update_type_raises() -> None:
+    c = make_client()
+
+    with pytest.raises(RuntimeError, match="No listener registered for Message"):
+        await c.listen(MessageKey(1))
+
+
+async def test_listen_message_waits_on_a_key_of_the_listeners_key_type() -> None:
+    c = make_client()
+    listener = _RecordingListener(MessageKey)
     c.dispatcher.listeners[Message] = listener
 
     result = await c.listen_message(1, 2, 3, 4, timeout=5)
@@ -184,9 +289,9 @@ async def test_listen_message_waits_on_a_message_key_of_the_fields() -> None:
     assert listener.calls == [{"key": MessageKey(1, 2, 3, 4), "timeout": 5}]
 
 
-async def test_listen_callback_query_waits_on_a_callback_query_key_of_the_fields() -> None:
+async def test_listen_callback_query_waits_on_a_key_of_the_listeners_key_type() -> None:
     c = make_client()
-    listener = _RecordingListener()
+    listener = _RecordingListener(CallbackQueryKey)
     c.dispatcher.listeners[CallbackQuery] = listener
 
     result = await c.listen_callback_query(user_id=2, inline_message_id="im", strict=True)
@@ -195,6 +300,35 @@ async def test_listen_callback_query_waits_on_a_callback_query_key_of_the_fields
     assert listener.calls == [
         {"key": CallbackQueryKey(user_id=2, inline_message_id="im"), "strict": True}
     ]
+
+
+async def test_listen_message_makes_the_key_with_the_key_class_of_the_listener() -> None:
+    class OwnKey(MessageKey):
+        pass
+
+    c = make_client()
+    listener = _RecordingListener(OwnKey)
+    c.dispatcher.listeners[Message] = listener
+
+    await c.listen_message(1)
+
+    assert type(listener.calls[0]["key"]) is OwnKey
+
+
+async def test_listen_message_reaches_the_override_of_a_listener_subclass() -> None:
+    class OnlyChat100(pyroflow.MessageListener):
+        async def listen(self, key: MessageKey, **kw: Any) -> Message:
+            return await super().listen(MessageKey(100), **kw)
+
+    c = make_client()
+    listener = OnlyChat100()
+    c.register_listener(listener)
+    task = asyncio.ensure_future(c.listen_message(chat_id=7))
+    await asyncio.sleep(0)
+    reply = make_message(chat_id=100)
+
+    assert await listener.resolve(reply) is True
+    assert await task is reply
 
 
 @pytest.mark.parametrize(
@@ -395,12 +529,29 @@ async def test_ask_passes_filters_and_strict_to_the_listener(
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_keys_the_wait_with_the_key_type_of_the_listener(
+    method: str, sender: str, content_arg: str, update_type: type, key_type: type
+) -> None:
+    class OwnKey(key_type):
+        pass
+
+    c, listener, _, _ = _ask_client(update_type=update_type)
+    listener.__key_type__ = OwnKey
+
+    await getattr(c, method)(100, "hi")
+
+    assert type(listener.calls[0]["key"]) is OwnKey
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_raises_the_listener_error_unchanged(
     method: str, sender: str, content_arg: str, update_type: type, key_type: type
 ) -> None:
     error = ExcA("boom")
 
     class _RaisingListener:
+        __key_type__ = key_type
+
         async def listen(self, key: object, **kw: object) -> None:
             raise error
 
@@ -436,12 +587,11 @@ async def test_rich_asks_edit_passes_the_edit_arguments(
     method: str, sender: str, content_arg: str, update_type: type, key_type: type
 ) -> None:
     c, _, _, edit = _ask_client(update_type=update_type)
-    when = datetime(2026, 1, 1)
 
-    await getattr(c, method)(100, object(), 5, schedule_date=when)
+    await getattr(c, method)(100, object(), 5, reply_markup=CALLBACK_MARKUP)
 
     call = edit.calls[0]
-    assert call["schedule_date"] is when
+    assert call["reply_markup"] is CALLBACK_MARKUP
     assert "text" not in call
 
 
@@ -464,6 +614,10 @@ def test_client_async_methods_carry_pyrograms_sync_wrapper() -> None:
         "ask_rich",
         "ask_callback_query",
         "ask_callback_query_rich",
+        "ask_until",
+        "ask_rich_until",
+        "ask_callback_query_until",
+        "ask_callback_query_rich_until",
         "unregister_listener",
     ):
         method = getattr(pyroflow.Client, name)
@@ -521,7 +675,7 @@ async def test_ask_message_editing_one_message_takes_the_next_reply_each_time() 
     c, listener = _waiting_client()
 
     for message_id in (6, 7):
-        task = await _ask_task(c, message_id=5)
+        task = await _ask_task(c, edit_message_id=5)
         reply = make_message(message_id=message_id)
 
         assert await listener.resolve(reply) is True
@@ -548,3 +702,428 @@ async def test_ask_callback_query_takes_a_press_on_the_sent_message_only() -> No
     assert await listener.resolve(make_callback_query(message_id=4)) is False
     assert await listener.resolve(press) is True
     assert await task is press
+
+
+async def test_ask_until_asks_again_through_a_real_listener_until_parse_accepts() -> None:
+    c, listener = _waiting_client()
+    task = await _ask_task(
+        c, "ask_until", parse=lambda answer, _: answer if answer.text == "ok" else AskAgain("again")
+    )
+    answer = make_message(message_id=7, text="ok")
+
+    assert await listener.resolve(make_message(message_id=6, text="no")) is True
+    while c.send_message.await_count < 2:
+        await asyncio.sleep(0)
+    assert await listener.resolve(answer) is True
+    assert await task is answer
+    assert c.send_message.await_count == 2
+
+
+async def test_ask_until_leaves_what_fails_listen_filters_to_the_handlers() -> None:
+    c, listener = _waiting_client()
+    checked: list[object] = []
+    task = await _ask_task(
+        c, "ask_until", parse=lambda a, _: checked.append(a) or a, listen_filters=pyro_filters.text
+    )
+    answer = make_message(message_id=7, text="ok")
+
+    assert await listener.resolve(make_message(message_id=6)) is False
+    assert await listener.resolve(answer) is True
+    assert await task is answer
+    assert checked == [answer]
+    assert c.send_message.await_count == 1
+
+
+async def test_ask_callback_query_until_asks_again_through_a_real_listener() -> None:
+    c, listener = _waiting_client(pyroflow.CallbackQueryListener())
+    task = await _ask_task(
+        c,
+        "ask_callback_query_until",
+        parse=lambda press, _: press if press.data == "ok" else AskAgain("again"),
+    )
+    press = make_callback_query(message_id=5, data="ok")
+
+    assert await listener.resolve(make_callback_query(message_id=5, data="no")) is True
+    while c.send_message.await_count < 2:
+        await asyncio.sleep(0)
+    assert await listener.resolve(press) is True
+    assert await task is press
+    assert c.send_message.await_count == 2
+
+
+# --- the ask_*_until() methods -------------------------------------------------
+
+RICH = object()
+"""Stands in for an `InputRichMessage`."""
+RICH_AGAIN = object()
+"""Stands in for another `InputRichMessage`."""
+
+UNTIL_METHODS = [
+    pytest.param("ask_until", "ask", "hi", "again", make_message, id="message"),
+    pytest.param("ask_rich_until", "ask_rich", RICH, RICH_AGAIN, make_message, id="message_rich"),
+    pytest.param(
+        "ask_callback_query_until",
+        "ask_callback_query",
+        "hi",
+        "again",
+        make_callback_query,
+        id="callback_query",
+    ),
+    pytest.param(
+        "ask_callback_query_rich_until",
+        "ask_callback_query_rich",
+        RICH,
+        RICH_AGAIN,
+        make_callback_query,
+        id="callback_query_rich",
+    ),
+]
+"""Each `*_until` method, the method it repeats, two questions, and its answer."""
+UNTIL_ARGS = "method, asked, question, other, make_answer"
+TEXT_METHODS = [UNTIL_METHODS[0], UNTIL_METHODS[2]]
+RICH_METHODS = [UNTIL_METHODS[1], UNTIL_METHODS[3]]
+CALLBACK_METHODS = [UNTIL_METHODS[2], UNTIL_METHODS[3]]
+
+
+def _until_client(asked: str, *results: object) -> tuple[pyroflow.Client, AsyncMock]:
+    c = make_client()
+    c.dispatcher.listeners[Message] = _RecordingListener(MessageKey)
+    c.dispatcher.listeners[CallbackQuery] = _RecordingListener(CallbackQueryKey)
+    ask = AsyncMock(side_effect=results)
+    setattr(c, asked, ask)
+    return c, ask
+
+
+def _sync_parse(*results: object) -> Any:
+    remaining = iter(results)
+
+    def parse(update: object, kw: dict[str, Any]) -> object:
+        result = next(remaining)
+        return update if result is None else result
+
+    return parse
+
+
+def _async_parse(*results: object) -> Any:
+    remaining = iter(results)
+
+    async def parse(update: object, kw: dict[str, Any]) -> object:
+        result = next(remaining)
+        return update if result is None else result
+
+    return parse
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_returns_what_parse_returns(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    answer = make_answer()
+    c, ask = _until_client(asked, answer)
+    parse = Mock(return_value="parsed")
+
+    assert (
+        await getattr(c, method)(100, question, parse=parse, reply_markup=CALLBACK_MARKUP)
+        == "parsed"
+    )
+
+    assert ask.await_count == 1
+    parse.assert_called_once_with(answer, {"reply_markup": CALLBACK_MARKUP})
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_returns_none_when_parse_does(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, _ = _until_client(asked, make_answer())
+
+    assert await getattr(c, method)(100, question, parse=lambda *_: None) is None
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+@pytest.mark.parametrize("make_parse", [_sync_parse, _async_parse])
+async def test_until_takes_a_sync_or_async_parse(
+    method: str, asked: str, question: object, other: object, make_answer: Any, make_parse: Any
+) -> None:
+    last = make_answer()
+    c, ask = _until_client(asked, make_answer(), last)
+
+    assert (
+        await getattr(c, method)(100, question, parse=make_parse(AskAgain(question), None)) is last
+    )
+    assert ask.await_count == 2
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_ask_again_without_kw_asks_with_no_arguments(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer())
+
+    await getattr(c, method)(
+        100, question, parse=_sync_parse(AskAgain(question), None), reply_markup=CALLBACK_MARKUP
+    )
+
+    _, second = ask.await_args_list
+    assert second.args == (100, question, None)
+    assert "reply_markup" not in second.kwargs
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_ask_again_asks_the_new_question_with_its_kw(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer())
+
+    await getattr(c, method)(
+        100,
+        question,
+        parse=_sync_parse(AskAgain(other, {"reply_markup": CALLBACK_MARKUP}), None),
+        reply_markup=CALLBACK_MARKUP,
+    )
+
+    first, second = ask.await_args_list
+    assert first.args[1] == question
+    assert second.args[1] == other
+    assert second.kwargs == first.kwargs
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_ask_again_with_kw_replaces_the_question_and_kw(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer())
+    parse = _sync_parse(AskAgain(other, {"disable_notification": True}), None)
+
+    await getattr(c, method)(100, question, parse=parse, reply_markup=CALLBACK_MARKUP)
+
+    _, second = ask.await_args_list
+    assert second.args[1] == other
+    assert second.kwargs["disable_notification"] is True
+    assert "reply_markup" not in second.kwargs
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, TEXT_METHODS)
+async def test_until_leaves_the_dict_parse_returned_as_it_was(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, _ = _until_client(asked, make_answer(), make_answer(), make_answer())
+    returned = {"entities": ENTITIES}
+    parse = _sync_parse(AskAgain("next", returned), AskAgain("other"), None)
+
+    await getattr(c, method)(100, question, parse=parse)
+
+    assert returned == {"entities": ENTITIES}
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_the_kw_parse_got_can_be_passed_on(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer())
+    rounds = iter([True, False])
+
+    def parse(update: object, kw: dict[str, Any]) -> object:
+        kw["disable_notification"] = True
+        return AskAgain(question, kw) if next(rounds) else None
+
+    await getattr(c, method)(100, question, parse=parse)
+
+    first, second = ask.await_args_list
+    assert "disable_notification" not in first.kwargs
+    assert second.kwargs["disable_notification"] is True
+
+
+ENTITIES = [object()]
+"""What a question's `entities` hold; only their presence matters."""
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, TEXT_METHODS)
+@pytest.mark.parametrize(
+    ("result", "kept"),
+    [
+        pytest.param(AskAgain("again"), False, id="no_kw"),
+        pytest.param(AskAgain("again", {"entities": ENTITIES}), True, id="new_kw"),
+    ],
+)
+async def test_until_keeps_entities_only_in_the_kw_of_ask_again(
+    method: str,
+    asked: str,
+    question: object,
+    other: object,
+    make_answer: Any,
+    result: object,
+    kept: bool,
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer())
+
+    await getattr(c, method)(100, question, parse=_sync_parse(result, None), entities=ENTITIES)
+
+    first, retry = ask.await_args_list
+    assert first.kwargs["entities"] is ENTITIES
+    assert ("entities" in retry.kwargs) is kept
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_edits_only_the_first_question(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer(), make_answer())
+
+    await getattr(c, method)(
+        100, question, 5, parse=_sync_parse(AskAgain(question), AskAgain(other), None)
+    )
+
+    assert [call.args[2] for call in ask.await_args_list] == [5, None, None]
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+@pytest.mark.parametrize("topic", ["message_thread_id", "direct_messages_topic_id"])
+async def test_until_sends_the_retries_of_an_edit_with_no_topic(
+    method: str, asked: str, question: object, other: object, make_answer: Any, topic: str
+) -> None:
+    answer = make_answer()
+    setattr(answer.message if isinstance(answer, CallbackQuery) else answer, topic, 9)
+    c, ask = _until_client(asked, answer, make_answer())
+
+    await getattr(c, method)(100, question, 5, parse=_sync_parse(AskAgain(question), None))
+
+    _, retry = ask.await_args_list
+    assert topic not in retry.kwargs
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_keeps_the_topic_parse_put_in_kw(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    answer = make_answer()
+    (answer.message if isinstance(answer, CallbackQuery) else answer).message_thread_id = 9
+    c, ask = _until_client(asked, answer, make_answer())
+    parse = _sync_parse(AskAgain(other, {"message_thread_id": 3}), None)
+
+    await getattr(c, method)(100, question, 5, parse=parse)
+
+    assert ask.await_args_list[1].kwargs["message_thread_id"] == 3
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_without_an_edit_adds_no_topic(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    answer = make_answer()
+    (answer.message if isinstance(answer, CallbackQuery) else answer).message_thread_id = 9
+    c, ask = _until_client(asked, answer, make_answer())
+
+    await getattr(c, method)(100, question, parse=_sync_parse(AskAgain(question), None))
+
+    assert "message_thread_id" not in ask.await_args_list[1].kwargs
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+@pytest.mark.parametrize("attempts", [1, 2, 3])
+async def test_until_raises_attempts_exhausted_after_exactly_attempts_questions(
+    method: str, asked: str, question: object, other: object, make_answer: Any, attempts: int
+) -> None:
+    answers = [make_answer() for _ in range(attempts)]
+    c, ask = _until_client(asked, *answers)
+
+    with pytest.raises(ListenerAttemptsExhausted) as caught:
+        await getattr(c, method)(
+            100, question, parse=lambda *_: AskAgain("again"), attempts=attempts, listen_user_id=7
+        )
+
+    assert caught.value.update is answers[-1]
+    assert caught.value.value == attempts
+    assert ask.await_count == attempts
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, CALLBACK_METHODS)
+async def test_until_attempts_exhausted_on_a_press_without_a_message(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    press = make_answer(message=None, inline_message_id="inline")
+    c, _ = _until_client(asked, press)
+
+    with pytest.raises(ListenerAttemptsExhausted) as caught:
+        await getattr(c, method)(100, question, parse=lambda *_: AskAgain("again"), attempts=1)
+
+    assert caught.value.value == 1
+    assert caught.value.update is press
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+@pytest.mark.parametrize("attempts", [0, -1])
+async def test_until_refuses_attempts_that_are_not_positive(
+    method: str, asked: str, question: object, other: object, make_answer: Any, attempts: int
+) -> None:
+    c, ask = _until_client(asked)
+
+    with pytest.raises(ValueError, match="attempts must be positive"):
+        await getattr(c, method)(100, question, parse=lambda *_: None, attempts=attempts)
+
+    ask.assert_not_awaited()
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+@pytest.mark.parametrize("listen_strict", [False, True])
+async def test_until_passes_the_listen_arguments_to_the_repeated_method(
+    method: str, asked: str, question: object, other: object, make_answer: Any, listen_strict: bool
+) -> None:
+    c, ask = _until_client(asked, make_answer())
+    context = ListenerContext(step=1)
+
+    await getattr(c, method)(
+        100,
+        question,
+        parse=lambda *_: None,
+        listen_user_id=7,
+        listen_context=context,
+        listen_filters=pyro_filters.text,
+        listen_strict=listen_strict,
+        listen_timeout=3,
+        reply_markup=CALLBACK_MARKUP,
+    )
+
+    ask.assert_awaited_once_with(
+        100,
+        question,
+        None,
+        listen_user_id=7,
+        listen_context=context,
+        listen_filters=pyro_filters.text,
+        listen_strict=listen_strict,
+        listen_timeout=3,
+        reply_markup=CALLBACK_MARKUP,
+    )
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+@pytest.mark.parametrize(
+    "error", [ListenerTimeout(), ListenerRejected(), ListenerReplaced(), ExcA()]
+)
+async def test_until_lets_an_error_of_the_repeated_method_through_at_once(
+    method: str, asked: str, question: object, other: object, make_answer: Any, error: Exception
+) -> None:
+    c, ask = _until_client(asked, error, make_answer())
+    parse = Mock(return_value=AskAgain("again"))
+
+    with pytest.raises(type(error)):
+        await getattr(c, method)(100, question, parse=parse)
+
+    assert ask.await_count == 1
+    parse.assert_not_called()
+
+
+@pytest.mark.parametrize(UNTIL_ARGS, UNTIL_METHODS)
+async def test_until_lets_an_error_of_parse_through(
+    method: str, asked: str, question: object, other: object, make_answer: Any
+) -> None:
+    c, ask = _until_client(asked, make_answer(), make_answer())
+
+    def parse(update: object, kw: dict[str, Any]) -> object:
+        raise ExcA
+
+    with pytest.raises(ExcA):
+        await getattr(c, method)(100, question, parse=parse)
+
+    assert ask.await_count == 1
