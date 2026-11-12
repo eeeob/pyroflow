@@ -52,14 +52,14 @@ client.run()
 
 `message.ask` يرد على الرسالة ثم ينتظر الرسالة التالية من `listen_user_id` في نفس المحادثة والـ topic. أما `ask_callback_query` فينتظر ضغطة على أزرار الرسالة التي أرسلها، وكلاهما موجود على `Client` أيضاً مع `edit_message_id` للتعديل بدل الإرسال. ويمكن الانتظار مباشرة: `client.listen_message(chat_id=..., user_id=..., timeout=120)`، أو `listener.listen(MessageKey(chat_id, user_id))`، حيث الحقل `None` يطابق أي قيمة.
 
-> ⚠️ **العاملون لا يتجمدون.** الـ handler الذي ينتظر يمسك الـ worker الخاص به في Pyrogram. افتراضياً لا سياسة ولا مهلة، فحين تبقى `workers` أسئلة بلا جواب يتوقف البوت عن قراءة التحديثات. `setup_pyroflow(workers_policy=...)` يبقي worker واحداً خارج الانتظارات ليقرأ الردود، ويقرر ما يحدث حين يحاول انتظار أخذه:
+> ⚠️ **العاملون لا يتجمدون.** الـ handler الذي ينتظر يمسك الـ worker الخاص به في Pyrogram. `workers_policy` يبقي worker واحداً خارج الانتظارات ليقرأ الردود، ويقرر ما يحدث حين يحاول انتظار أخذه، والافتراضي `WorkersPolicy.CANCEL_OLDEST`:
 >
 > | السياسة | ما يحدث |
 > |---|---|
 > | `WorkersPolicy.CANCEL_OLDEST` | أقدم انتظار ينتهي بـ `ListenerEvicted`، والجديد يأخذ مكانه |
 > | `WorkersPolicy.REJECT` | الانتظار الجديد يرفع `ListenerWorkersBusy` |
 >
-> اضبط سياسة، أو `listen_timeout`، أو كليهما.
+> `setup_pyroflow(workers_policy=None)` يعطّلها: عندها حين تبقى `workers` أسئلة بلا جواب ولا `listen_timeout`، يتوقف البوت عن قراءة التحديثات.
 
 كل `ask_*` يأخذ `listen_timeout`، و`listen_filters` (فلتر Pyrogram يجب أن يجتازه الجواب)، و`listen_strict` (الجواب الذي يفشل الفلتر ينهي الانتظار بـ `ListenerRejected`)، و`listen_user_id`. وأي شيء آخر يذهب إلى method الإرسال أو التعديل في Pyrogram.
 

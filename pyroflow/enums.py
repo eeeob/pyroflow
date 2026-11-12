@@ -72,9 +72,9 @@ class WorkersPolicy(StrEnum):
     A handler that waits in an `ask_*` method or `listen` holds the worker running it;
     when too many do, no worker is left to read the replies and the bot
     freezes. So one worker always stays out of the waits: once a wait would
-    take it, the policy steps in. Set it with `Client.setup_pyroflow`; without
-    one, nothing steps in. With one worker, every wait inside a handler is
-    refused.
+    take it, the policy steps in. Set it with `Client.setup_pyroflow`, where
+    `CANCEL_OLDEST` is the default; with `None`, nothing steps in. With one
+    worker, every wait inside a handler is refused.
 
     Only a wait in the worker's own task is counted. One in another task is
     not, though the worker waits for it: in a sync handler, in

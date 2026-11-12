@@ -781,6 +781,7 @@ async def _start_waits(client: pyroflow.Client, asks: int, *, ping: bool = True)
 
 async def test_no_policy_lets_waits_take_every_worker() -> None:
     client, listener, results = _waiting_bot(workers=2)
+    client.setup_pyroflow(workers_policy=None)
     await _start_waits(client, 2)
     try:
         await _until(lambda: len(listener.listeners) == 2)

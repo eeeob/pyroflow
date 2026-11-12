@@ -148,8 +148,8 @@ class CoordinatedDispatcher(Dispatcher):
         Bound the waits of coordinated handlers with a timeout.
 
         The workers parse the replies too: when every worker waits, no reply
-        is parsed until a wait ends. Set a `workers_policy` with
-        `Client.setup_pyroflow`, which keeps one worker out of the waits, and
+        is parsed until a wait ends. Keep a `workers_policy` (the default of
+        `Client.setup_pyroflow`), which keeps one worker out of the waits, and
         bound with a timeout the waits it does not count, as in
         `asyncio.gather` or in a sync handler.
 

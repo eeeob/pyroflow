@@ -10,6 +10,7 @@ from pyrogram import (
     types as pyro_types,
 )
 
+from ..enums import WorkersPolicy
 from ..errors import ListenerAttemptsExhausted
 from ..models import AskAgain, ListenerContext
 from pytrove import call_sync_or_await
@@ -35,7 +36,6 @@ if TYPE_CHECKING:
 
     from .._internal import AskEditKw, AskRichEditKw, AskRichSendKw, AskSendKw
     from ..dispatcher import Dispatcher
-    from ..enums import WorkersPolicy
     from ..models import AskParser, CallbackQueryKey, ListenerKey, MessageKey
     from ..typings import QuestionT, ResultT, UpdateType
     from ..update_listener import ListenKw, UpdateListener
@@ -55,7 +55,7 @@ class Client(PyroClient):
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
     """The dispatcher that routes updates to listeners and handlers."""
 
-    workers_policy: WorkersPolicy | None = None
+    workers_policy: WorkersPolicy | None = WorkersPolicy.CANCEL_OLDEST
     """What a wait inside a handler does when the workers run short; `None` does nothing."""
     ask_context_message: bool = False
     """Whether the `ask_*` methods put the message they sent or edited in the wait's `context`."""
@@ -78,8 +78,9 @@ class Client(PyroClient):
 
         Args:
             workers_policy: What waits inside handlers do when the workers
-                run short. With `None` there is no policy: waits hold their
-                workers, and the bot freezes if all of them wait.
+                run short; `WorkersPolicy.CANCEL_OLDEST` by default. With
+                `None` there is no policy: waits hold their workers, and the
+                bot freezes if all of them wait.
             ask_context_message: Whether the `ask_*` methods put the message
                 they sent or edited in the wait's `context`. Otherwise
                 `listen_context` reaches the listener as it is.

@@ -52,14 +52,14 @@ client.run()
 
 `message.ask` replies, then waits for the next message from `listen_user_id` in the same chat and topic. `ask_callback_query` waits for a press on the buttons of the message it sent instead, and both are on `Client` too, with `edit_message_id` to edit instead of send. A wait can be more direct: `client.listen_message(chat_id=..., user_id=..., timeout=120)`, or `listener.listen(MessageKey(chat_id, user_id))`, where a `None` field matches any value.
 
-> ⚠️ **Workers do not freeze.** A handler that waits holds its Pyrogram worker. By default there is no policy and no timeout, so once `workers` questions are left unanswered the bot reads no more updates. `setup_pyroflow(workers_policy=...)` keeps one worker out of the waits to read the replies, and decides what happens when a wait would take it:
+> ⚠️ **Workers do not freeze.** A handler that waits holds its Pyrogram worker. `workers_policy` keeps one worker out of the waits to read the replies, and decides what happens when a wait would take it; `WorkersPolicy.CANCEL_OLDEST` is the default:
 >
 > | Policy | What happens |
 > |---|---|
 > | `WorkersPolicy.CANCEL_OLDEST` | The oldest wait ends with `ListenerEvicted`, and the new one takes its place |
 > | `WorkersPolicy.REJECT` | The new wait raises `ListenerWorkersBusy` |
 >
-> Set a policy, a `listen_timeout`, or both.
+> `setup_pyroflow(workers_policy=None)` turns it off: then once `workers` questions are left unanswered with no `listen_timeout`, the bot reads no more updates.
 
 Every `ask_*` takes `listen_timeout`, `listen_filters` (a Pyrogram filter the answer must pass), `listen_strict` (an answer that fails the filter ends the wait with `ListenerRejected`) and `listen_user_id`. Anything else goes to the Pyrogram method that sends or edits.
 

@@ -64,7 +64,7 @@ def test_setup_pyroflow_resets_what_it_leaves_out() -> None:
 
     c.setup_pyroflow()
 
-    assert c.workers_policy is None
+    assert c.workers_policy is WorkersPolicy.CANCEL_OLDEST
     assert c.ask_context_message is False
 
 
