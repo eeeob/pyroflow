@@ -87,7 +87,7 @@ A rule set is never narrowed, nor an ignore widened, in `pyproject.toml` to make
 
 ### 8. Commit and open the pull request
 
-Write Conventional Commits. A breaking change carries its `!`, its `BREAKING CHANGE` note and its `CHANGELOG.md` entry, all in the same pull request (1.3, 6.7).
+Write Conventional Commits. A breaking change carries its `!` and its `BREAKING CHANGE` note with the migration (1.3, 6.7).
 
 Open the pull request from your branch into `main` (6.8).
 
@@ -265,7 +265,7 @@ def chunk(text: str, size: int) -> list[str]:
 
 **6.6 Public documentation.** Public documentation explains concepts, never data that changes with every addition (counts, file lists, line numbers). A detail that changes has one source, and other documents link to it rather than copy it.
 
-**6.7 Commits and pull requests.** Commit messages follow Conventional Commits. A breaking change adds `!` to the type and a `BREAKING CHANGE` note, and adds an entry with its migration under `[Unreleased]` in `CHANGELOG.md` in the same pull request.
+**6.7 Commits and pull requests.** Commit messages follow Conventional Commits. A breaking change adds `!` to the type and a `BREAKING CHANGE` note that states the migration; the release notes on GitHub are generated from the pull requests, so there is no changelog file.
 
 **6.8 Branches.** Every change is made on its own branch and merged through a pull request, never committed directly to `main`.
 

@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pyroflow"
 dynamic = ["version"]
-description = "Conversation-oriented Pyrogram extension with per-update listeners and ask"
+description = "Conversations for Kurigram (Pyrogram): await the reply, and run one key's updates one at a time"
 requires-python = ">=3.10"
 authors = [{ name = "Abdullah", email = "aldheeb01@gmail.com" }]
 readme = "README.md"
@@ -57,7 +57,6 @@ dependencies = [
 "Source" = "https://github.com/eeeob/pyroflow"
 "Issues" = "https://github.com/eeeob/pyroflow/issues"
 "Releases" = "https://github.com/eeeob/pyroflow/releases"
-"Changelog" = "https://github.com/eeeob/pyroflow/blob/main/CHANGELOG.md"
 
 
 # Tooling lives in dependency groups (PEP 735), not extras: a library user never
@@ -89,14 +88,13 @@ test = [
 ]
 
 
+[tool.hatch.version]
+path = "pyroflow/__init__.py"
+
 [tool.hatch.build.targets.sdist]
 # An allowlist, so a new top-level file never leaks into the sdist by accident.
 # hatchling always adds README, LICENSE and pyproject.toml itself.
 include = ["/pyroflow", "/tests"]
-
-[tool.hatch.version]
-path = "pyroflow/__init__.py"
-
 
 [tool.hatch.build.targets.wheel]
 ignore-vcs = true

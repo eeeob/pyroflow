@@ -87,7 +87,7 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 
 ### 8. اعمل `commit` وافتح الـ `pull request`
 
-اكتب رسائل `commit` وفق Conventional Commits. التغيير الكاسر يحمل علامة `!` وملاحظة `BREAKING CHANGE` ومدخلًا في `CHANGELOG.md`، كلها في الـ `pull request` نفسه (1.3، 6.7).
+اكتب رسائل `commit` وفق Conventional Commits. التغيير الكاسر يحمل علامة `!` وملاحظة `BREAKING CHANGE` مع طريقة الترحيل (1.3، 6.7).
 
 افتح الـ `pull request` من فرعك إلى `main` (6.8).
 
@@ -265,7 +265,7 @@ def chunk(text: str, size: int) -> list[str]:
 
 **6.6 التوثيق العام.** يشرح التوثيق العام المفاهيم، لا البيانات التي تتغير مع كل إضافة (الأعداد، قوائم الملفات، أرقام الأسطر). التفصيل المتغيّر له مصدر واحد، والمستندات الأخرى تربط به ولا تنسخه.
 
-**6.7 الـ commits والـ pull requests.** رسائل الـ `commit` تتبع Conventional Commits. التغيير الكاسر يضيف `!` إلى النوع وملاحظة `BREAKING CHANGE`، ويضيف مدخلًا مع طريقة الترحيل تحت `[Unreleased]` في `CHANGELOG.md`، في الـ `pull request` نفسه.
+**6.7 الـ commits والـ pull requests.** رسائل الـ `commit` تتبع Conventional Commits. التغيير الكاسر يضيف `!` إلى النوع وملاحظة `BREAKING CHANGE` تذكر طريقة الترحيل؛ ملاحظات الإصدار على GitHub تُولَّد من الـ `pull requests`، فلا يوجد ملف changelog.
 
 **6.8 الفروع.** كل تغيير يتم على فرع خاص به ويُدمج عبر `pull request`، ولا يُعمل له `commit` مباشرة على `main`.
 

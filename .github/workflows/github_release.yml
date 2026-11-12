@@ -33,7 +33,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          body: "Breaking changes and how to migrate: [CHANGELOG.md](https://github.com/eeeob/pyroflow/blob/${{ github.ref_name }}/CHANGELOG.md)."
           generate_release_notes: true
           make_latest: true
           draft: false
