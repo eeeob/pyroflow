@@ -10,7 +10,7 @@ import pyroflow.update_listener.callback_query_listener as callback_query_listen
 from pyroflow import CallbackQueryListener
 from pyroflow.models import CallbackQueryKey, ListenerContext
 
-from ..conftest import make_callback_query
+from ..conftest import bind_listener, make_callback_query
 
 if TYPE_CHECKING:
     from pyroflow.types import CallbackQuery
@@ -48,7 +48,7 @@ def test_init_keeps_a_given_function_and_forwards_kwargs() -> None:
 
 
 async def test_listen_waits_on_its_key() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     context = ListenerContext(step=1)
     task = asyncio.ensure_future(
         lis.listen(CallbackQueryKey(chat_id=1, user_id=2, message_id=3), context=context)
@@ -62,7 +62,7 @@ async def test_listen_waits_on_its_key() -> None:
 
 
 async def test_listen_on_ephemeral_takes_a_press_on_an_ephemeral_message() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     task = asyncio.ensure_future(
         lis.listen(CallbackQueryKey(chat_id=100, user_id=7, ephemeral=True))
     )
@@ -77,7 +77,7 @@ async def test_listen_on_ephemeral_takes_a_press_on_an_ephemeral_message() -> No
 
 
 async def test_listen_on_a_message_takes_only_a_press_on_it() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     task = asyncio.ensure_future(lis.listen(CallbackQueryKey(chat_id=100, message_id=5)))
     await asyncio.sleep(0)
 
@@ -88,7 +88,7 @@ async def test_listen_on_a_message_takes_only_a_press_on_it() -> None:
 
 
 async def test_listen_on_an_inline_message_takes_only_a_press_on_it() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     task = asyncio.ensure_future(lis.listen(CallbackQueryKey(inline_message_id="im")))
     await asyncio.sleep(0)
 
@@ -100,7 +100,7 @@ async def test_listen_on_an_inline_message_takes_only_a_press_on_it() -> None:
 
 
 async def test_listen_on_an_inline_message_for_a_user_skips_other_users() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     task = asyncio.ensure_future(lis.listen(CallbackQueryKey(user_id=7, inline_message_id="im")))
     await asyncio.sleep(0)
 
@@ -114,7 +114,7 @@ async def test_listen_on_an_inline_message_for_a_user_skips_other_users() -> Non
 
 
 async def test_listen_for_a_user_takes_their_inline_press() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     task = asyncio.ensure_future(lis.listen(CallbackQueryKey(user_id=7)))
     await asyncio.sleep(0)
     press = make_callback_query(user_id=7, message=None, inline_message_id="im")
@@ -124,7 +124,7 @@ async def test_listen_for_a_user_takes_their_inline_press() -> None:
 
 
 async def test_listen_in_a_private_chat_skips_an_inline_press() -> None:
-    lis = CallbackQueryListener()
+    lis = bind_listener(CallbackQueryListener())
     task = asyncio.ensure_future(lis.listen(CallbackQueryKey(chat_id=7)))
     await asyncio.sleep(0)
 

@@ -13,8 +13,11 @@ class CallbackQueryListener(UpdateListener[CallbackQuery]):
     Example:
         >>> import asyncio
         >>> from pyrogram.types import Chat, Message, User
+        >>> from pyroflow import Client
         >>> async def main():
         ...     listener = CallbackQueryListener()
+        ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+        ...     client.register_listener(listener)
         ...     waiter = asyncio.create_task(listener.listen(CallbackQueryKey(1, 2, 3)))
         ...     await asyncio.sleep(0)
         ...     message = Message(id=3, chat=Chat(id=1))

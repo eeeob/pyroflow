@@ -12,8 +12,6 @@ from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pytrove import gather_helper
 
-from ..enums import WorkersPolicy
-from ..errors import ListenerWorkersBusy
 from ..utils import call_maybe_async, patch_cls
 
 if TYPE_CHECKING:
@@ -23,7 +21,7 @@ if TYPE_CHECKING:
 
     from ..client import Client
     from .coordinated_dispatcher.models import _HandlerHold
-    from ..models import ListenerKey, ListenerModel
+    from ..models import ListenerModel
     from ..typings import UpdateType
     from ..update_listener import UpdateListener
 
@@ -77,7 +75,7 @@ class Dispatcher(PyroDispatcher):
         """Whether the dispatcher is running; registration is refused while it is."""
 
         self.listener_waits: dict[ListenerModel, UpdateListener[Any]] = {}
-        """The waits inside handlers that hold their worker, oldest first."""
+        """The waits inside handlers that hold their worker, oldest first; `UpdateListener.listen` keeps it."""
 
     async def start(self, *args: object, **kw: object) -> None:
         """Start all registered listeners, then the dispatcher.
@@ -120,47 +118,6 @@ class Dispatcher(PyroDispatcher):
         self.is_started = False
 
         return r
-
-    def enter_handler_wait(self, policy: WorkersPolicy, key: ListenerKey) -> None:
-        """Make sure a wait about to start inside a handler has a slot, as `policy` says.
-
-        Called by `UpdateListener.listen` from the worker task itself, when
-        `workers_policy` is set. `listen` then adds the wait to
-        `listener_waits` at once, which takes the slot. With none free,
-        `CANCEL_OLDEST` ends the oldest wait, whose slot frees at once. The
-        evicted handler may go on working, uncounted like any handler that is
-        not waiting, and a new wait of its goes through here too.
-
-        Args:
-            policy: The client's `workers_policy`.
-            key: The key the wait is on.
-
-        Raises:
-            ListenerWorkersBusy: With no slot free, under `WorkersPolicy.REJECT`,
-                or under `WorkersPolicy.CANCEL_OLDEST` with no wait to end, as
-                with a single worker.
-        """
-        # One worker stays out of the waits to read the replies.
-        if len(self.listener_waits) < len(self.handler_worker_tasks) - 1:
-            return
-
-        if policy is WorkersPolicy.REJECT or not self.listener_waits:
-            raise ListenerWorkersBusy(key)
-
-        model = next(iter(self.listener_waits))
-        listener = self.listener_waits[model]
-        # A pending wait frees its slot through its done callback; one whose task was
-        # cancelled, and so is done without it, does here.
-        listener.evict(model.key, model=model)
-        model.run_done_callbacks()
-
-    def end_handler_wait(self, listener_model: ListenerModel) -> None:
-        """Free the slot of a wait inside a handler that ended.
-
-        Args:
-            listener_model: The wait; one no longer tracked frees nothing.
-        """
-        self.listener_waits.pop(listener_model, None)
 
     def register_listener(self, listener: UpdateListener[UpdateType]) -> None:
         """Register a listener for its declared update type.

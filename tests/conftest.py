@@ -8,6 +8,9 @@ suite relies on that global patch being active.
 
 from __future__ import annotations as _annotations
 
+from types import SimpleNamespace
+from typing import TypeVar
+
 import pyroflow  # noqa: F401 — activates the @patch_cls global monkey-patch
 
 from pyrogram.types import (
@@ -23,6 +26,17 @@ from pyrogram.enums import ChatType
 
 CALLBACK_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton("Yes", callback_data="y")]])
 """An inline keyboard whose button sends a callback query."""
+
+ListenerT = TypeVar("ListenerT")
+
+
+def bind_listener(listener: ListenerT) -> ListenerT:
+    """Bind `listener` to a client stand-in with no `workers_policy`, as registering it does."""
+    listener.client = SimpleNamespace(  # ty: ignore[unresolved-attribute]
+        dispatcher=SimpleNamespace(listener_waits={}, handler_worker_tasks=[]),
+        workers_policy=None,
+    )
+    return listener
 
 
 def make_message(

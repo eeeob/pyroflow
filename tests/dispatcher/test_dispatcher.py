@@ -931,11 +931,17 @@ async def test_a_restart_keeping_the_handlers_counts_only_the_new_workers() -> N
         ListenerModel(MessageKey(100, 7), asyncio.get_running_loop().create_future())
     ] = MessageListener()
 
+    dispatcher.client.workers_policy = WorkersPolicy.REJECT
+    listener = MessageListener()
+    listener.client = dispatcher.client
+    token = _HANDLER_WORKER.set(asyncio.current_task())
+
     try:
         # Two workers leave one slot, which the wait above takes; those of the last run left the list.
         with pytest.raises(ListenerWorkersBusy):
-            dispatcher.enter_handler_wait(WorkersPolicy.REJECT, MessageKey(100, 8))
+            await listener.listen(MessageKey(100, 8))
     finally:
+        _HANDLER_WORKER.reset(token)
         dispatcher.listener_waits.clear()
         await dispatcher.stop()
 
@@ -960,128 +966,6 @@ async def test_every_worker_counts_itself_before_any_takes_an_update() -> None:
         await dispatcher.stop()
 
     assert seen == [3]
-
-
-@pytest.mark.parametrize("mode", list(WorkersPolicy))
-@pytest.mark.parametrize("workers", [1, 0])
-async def test_enter_handler_wait_with_no_worker_to_spare_refuses(
-    mode: WorkersPolicy, workers: int
-) -> None:
-    dispatcher = await _started_dispatcher(workers=workers)
-
-    with pytest.raises(ListenerWorkersBusy):
-        dispatcher.enter_handler_wait(mode, MessageKey(1))
-
-
-def _hold_a_worker(dispatcher: Dispatcher, chat_id: int = 1) -> ListenerModel:
-    """Take a slot and track a wait as `UpdateListener.listen` does, and return its model."""
-    listener = MessageListener()
-    model = ListenerModel(MessageKey(chat_id), asyncio.get_running_loop().create_future())
-    listener._add(model)
-    model.add_done_callback(dispatcher.end_handler_wait)
-    dispatcher.listener_waits[model] = listener
-    return model
-
-
-async def test_enter_handler_wait_with_workers_free_leaves_the_waits_alone() -> None:
-    dispatcher = await _started_dispatcher(workers=3)
-    policy = WorkersPolicy.CANCEL_OLDEST
-    model = _hold_a_worker(dispatcher)
-
-    dispatcher.enter_handler_wait(policy, MessageKey(2))
-
-    assert list(dispatcher.listener_waits) == [model]
-    assert not model.done()
-
-
-async def test_enter_handler_wait_with_reject_raises_and_keeps_the_waits() -> None:
-    dispatcher = await _started_dispatcher(workers=2)
-    policy = WorkersPolicy.REJECT
-    model = _hold_a_worker(dispatcher)
-
-    with pytest.raises(ListenerWorkersBusy):
-        dispatcher.enter_handler_wait(policy, MessageKey(2))
-
-    assert list(dispatcher.listener_waits) == [model]
-
-
-async def test_enter_handler_wait_with_cancel_oldest_evicts_only_the_oldest() -> None:
-    dispatcher = await _started_dispatcher(workers=3)
-    oldest, newer = _hold_a_worker(dispatcher, 1), _hold_a_worker(dispatcher, 2)
-
-    dispatcher.enter_handler_wait(WorkersPolicy.CANCEL_OLDEST, MessageKey(3))
-
-    assert isinstance(oldest.future.exception(), ListenerEvicted)
-    assert not newer.done()
-    assert list(dispatcher.listener_waits) == [newer]
-
-
-async def test_enter_handler_wait_evicts_each_wait_once() -> None:
-    dispatcher = await _started_dispatcher(workers=3)
-    oldest, newer = _hold_a_worker(dispatcher, 1), _hold_a_worker(dispatcher, 2)
-
-    # The first evicted wait left at once, though its `listen` has not reached `finally`.
-    dispatcher.enter_handler_wait(WorkersPolicy.CANCEL_OLDEST, MessageKey(3))
-    _hold_a_worker(dispatcher, 3)
-    dispatcher.enter_handler_wait(WorkersPolicy.CANCEL_OLDEST, MessageKey(4))
-
-    assert isinstance(oldest.future.exception(), ListenerEvicted)
-    assert isinstance(newer.future.exception(), ListenerEvicted)
-
-
-@pytest.mark.parametrize("mode", list(WorkersPolicy))
-async def test_enter_handler_wait_takes_the_slot_of_a_wait_that_just_ended(
-    mode: WorkersPolicy,
-) -> None:
-    dispatcher = await _started_dispatcher(workers=3)
-    ended, pending = _hold_a_worker(dispatcher, 1), _hold_a_worker(dispatcher, 2)
-    dispatcher.listener_waits[ended]._remove(ended.key)
-    ended.resolve("update")
-
-    dispatcher.enter_handler_wait(mode, MessageKey(3))
-
-    assert ended.future.result() == "update"
-    assert not pending.done()
-    assert list(dispatcher.listener_waits) == [pending]
-
-
-async def test_enter_handler_wait_with_cancel_oldest_takes_the_slot_of_a_cancelled_task() -> None:
-    dispatcher = await _started_dispatcher(workers=2)
-    model = _hold_a_worker(dispatcher)
-    listener = dispatcher.listener_waits[model]
-    model.future.cancel()  # as a cancelled task does: no done callback, and `finally` not reached yet
-
-    dispatcher.enter_handler_wait(WorkersPolicy.CANCEL_OLDEST, MessageKey(2))
-
-    assert dispatcher.listener_waits == {}
-    assert listener.listeners == {}
-
-
-async def test_enter_handler_wait_with_a_free_slot_lets_it_through() -> None:
-    dispatcher = await _started_dispatcher(workers=2)
-
-    dispatcher.enter_handler_wait(WorkersPolicy.REJECT, MessageKey(1))
-
-    assert dispatcher.listener_waits == {}
-
-
-async def test_end_handler_wait_frees_the_slot() -> None:
-    dispatcher = await _started_dispatcher(workers=2)
-    model = _hold_a_worker(dispatcher)
-
-    dispatcher.end_handler_wait(model)
-
-    assert dispatcher.listener_waits == {}
-
-
-async def test_end_handler_wait_of_an_untracked_wait_does_nothing() -> None:
-    dispatcher = await _started_dispatcher(workers=2)
-    model = _hold_a_worker(dispatcher)
-    dispatcher.end_handler_wait(model)
-
-    dispatcher.end_handler_wait(model)
-
-    assert dispatcher.listener_waits == {}
 
 
 async def test_a_wait_replacing_one_takes_its_slot_with_no_slot_free() -> None:
@@ -1120,7 +1004,10 @@ async def test_a_wait_replacing_one_that_holds_no_slot_is_refused_with_no_slot_f
     dispatcher.client.workers_policy = WorkersPolicy.REJECT
     listener = MessageListener()
     listener.client = dispatcher.client
-    _hold_a_worker(dispatcher, 9)
+    # Another wait holds the one slot.
+    dispatcher.listener_waits[
+        ListenerModel(MessageKey(9), asyncio.get_running_loop().create_future())
+    ] = MessageListener()
     old = asyncio.ensure_future(
         listener.listen(MessageKey(chat_id=1))
     )  # outside a worker, so it holds no slot

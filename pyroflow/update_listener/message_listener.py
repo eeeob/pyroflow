@@ -13,8 +13,11 @@ class MessageListener(UpdateListener[Message]):
     Example:
         >>> import asyncio
         >>> from pyrogram.types import Chat, User
+        >>> from pyroflow import Client
         >>> async def main():
         ...     listener = MessageListener()
+        ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+        ...     client.register_listener(listener)
         ...     await listener.start()
         ...     waiter = asyncio.create_task(listener.listen(MessageKey(1, 2)))
         ...     await asyncio.sleep(0)

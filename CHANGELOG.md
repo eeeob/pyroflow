@@ -156,10 +156,12 @@ Every breaking change lists what changed, who is affected and how to migrate.
 
 - **BREAKING:** registering a listener binds it to the client
   (`UpdateListener.client`); registering one already bound to another client
-  raises `ValueError`, and unregistering unbinds it. A wait counts toward
-  `workers_policy`, and joins the hold of a `CoordinatedDispatcher` handler,
-  only on a registered listener. Affects code that shares one listener between
-  clients. Migration: give each client a listener of its own.
+  raises `ValueError`, and unregistering unbinds it. `listen` on a listener
+  that is not registered raises `RuntimeError`, since no update would reach
+  it. Affects code that shares one listener between clients, and code that
+  waits on a listener it never registered. Migration: give each client a
+  listener of its own, and register it with `Client.register_listener` before
+  waiting on it.
 - **Breaking:** `from pyroflow import *` now brings the names of
   `pyroflow.filters` and `pyroflow.keyboards` instead of the two modules, so
   star-import users lose the names `filters` and `keyboards`. To migrate, call

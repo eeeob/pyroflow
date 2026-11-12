@@ -22,8 +22,8 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 from pyroflow import MessageListener
-from pyroflow.dispatcher.dispatcher import _HANDLER_HOLD, _HANDLER_WORKER
-from pyroflow.enums import DuplicatePolicy, ListenerScope
+from pyroflow.dispatcher.dispatcher import _HANDLER_WORKER
+from pyroflow.enums import DuplicatePolicy, ListenerScope, WorkersPolicy
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
@@ -38,7 +38,7 @@ from pyroflow.update_listener import update_listener as update_listener_module
 from pyroflow.update_listener.update_listener import UpdateListener
 
 
-from ..conftest import make_message
+from ..conftest import bind_listener, make_message
 
 
 CHAT = 0b00001
@@ -51,7 +51,7 @@ TOPIC = 0b00100
 
 async def _started(listener: MessageListener) -> MessageListener:
     await listener.start()
-    return listener
+    return bind_listener(listener)
 
 
 async def test_resolve_matches_less_specific_key() -> None:
@@ -131,7 +131,7 @@ def _key_of(update: Message) -> MessageKey:
 
 def _make(**kw: Any) -> _Listener:
     kw.setdefault("extract_key_func", _key_of)
-    return _Listener(**kw)
+    return bind_listener(_Listener(**kw))
 
 
 async def _pending(lis: UpdateListener, key: MessageKey, **kw: Any) -> asyncio.Task:
@@ -454,30 +454,24 @@ async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
 
 
 class _Holder:
-    """Stands in for the dispatcher of a client: records what `listen` does with it."""
+    """Stands in for the dispatcher of a client: its workers and the waits holding them."""
 
     def __init__(
-        self,
-        error: Exception | None = None,
-        *,
-        has_policy: bool = True,
+        self, workers: int = 10, policy: WorkersPolicy | None = WorkersPolicy.REJECT
     ) -> None:
-        self.error = error
-        self.client = SimpleNamespace(
-            dispatcher=self, workers_policy=object() if has_policy else None
-        )
-        self.listener_waits: dict[ListenerModel, object] = {}
-        self.entered: list[MessageKey] = []
-        self.ended: list[tuple[object, ListenerModel]] = []
+        self.client = SimpleNamespace(dispatcher=self, workers_policy=policy)
+        self.listener_waits: dict[ListenerModel, UpdateListener] = {}
+        self.handler_worker_tasks = [object()] * workers
 
-    def enter_handler_wait(self, policy: object, key: MessageKey) -> None:
-        if self.error is not None:
-            raise self.error
-        self.entered.append(key)
 
-    def end_handler_wait(self, model: ListenerModel) -> None:
-        if (listener := self.listener_waits.pop(model, None)) is not None:
-            self.ended.append((listener, model))
+class _MostWaits(dict):
+    """`listener_waits` that remembers the most waits it held at once."""
+
+    most = 0
+
+    def __setitem__(self, key: object, value: object) -> None:
+        super().__setitem__(key, value)
+        self.most = max(self.most, len(self))
 
 
 def _as_worker(lis: _Listener, holder: _Holder) -> object:
@@ -540,52 +534,46 @@ async def test_listen_without_a_chat_takes_any_update() -> None:
 
 
 async def test_listen_in_a_worker_task_tracks_the_wait_until_it_ends() -> None:
-    holder = _Holder()
     lis = _make()
-    token = _as_worker(lis, holder)
-    try:
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(MessageKey(100), timeout=0.01)
-    finally:
-        _HANDLER_WORKER.reset(token)
+    holder = _Holder()
+    task = await _pending_on_a_worker(lis, holder, 100)
 
-    assert holder.entered == [MessageKey(100)]
-    ((listener, model),) = holder.ended
-    assert listener is lis
-    assert model.key == MessageKey(100)
+    assert holder.listener_waits == {lis.listeners[MessageKey(100)]: lis}
+
+    await _drain(task)
+
     assert holder.listener_waits == {}
 
 
 async def test_listen_in_a_task_the_handler_spawned_is_not_counted() -> None:
-    holder = _Holder()
     lis = _make()
-    token = _as_worker(lis, holder)
+    token = _as_worker(lis, _Holder(workers=1))
     try:
+        # Counted, it would find no worker to spare.
         with pytest.raises(ListenerTimeout):
             await asyncio.create_task(lis.listen(MessageKey(100), timeout=0.01))
     finally:
         _HANDLER_WORKER.reset(token)
 
-    assert holder.entered == []
-
 
 async def test_listen_without_a_policy_leaves_the_dispatcher_alone() -> None:
-    holder = _Holder(has_policy=False)
     lis = _make()
-    token = _as_worker(lis, holder)
+    holder = _Holder(workers=1, policy=None)
+    task = await _pending_on_a_worker(lis, holder, 100)
     try:
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(MessageKey(100), timeout=0.01)
+        assert not task.done()
+        assert holder.listener_waits == {}
     finally:
-        _HANDLER_WORKER.reset(token)
-
-    assert holder.entered == []
-    assert holder.ended == []
+        await _drain(task)
 
 
-async def test_listen_refused_by_the_policy_registers_nothing() -> None:
+@pytest.mark.parametrize("policy", list(WorkersPolicy))
+@pytest.mark.parametrize("workers", [1, 0])
+async def test_listen_with_no_worker_to_spare_is_refused_and_registers_nothing(
+    policy: WorkersPolicy, workers: int
+) -> None:
     lis = _make()
-    token = _as_worker(lis, _Holder(error=ListenerWorkersBusy(MessageKey(100))))
+    token = _as_worker(lis, _Holder(workers, policy))
     try:
         with pytest.raises(ListenerWorkersBusy):
             await lis.listen(MessageKey(100))
@@ -596,43 +584,147 @@ async def test_listen_refused_by_the_policy_registers_nothing() -> None:
     assert lis._shapes == {}
 
 
+async def test_listen_with_a_worker_to_spare_leaves_the_waits_alone() -> None:
+    lis = _make()
+    holder = _Holder(workers=3, policy=WorkersPolicy.CANCEL_OLDEST)
+    first = await _pending_on_a_worker(lis, holder, 1)
+    second = await _pending_on_a_worker(lis, holder, 2)
+    try:
+        assert not first.done()
+        assert [model.key for model in holder.listener_waits] == [MessageKey(1), MessageKey(2)]
+    finally:
+        await _drain(first, second)
+
+
+async def test_listen_under_reject_with_no_slot_free_keeps_the_waits() -> None:
+    lis = _make()
+    holder = _Holder(workers=2)
+    first = await _pending_on_a_worker(lis, holder, 1)
+    token = _as_worker(lis, holder)
+    try:
+        with pytest.raises(ListenerWorkersBusy):
+            await lis.listen(MessageKey(2))
+
+        assert list(holder.listener_waits) == [lis.listeners[MessageKey(1)]]
+    finally:
+        _HANDLER_WORKER.reset(token)
+        await _drain(first)
+
+
+async def test_listen_under_cancel_oldest_evicts_only_the_oldest() -> None:
+    lis = _make()
+    holder = _Holder(workers=3, policy=WorkersPolicy.CANCEL_OLDEST)
+    oldest = await _pending_on_a_worker(lis, holder, 1)
+    newer = await _pending_on_a_worker(lis, holder, 2)
+    newest = await _pending_on_a_worker(lis, holder, 3)
+    try:
+        with pytest.raises(ListenerEvicted):
+            await oldest
+
+        assert not newer.done()
+        assert [model.key for model in holder.listener_waits] == [MessageKey(2), MessageKey(3)]
+    finally:
+        await _drain(newer, newest)
+
+
+async def test_listen_under_cancel_oldest_evicts_each_wait_once() -> None:
+    lis = _make()
+    holder = _Holder(workers=3, policy=WorkersPolicy.CANCEL_OLDEST)
+    first = await _pending_on_a_worker(lis, holder, 1)
+    second = await _pending_on_a_worker(lis, holder, 2)
+
+    async def wait(chat_id: int) -> object:
+        _as_worker(lis, holder)
+        return await lis.listen(MessageKey(chat_id))
+
+    # Both start before the first evicted wait's `listen` reaches `finally`.
+    third, fourth = asyncio.ensure_future(wait(3)), asyncio.ensure_future(wait(4))
+    await asyncio.sleep(0)
+    try:
+        for task in (first, second):
+            with pytest.raises(ListenerEvicted):
+                await task
+
+        assert [model.key for model in holder.listener_waits] == [MessageKey(3), MessageKey(4)]
+    finally:
+        await _drain(third, fourth)
+
+
+@pytest.mark.parametrize("policy", list(WorkersPolicy))
+async def test_listen_takes_the_slot_of_a_wait_that_just_ended(policy: WorkersPolicy) -> None:
+    lis = _make()
+    holder = _Holder(workers=3, policy=policy)
+    ended = await _pending_on_a_worker(lis, holder, 1)
+    pending = await _pending_on_a_worker(lis, holder, 2)
+    update = make_message(1, 7, 5)
+    assert await lis.resolve(update) is True
+    token = _as_worker(lis, holder)
+    try:
+        # Registered before `ended` resumes.
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(MessageKey(3), timeout=0.01)
+    finally:
+        _HANDLER_WORKER.reset(token)
+
+    assert await ended is update
+    assert not pending.done()
+
+    await _drain(pending)
+
+
+async def test_listen_under_cancel_oldest_takes_the_slot_of_a_cancelled_task() -> None:
+    lis = _make()
+    holder = _Holder(workers=2, policy=WorkersPolicy.CANCEL_OLDEST)
+    holder.listener_waits = waits = _MostWaits()
+    first = await _pending_on_a_worker(lis, holder, 1)
+    # As a cancelled task leaves it: done with no done callback, its `listen` not in `finally` yet.
+    lis.listeners[MessageKey(1)].future.cancel()
+    token = _as_worker(lis, holder)
+    try:
+        with pytest.raises(ListenerTimeout):
+            await lis.listen(MessageKey(2), timeout=0.01)
+    finally:
+        _HANDLER_WORKER.reset(token)
+        await _drain(first)
+
+    assert waits.most == 1
+    assert waits == {}
+
+
 async def test_listen_refuses_a_duplicate_before_making_room_for_it() -> None:
     lis = _make(duplicate_policy=DuplicatePolicy.REJECT)
     first = await _pending(lis, MessageKey(100))
-    holder = _Holder()
+    holder = _Holder(workers=1)
     token = _as_worker(lis, holder)
     try:
+        # With no worker to spare, the slot check would raise `ListenerWorkersBusy` instead.
         with pytest.raises(ListenerAlreadyExists):
             await lis.listen(MessageKey(100))
     finally:
         _HANDLER_WORKER.reset(token)
         await _drain(first)
 
-    assert holder.entered == []
     assert holder.listener_waits == {}
-    assert holder.ended == []
 
 
-async def test_listen_replacing_a_wait_that_holds_a_slot_skips_the_check() -> None:
+async def test_listen_replacing_a_wait_that_holds_a_slot_takes_it_with_no_slot_free() -> None:
     lis = _make()
-    holder = _Holder()
+    holder = _Holder(workers=2)
     first = await _pending_on_a_worker(lis, holder, 100)
-    token = _as_worker(lis, holder)
+    second = await _pending_on_a_worker(lis, holder, 100)
     try:
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(MessageKey(100), timeout=0.01)
-    finally:
-        _HANDLER_WORKER.reset(token)
-        await _drain(first)
+        with pytest.raises(ListenerReplaced):
+            await first
 
-    assert holder.entered == [MessageKey(100)]  # the old wait's, and no other
-    assert len(holder.ended) == 2
+        assert holder.listener_waits == {lis.listeners[MessageKey(100)]: lis}
+    finally:
+        await _drain(second)
 
 
 async def test_listen_refused_while_replacing_leaves_the_old_wait_open() -> None:
     lis = _make()
     first = await _pending(lis, MessageKey(100))
-    token = _as_worker(lis, _Holder(error=ListenerWorkersBusy(MessageKey(100))))
+    token = _as_worker(lis, _Holder(workers=1))
     try:
         with pytest.raises(ListenerWorkersBusy):
             await lis.listen(MessageKey(100))
@@ -655,19 +747,15 @@ async def test_listen_replacing_a_wait_outside_a_handler_registers_without_yield
     await _drain(first, second)
 
 
-async def test_listen_replacing_a_wait_that_holds_no_worker_makes_room() -> None:
+async def test_listen_replacing_a_wait_that_holds_no_worker_takes_a_slot() -> None:
     lis = _make()
     first = await _pending(lis, MessageKey(100))
-    holder = _Holder()
-    token = _as_worker(lis, holder)
+    holder = _Holder(workers=2)
+    second = await _pending_on_a_worker(lis, holder, 100)
     try:
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(MessageKey(100), timeout=0.01)
+        assert holder.listener_waits == {lis.listeners[MessageKey(100)]: lis}
     finally:
-        _HANDLER_WORKER.reset(token)
-        await _drain(first)
-
-    assert holder.entered == [MessageKey(100)]
+        await _drain(first, second)
 
 
 async def test_listen_on_a_worker_frees_the_slot_the_moment_the_wait_ends() -> None:
@@ -677,36 +765,18 @@ async def test_listen_on_a_worker_frees_the_slot_the_moment_the_wait_ends() -> N
 
     lis.cancel(MessageKey(100))
 
-    assert len(holder.ended) == 1  # before `listen` resumes
+    assert holder.listener_waits == {}  # before `listen` resumes
     assert not task.done()
 
     await _drain(task)
 
-    assert len(holder.ended) == 1
 
-
-async def test_listen_unbound_on_a_worker_takes_no_policy() -> None:
-    lis = _make()
-    token = _HANDLER_WORKER.set(asyncio.current_task())
-    try:
-        # A bound listener would read `client.workers_policy` here.
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(MessageKey(100), timeout=0.01)
-    finally:
-        _HANDLER_WORKER.reset(token)
+async def test_listen_refuses_a_listener_not_registered_on_a_client() -> None:
+    lis = _Listener()
+    with pytest.raises(RuntimeError, match="_Listener is not registered on a client"):
+        await lis.listen(MessageKey(100))
 
     assert lis.listeners == {}
-
-
-async def test_listen_unbound_in_a_hold_takes_no_hold() -> None:
-    lis = _make()
-    # Not a hold: one that `listen` used would raise at `wait_offer_lock`.
-    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]
-    try:
-        with pytest.raises(ListenerTimeout):
-            await lis.listen(MessageKey(100), timeout=0.01)
-    finally:
-        _HANDLER_HOLD.reset(token)
 
 
 async def test_listen_outside_a_worker_adds_only_the_cleanup_callback() -> None:
@@ -728,7 +798,7 @@ async def test_listen_on_a_worker_with_its_task_cancelled_frees_the_slot() -> No
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert len(holder.ended) == 1
+    assert holder.listener_waits == {}
 
 
 async def test_cleanup_model_removes_the_model() -> None:
@@ -740,6 +810,18 @@ async def test_cleanup_model_removes_the_model() -> None:
 
     assert lis.listeners == {}
     assert lis._shapes == {}
+
+
+async def test_cleanup_model_frees_the_worker_slot_of_the_model() -> None:
+    lis = _make()
+    holder = _Holder()
+    lis.client = holder.client  # ty: ignore[invalid-assignment]
+    model, other = _model(MessageKey(1)), _model(MessageKey(2))
+    holder.listener_waits.update({model: lis, other: lis})
+
+    lis._cleanup_model(model)
+
+    assert holder.listener_waits == {other: lis}
 
 
 async def test_cleanup_model_leaves_a_newer_model_on_the_key() -> None:
@@ -1386,8 +1468,10 @@ class _LanguageListener(UpdateListener[Message]):
 
 
 async def test_a_key_class_with_a_field_of_its_own_needs_no_listener_change() -> None:
-    lis = _LanguageListener(
-        extract_key_func=lambda u: _LanguageKey(u.chat.id, language=u.from_user.language_code)
+    lis = bind_listener(
+        _LanguageListener(
+            extract_key_func=lambda u: _LanguageKey(u.chat.id, language=u.from_user.language_code)
+        )
     )
     by_language = await _pending(lis, _LanguageKey(100, language="en"))
     chat_wide = await _pending(lis, _LanguageKey(100))
@@ -1448,7 +1532,7 @@ def test_extract_key_calls_the_func_inline() -> None:
 
 
 async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     ephemeral = make_message(message_id=0, ephemeral_message_id=4)
     regular_waits = [
         asyncio.create_task(lis.listen(MessageKey())),
@@ -1467,7 +1551,7 @@ async def test_an_ephemeral_update_reaches_only_a_wait_on_ephemeral() -> None:
 
 
 async def test_a_regular_update_never_reaches_a_wait_on_ephemeral() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     wait = asyncio.create_task(lis.listen(MessageKey(chat_id=100, user_id=7, ephemeral=True)))
     await asyncio.sleep(0)
 

@@ -18,8 +18,9 @@ from ..errors import (
     ListenerRejected,
     ListenerReplaced,
     ListenerTimeout,
+    ListenerWorkersBusy,
 )
-from ..enums import DuplicatePolicy, ListenerScope
+from ..enums import DuplicatePolicy, ListenerScope, WorkersPolicy
 from ..models import ListenerModel
 
 if TYPE_CHECKING:
@@ -98,6 +99,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
     Example:
         >>> from pyrogram.types import Chat, Message
+        >>> from pyroflow import Client
         >>> from pyroflow.models import MessageKey
         >>> class ChatListener(UpdateListener[Message]):
         ...     __update_type__ = Message
@@ -106,6 +108,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         ...     listener = ChatListener(
         ...         extract_key_func=lambda update: MessageKey(update.chat.id),
         ...     )
+        ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+        ...     client.register_listener(listener)
         ...     waiter = asyncio.create_task(listener.listen(MessageKey(1)))
         ...     await asyncio.sleep(0)
         ...     resolved = await listener.resolve(Message(id=7, chat=Chat(id=1)))
@@ -248,9 +252,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         return model
 
     def _cleanup_model(self, model: ListenerModel[UpdateType]) -> None:
-        """Remove `model` from `listeners`, unless a newer wait took its key."""
+        """Remove `model` from `listeners`, unless a newer wait took its key, and free its worker slot."""
         if self.listeners.get(model.key) is model:
             self._remove(model.key)
+
+        # The slot frees the moment the wait ends, not when its `listen` resumes.
+        if (client := self.client) is not None:
+            client.dispatcher.listener_waits.pop(model, None)
 
     def _time_out(self, listener: ListenerModel[UpdateType]) -> None:
         """End `listener` with `ListenerTimeout`, unless it is done already.
@@ -284,10 +292,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             Whether a listener was cancelled.
 
         Example:
+            >>> from pyroflow import Client
             >>> from pyroflow.models import MessageKey
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
             ...     listener = MessageListener()
+            ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+            ...     client.register_listener(listener)
             ...     waiter = asyncio.create_task(listener.listen(MessageKey(1)))
             ...     await asyncio.sleep(0)
             ...     cancelled = listener.cancel(MessageKey(1))
@@ -351,10 +362,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             Whether a listener was rejected.
 
         Example:
+            >>> from pyroflow import Client
             >>> from pyroflow.models import MessageKey
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
             ...     listener = MessageListener()
+            ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+            ...     client.register_listener(listener)
             ...     waiter = asyncio.create_task(listener.listen(MessageKey(1)))
             ...     await asyncio.sleep(0)
             ...     rejected = listener.reject(MessageKey(1))
@@ -392,8 +406,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         Inside a handler, the wait holds the worker running it, so the
         `WorkersPolicy` of the client this listener is registered on applies
-        first (see `Client.setup_pyroflow`). An unregistered listener takes
-        no policy and no hold of a coordinated handler.
+        first (see `Client.setup_pyroflow`).
 
         Args:
             key: The key to wait on, a `__key_type__`; a `None` field matches
@@ -413,6 +426,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Raises:
             TypeError: If `key` is not exactly a `__key_type__`; a subclass
                 key would never match the lookups `resolve` builds.
+            RuntimeError: If the listener is not registered on a client; no
+                update would ever reach it.
             ListenerAlreadyExists: If a listener already waits on the key and
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
@@ -452,11 +467,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             the moment it starts.
 
         Example:
+            >>> from pyroflow import Client
             >>> from pyroflow.models import MessageKey
             >>> from pyroflow.update_listener import MessageListener
             >>> async def main():
+            ...     listener = MessageListener()
+            ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+            ...     client.register_listener(listener)
             ...     try:
-            ...         await MessageListener().listen(MessageKey(1), timeout=0.01)
+            ...         await listener.listen(MessageKey(1), timeout=0.01)
             ...     except ListenerTimeout as e:
             ...         return e.value
             >>> asyncio.run(main())
@@ -470,8 +489,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             raise TypeError(msg)
 
         client = self.client
+
+        if client is None:
+            msg = f"{type(self).__name__} is not registered on a client"
+            raise RuntimeError(msg)
+
         # Read here alone, with no `current_task` check: a wait in a sync handler or a spawned task counts.
-        hold = _HANDLER_HOLD.get() if client is not None else None
+        hold = _HANDLER_HOLD.get()
 
         # A wait of a coordinated handler starts between two offers of its lane, never during
         # one; once the handler ended there is nothing to wait for. Nothing below suspends
@@ -494,21 +518,30 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if filters is None and self.strict_filter is not None:
             filters, strict = self.strict_filter, True
 
-        dispatcher = None
+        waits: dict[ListenerModel, UpdateListener[Any]] | None = None
         worker = _HANDLER_WORKER.get()
 
         # Only a wait in the worker task itself is counted, not one in a task the handler spawned.
         if (
-            client is not None
-            and (policy := client.workers_policy) is not None
+            (policy := client.workers_policy) is not None
             and worker is not None
             and worker is asyncio.current_task()
         ):
             dispatcher = client.dispatcher
+            waits = dispatcher.listener_waits
 
             # A wait replacing one that holds a slot takes that slot, so it needs no check.
-            if current not in dispatcher.listener_waits:
-                dispatcher.enter_handler_wait(policy, key)
+            # One worker stays out of the waits to read the replies.
+            if current not in waits and len(waits) >= len(dispatcher.handler_worker_tasks) - 1:
+                if policy is WorkersPolicy.REJECT or not waits:
+                    raise ListenerWorkersBusy(key)
+
+                # The evicted handler may go on working, uncounted like any handler not waiting.
+                oldest = next(iter(waits))
+                waits[oldest].evict(oldest.key, model=oldest)
+                # A pending wait frees its slot through its done callback; one whose task was
+                # cancelled, and so is done without it, does here.
+                oldest.run_done_callbacks()
 
         if current is not None:
             current.set_exc(ListenerReplaced(key))
@@ -524,10 +557,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
 
         listener.add_done_callback(self._cleanup_model)
 
-        if dispatcher is not None:
-            # The slot frees the moment the wait ends, not when this coroutine resumes.
-            listener.add_done_callback(dispatcher.end_handler_wait)
-            dispatcher.listener_waits[listener] = self
+        # `_cleanup_model` frees the slot.
+        if waits is not None:
+            waits[listener] = self
 
         if timeout is None:
             timeout = self.timeout
@@ -540,8 +572,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         error: ListenerError | None = None
 
         try:
-            # `client` is set whenever `hold` is; a hold comes only from a `CoordinatedDispatcher`.
-            if hold is not None and client is not None:
+            # A hold comes only from a `CoordinatedDispatcher`.
+            if hold is not None:
                 hold.note_handler_wait(cast("CoordinatedDispatcher", client.dispatcher), listener)
 
             return await future

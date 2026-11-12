@@ -12,7 +12,7 @@ from pyroflow import MessageListener
 from pyroflow.errors import ListenerTimeout
 from pyroflow.models import ListenerContext, MessageKey
 
-from ..conftest import make_message
+from ..conftest import bind_listener, make_message
 
 if TYPE_CHECKING:
     from pyroflow.types import Message
@@ -50,7 +50,7 @@ def test_init_keeps_a_given_function_and_forwards_kwargs() -> None:
 
 
 async def test_listen_waits_on_its_key() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     context = ListenerContext(step=1)
     task = asyncio.ensure_future(
         lis.listen(
@@ -70,7 +70,7 @@ async def test_listen_waits_on_its_key() -> None:
 
 
 async def test_listen_on_ephemeral_waits_on_an_ephemeral_key() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     task = asyncio.ensure_future(lis.listen(MessageKey(chat_id=1, user_id=2, ephemeral=True)))
     await asyncio.sleep(0)
     try:
@@ -81,7 +81,7 @@ async def test_listen_on_ephemeral_waits_on_an_ephemeral_key() -> None:
 
 
 async def test_listen_on_ephemeral_in_a_chat_takes_a_message_without_a_sender() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     task = asyncio.ensure_future(lis.listen(MessageKey(chat_id=100, ephemeral=True)))
     await asyncio.sleep(0)
     update = make_message(message_id=0, ephemeral_message_id=4, from_user=None)
@@ -91,7 +91,7 @@ async def test_listen_on_ephemeral_in_a_chat_takes_a_message_without_a_sender() 
 
 
 async def test_listen_for_a_user_takes_them_in_any_chat() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     task = asyncio.ensure_future(lis.listen(MessageKey(user_id=7)))
     await asyncio.sleep(0)
     in_group = make_message(chat_id=-100, user_id=7)
@@ -102,7 +102,7 @@ async def test_listen_for_a_user_takes_them_in_any_chat() -> None:
 
 
 async def test_listen_in_a_private_chat_takes_only_that_chat() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     task = asyncio.ensure_future(lis.listen(MessageKey(chat_id=7)))
     await asyncio.sleep(0)
     private = make_message(chat_id=7, user_id=7)
@@ -114,13 +114,13 @@ async def test_listen_in_a_private_chat_takes_only_that_chat() -> None:
 
 async def test_listen_passes_the_timeout_on() -> None:
     with pytest.raises(ListenerTimeout) as exc:
-        await MessageListener().listen(MessageKey(user_id=2), timeout=0.01)
+        await bind_listener(MessageListener()).listen(MessageKey(user_id=2), timeout=0.01)
 
     assert exc.value.value == MessageKey(user_id=2)
 
 
 async def test_listen_in_a_topic_takes_only_a_message_of_that_topic() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     task = asyncio.ensure_future(lis.listen(MessageKey(chat_id=100, message_thread_id=3)))
     await asyncio.sleep(0)
 
@@ -131,7 +131,7 @@ async def test_listen_in_a_topic_takes_only_a_message_of_that_topic() -> None:
 
 
 async def test_listen_in_a_direct_messages_topic_takes_only_a_message_of_that_topic() -> None:
-    lis = MessageListener()
+    lis = bind_listener(MessageListener())
     task = asyncio.ensure_future(lis.listen(MessageKey(chat_id=100, direct_messages_topic_id=3)))
     await asyncio.sleep(0)
 
