@@ -1,4 +1,4 @@
-"""Internal helpers: the `UpdateBound` base, the update executor lookup and `call_maybe_async`."""
+"""Internal helpers: the `UpdateBound` base, the update executor and text lookups and `call_maybe_async`."""
 
 from __future__ import annotations as _annotations
 
@@ -6,7 +6,13 @@ import inspect
 from abc import ABC
 from typing import Generic, TypeVar, TYPE_CHECKING
 
-from pyrogram.types import Update as PyroUpdate
+from pyrogram.types import (
+    CallbackQuery,
+    ChosenInlineResult,
+    InlineQuery,
+    Message,
+    Update as PyroUpdate,
+)
 from pytrove import maybe_awaitable
 
 from ..typings import UpdateType
@@ -118,6 +124,44 @@ def get_update_executor(update: PyroUpdate) -> ThreadPoolExecutor | None:
     return getattr(getattr(update, "_client", None), "executor", None)
 
 
+def get_update_text(update: PyroUpdate) -> str | bytes:
+    r"""Return the text an update carries.
+
+    Args:
+        update: A `Message`, `CallbackQuery`, `InlineQuery` or `ChosenInlineResult`.
+
+    Returns:
+        A message's `text`, falling back to its `caption`; a callback query's
+        `data`, left as `bytes` when Pyrogram leaves it so; an inline query's
+        or chosen inline result's `query`. `""` when there is none.
+
+    Raises:
+        TypeError: If `update` is none of those types.
+
+    Example:
+        >>> from pyrogram.types import CallbackQuery, Message
+        >>> get_update_text(Message(id=1, caption="photo"))
+        'photo'
+        >>> get_update_text(CallbackQuery(id="1", from_user=None, chat_instance="", data=b"\xff"))
+        b'\xff'
+        >>> get_update_text("hello")
+        Traceback (most recent call last):
+        ...
+        TypeError: get_update_text does not support str updates
+    """
+    if isinstance(update, Message):
+        return update.text or update.caption or ""
+
+    if isinstance(update, CallbackQuery):
+        return update.data or ""
+
+    if isinstance(update, InlineQuery | ChosenInlineResult):
+        return update.query
+
+    msg = f"get_update_text does not support {type(update).__name__} updates"
+    raise TypeError(msg)
+
+
 _ResultT = TypeVar("_ResultT")
 """The result type of the callable `call_maybe_async` calls."""
 
@@ -162,5 +206,6 @@ async def call_maybe_async(
 __all__ = (
     "UpdateBound",
     "get_update_executor",
+    "get_update_text",
     "call_maybe_async",
 )

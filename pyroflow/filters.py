@@ -2,10 +2,11 @@
 
 Each factory returns a `pyrogram.filters.Filter`, and `registered_command` is
 one itself, so each composes with `&`, `|` and `~` and registers like any
-Pyrogram filter. The text of a `Message` is its
-`text`, falling back to its `caption`; the text of a `CallbackQuery` is its
-`data`. A `str` pattern matches a `str` text only, and a `bytes` pattern `bytes`
-data only; Pyrogram leaves `data` as `bytes` only when it is not valid UTF-8.
+Pyrogram filter. The text of a `Message` is its `text`, falling back to its
+`caption`; the text of a `CallbackQuery` is its `data`; the text of an
+`InlineQuery` or a `ChosenInlineResult` is its `query`. Any other update raises
+`TypeError`. A `str` pattern matches a `str` text only, and a `bytes` pattern
+`bytes` data only; Pyrogram leaves `data` as `bytes` only when it is not valid UTF-8.
 """
 
 from __future__ import annotations as _annotations
@@ -29,16 +30,16 @@ from pytrove import (
     gather_abort,
     iter_flat_cont,
     is_container,
-    extract_pyro_update_text,
 )
 
 from .enums import CommandUsernamePolicy
 from .types import Message
+from .utils import get_update_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from pyrogram.types import User
+    from pyrogram.types import ChosenInlineResult, InlineQuery, User
     from pytrove.typings import NestedContainer
 
     from .client import Client
@@ -332,9 +333,11 @@ def _text_filter(
 
     str_texts, bytes_texts = tuple(str_view), tuple(bytes_view)
 
-    async def caller(_: Filter, __: Client, update: Message | Query) -> bool:
+    async def caller(
+        _: Filter, __: Client, update: Message | Query | InlineQuery | ChosenInlineResult
+    ) -> bool:
         """Return whether the update's text matches the patterns of its own kind."""
-        text = extract_pyro_update_text(update)
+        text = get_update_text(update)
 
         if isinstance(text, bytes):
             return match(text, bytes_texts)
@@ -468,9 +471,11 @@ def split_text(
         msg = "split_text separator must not be empty"
         raise ValueError(msg)
 
-    async def caller(_: Filter, client: Client, update: Message | Query) -> bool:
+    async def caller(
+        _: Filter, client: Client, update: Message | Query | InlineQuery | ChosenInlineResult
+    ) -> bool:
         """Return whether the update's text splits into parts that each satisfy their rule."""
-        text = extract_pyro_update_text(update)
+        text = get_update_text(update)
 
         if not text or isinstance(text, bytes):
             return False

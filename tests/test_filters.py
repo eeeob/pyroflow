@@ -21,6 +21,7 @@ from typing import Any, TYPE_CHECKING
 import pytest
 
 from pyrogram import filters as pyrogram_filters
+from pyrogram.enums import ChatType
 from pyrogram.handlers import MessageHandler
 from pyrogram.types import (
     BotCommand,
@@ -28,6 +29,8 @@ from pyrogram.types import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
     BotCommandScopeDefault,
+    ChosenInlineResult,
+    InlineQuery,
     Message,
 )
 
@@ -183,6 +186,34 @@ async def test_equal_callback_query_with_bytes_data_matches_bytes_only() -> None
     cbq = make_callback_query(data=b"confirm")
     assert await matches(filters.equal(b"confirm"), cbq) is True
     assert await matches(filters.equal("confirm"), cbq) is False
+
+
+# --- inline updates and unsupported updates -------------------------------------
+
+
+def make_inline_query(query: str) -> InlineQuery:
+    return InlineQuery(id="1", from_user=None, query=query, offset="", chat_type=ChatType.PRIVATE)
+
+
+async def test_text_filters_match_an_inline_query_on_its_query() -> None:
+    update = make_inline_query("cats video")
+    assert await matches(filters.startswith("cats"), update) is True
+    assert await matches(filters.equal("cats video"), update) is True
+    assert await matches(filters.split_text("cats", "video", separator=" "), update) is True
+
+
+async def test_text_filters_match_a_chosen_inline_result_on_its_query() -> None:
+    update = ChosenInlineResult(result_id="1", from_user=None, query="dogs")
+    assert await matches(filters.equal("dogs"), update) is True
+
+
+@pytest.mark.parametrize(
+    "flt",
+    [filters.startswith("x"), filters.equal("x"), filters.split_text("x")],
+)
+async def test_text_filters_reject_an_unsupported_update(flt: Filter) -> None:
+    with pytest.raises(TypeError, match="does not support SimpleNamespace updates"):
+        await flt(FAKE_CLIENT, SimpleNamespace(text="x"))
 
 
 # --- endswith / startswith / equal: str and bytes ---------------------------

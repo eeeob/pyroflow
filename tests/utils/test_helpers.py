@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor`, and `call_maybe_async`."""
+"""Tests for `pyroflow.utils.helpers`: `UpdateBound`, `get_update_executor`, `get_update_text`, and `call_maybe_async`."""
 
 from __future__ import annotations as _annotations
 
@@ -11,12 +11,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pyrogram.types import Message
+from pyrogram.enums import ChatType
+from pyrogram.types import CallbackQuery, ChosenInlineResult, InlineQuery, Message
 
 from pyroflow.utils import (
     UpdateBound,
     call_maybe_async,
     get_update_executor,
+    get_update_text,
     helpers,
 )
 
@@ -170,6 +172,36 @@ def test_get_update_executor_client_without_executor() -> None:
     assert get_update_executor(SimpleNamespace(_client=SimpleNamespace())) is None
 
 
+# --- get_update_text ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("update", "text"),
+    [
+        (Message(id=1, text="text", caption="caption"), "text"),
+        (Message(id=1, caption="caption"), "caption"),
+        (Message(id=1), ""),
+        (CallbackQuery(id="1", from_user=None, chat_instance="", data="data"), "data"),
+        (CallbackQuery(id="1", from_user=None, chat_instance="", data=b"\xff"), b"\xff"),
+        (CallbackQuery(id="1", from_user=None, chat_instance=""), ""),
+        (
+            InlineQuery(id="1", from_user=None, query="q", offset="", chat_type=ChatType.PRIVATE),
+            "q",
+        ),
+        (ChosenInlineResult(result_id="1", from_user=None, query="q"), "q"),
+    ],
+)
+def test_get_update_text_returns_the_text_of_each_update_type(
+    update: Any, text: str | bytes
+) -> None:
+    assert get_update_text(update) == text
+
+
+def test_get_update_text_rejects_an_unsupported_update() -> None:
+    with pytest.raises(TypeError, match="does not support SimpleNamespace updates"):
+        get_update_text(SimpleNamespace(text="x"))
+
+
 # --- call_maybe_async -----------------------------------------------------------
 
 
@@ -241,5 +273,6 @@ def test_module_all_lists_public_names() -> None:
     assert helpers.__all__ == (
         "UpdateBound",
         "get_update_executor",
+        "get_update_text",
         "call_maybe_async",
     )
