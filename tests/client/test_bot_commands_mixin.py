@@ -257,6 +257,42 @@ async def test_push_bot_commands_records_the_groups_when_sending_fails() -> None
     assert not c.bot_command_groups_lock.locked()
 
 
+async def test_push_bot_commands_keeps_a_stale_group_until_deleting_it_succeeds() -> None:
+    c = _MixedFake()
+    a = _cmd("a")
+    _declare(c, [a])
+    c.bot_command_groups.append((("fr", None), [_cmd("gone")]))
+    c.delete_error = ExcA("boom")
+
+    with pytest.raises(ExcA):
+        await c.push_bot_commands()
+
+    assert c.bot_command_groups == [((None, None), [a]), (("fr", None), [])]
+
+    c.delete_error = None
+    c.calls.clear()
+    await c.push_bot_commands()
+
+    assert c.calls == [("delete", {"language_code": "fr"}), ("set", [a], {})]
+    assert c.bot_command_groups == [((None, None), [a])]
+
+
+async def test_remove_bot_commands_deletes_a_stale_group_a_failed_push_kept() -> None:
+    c = _MixedFake()
+    c.bot_command_groups.append((("fr", None), [_cmd("gone")]))
+    c.delete_error = ExcA("boom")
+
+    with pytest.raises(ExcA):
+        await c.push_bot_commands()
+
+    c.delete_error = None
+    c.calls.clear()
+    await c.remove_bot_commands()
+
+    assert c.calls == [("delete", {"language_code": "fr"})]
+    assert c.bot_command_groups == []
+
+
 async def test_remove_bot_commands_deletes_every_sent_group_and_forgets_them() -> None:
     c = _MixedFake()
     scope = BotCommandScopeDefault()

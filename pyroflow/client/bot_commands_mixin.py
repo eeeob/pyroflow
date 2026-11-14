@@ -38,7 +38,10 @@ else:
 class BotCommandsMixin(_ClientForTypeCheckers):
     """Opt-in `Client` mixin that publishes the bot commands of registered handlers.
 
-    The commands are the ones declared with `mark_bot_commands`. Put the mixin
+    The commands are the ones declared with `mark_bot_commands`, which marks
+    only handlers made by the unbound form, such as
+    `@Client.on_message(...)` in a `plugins` module:
+    the bound `@client.on_message(...)` leaves nothing to mark. Put the mixin
     first, as in `class MyClient(BotCommandsMixin, Client)`. `start` publishes
     the commands of every registered handler once the `plugins` are loaded
     and the client is connected, and before the dispatcher starts (so the first
@@ -75,7 +78,7 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
     @cached_property
     def bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
-        """The groups `push_bot_commands` last sent, as `((language_code, scope), commands)` pairs."""
+        """The groups `push_bot_commands` recorded for sending or deleting, as `((language_code, scope), commands)` pairs."""
         return []
 
     @cached_property
@@ -124,7 +127,8 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
         Each group is sent with `set_bot_commands`, and a group sent before
         that no handler declares any more is deleted with
-        `delete_bot_commands`. Called by `initialize`, which `start` runs.
+        `delete_bot_commands`. Until that succeeds it stays in
+        `bot_command_groups` with no commands. Called by `initialize`, which `start` runs.
         It is safe to call from a handler, and counts a handler added just
         before it.
         """
@@ -132,8 +136,9 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             groups = self._declared_bot_command_groups()
             keys = [key for key, _ in groups]
             stale = [key for key, _ in self.bot_command_groups if key not in keys]
-            # Recorded before sending, so `remove_bot_commands` covers a partly failed push.
-            self.bot_command_groups[:] = groups
+            # Recorded before sending, so a partly failed push leaves every group it may have
+            # touched, stale ones included, for the next push and `remove_bot_commands`.
+            self.bot_command_groups[:] = [*groups, *((key, []) for key in stale)]
 
             await gather_abort(
                 [
@@ -151,9 +156,10 @@ class BotCommandsMixin(_ClientForTypeCheckers):
                     ),
                 ]
             )
+            self.bot_command_groups[:] = groups
 
     async def remove_bot_commands(self) -> None:
-        """Delete every group `push_bot_commands` sent with `delete_bot_commands`.
+        """Delete every group `push_bot_commands` recorded with `delete_bot_commands`.
 
         The groups are forgotten once deleted. Called by `stop` unless
         `remove_commands` is `False`.
