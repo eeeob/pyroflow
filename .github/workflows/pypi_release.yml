@@ -6,14 +6,22 @@ on:
       - 'v*'
   workflow_dispatch: {}
 
-# Trusted publishing (OIDC): no token is stored anywhere.
+# Read-only by default; only the publish job gets the OIDC token.
 permissions:
-  id-token: write
   contents: read
 
 jobs:
+  # The suite gates the release: nothing is built if it fails.
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   build-n-publish:
+    needs: tests
     runs-on: ubuntu-latest
+    # Trusted publishing (OIDC): no token is stored anywhere.
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout source

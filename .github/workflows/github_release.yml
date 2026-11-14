@@ -11,7 +11,14 @@ permissions:
   contents: write
 
 jobs:
+  # The suite gates the release: nothing is built if it fails.
+  tests:
+    uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+
   build-n-publish:
+    needs: tests
     runs-on: ubuntu-latest
 
     steps:

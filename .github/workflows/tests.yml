@@ -10,6 +10,8 @@ on:
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch: {}
+  # The release workflows run the suite before they build.
+  workflow_call: {}
 
 # Jobs only check out and run the suite.
 permissions:
