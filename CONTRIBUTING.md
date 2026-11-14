@@ -9,7 +9,7 @@ This file is the single source of the project's rules. It has two parts:
 
 Rules keep their numbers so reviews, commits and code comments can cite them.
 
-The mechanical rules are enforced by `ruff` and `ty`, configured only in `pyproject.toml` under `[tool.ruff]` and `[tool.ty]`. Each selected rule set names the rule it enforces, and each ignore says why. The rest are checked in review.
+The mechanical rules are enforced by `ruff` and `ty` (4.1); the rest are checked in review.
 
 ## The workflow
 
@@ -26,33 +26,26 @@ make hooks   # run `make lint` and `make typecheck` before each commit
 
 ### 2. Start a branch
 
-Branch from `main`, one cohesive change per branch, ending in its own pull request (6.8).
+Branch from `main`, one cohesive change per branch, ending in its own pull request (5.8).
 
 ### 3. Put each piece where it belongs
 
-| What you are adding | Where it goes | Rule |
-|---|---|---|
-| A method or property on a Pyrogram type | inside the `@patch_cls` class that patches that type | 2.1, 2.2 |
-| Support for a new update type | a listener in `pyroflow.update_listener` | 2.3 |
-| An enum, type alias, model, error or public constant | `pyroflow.enums`, `pyroflow.typings`, `pyroflow.models`, `pyroflow.errors`, `pyroflow.constants` (created with the first one) | 1.4, 2.4 |
-| A helper | `pyroflow.utils` when sections share it, the section's `_internal.py` when one section uses it; `pytrove` first | 1.5 |
-| Type hints of the Pyrogram arguments the `ask_*` methods take | `pyroflow._internal`, never exported | 1.7–1.9 |
-| A dependency | an extra, unless every feature needs it | 3.1–3.3 |
-| A test | the `tests/` path that mirrors the module; static type tests in `tests/typing/` | 0.1 |
+Each element goes into its section (1.4), a helper into `pyroflow.utils` or its section's `_internal.py` (1.5), a dependency into an extra unless every feature needs it (2.1–2.3), and a test at the path that mirrors its module (0.1).
+
+Before changing a package or module, read its docstring: it holds the rules specific to it, such as how to patch a Pyrogram type or add a listener, an error, a `flow_*` method or an `_internal` type hint.
 
 Every new public name goes into its module's `__all__` and reaches users through its package's `__init__.py` (1.7–1.9).
 
-Files are cut by responsibility, not by element type, and stay cohesive (4.1, 4.2).
+Files are cut by responsibility, not by element type, and stay cohesive (3.1, 3.2).
 
 ### 4. Write the code
 
-- Lay each module out in the fixed order (4.3).
-- Annotate completely, with modern syntax and deferred annotations (5.1, 5.2, 5.6).
-- Declare constants as `Final` (5.3).
-- Guard and raise as 5.5 says.
+- Lay each module out in the fixed order (3.3).
+- Follow the mechanical rules: type hints, guards, exceptions and docstrings (4.1).
+- Declare constants as `Final` (4.2).
 - Keep `import pyroflow` free of any effect beyond the patch (1.6).
-- Every suppression names its code and reason (5.7), and every log call goes through the module logger (5.8).
-- Write for the reader (6.1, 6.2).
+- Every suppression gives its reason (4.4), and every log call goes through the module logger (4.5).
+- Write for the reader (5.1, 5.2).
 
 ### 5. Test it
 
@@ -62,10 +55,10 @@ Nothing touches a real server, the network or Telegram (0.3).
 
 ### 6. Document it
 
-- Give every function and class a Google-style docstring (6.3).
-- Give every module-level variable, field, enum member and attribute its own docstring (6.4).
-- Add an `Example` doctest where a usage example helps (6.5).
-- Public documentation explains concepts and links to the single source of anything that changes (6.6).
+- Give every function and class a docstring in English (4.1, 5.3).
+- Give every module-level variable, field, enum member and attribute its own docstring (5.4).
+- Add an `Example` doctest where a usage example helps (5.5).
+- Public documentation explains concepts and links to the single source of anything that changes (5.6).
 
 ### 7. Run the checks
 
@@ -87,9 +80,9 @@ A rule set is never narrowed, nor an ignore widened, in `pyproject.toml` to make
 
 ### 8. Commit and open the pull request
 
-Write Conventional Commits. A breaking change carries its `!` and its `BREAKING CHANGE` note with the migration (1.3, 6.7).
+Write Conventional Commits. A breaking change carries its `!` and its `BREAKING CHANGE` note with the migration (1.3, 5.7).
 
-Open the pull request from your branch into `main` (6.8).
+Open the pull request from your branch into `main` (5.8).
 
 ## The rules
 
@@ -103,7 +96,7 @@ Open the pull request from your branch into `main` (6.8).
 
 ### Priority 1 — Compatibility and the public interface
 
-**1.1 Python versions.** The library supports Python 3.10 through 3.14, because the classifiers and the CI matrix promise them. Syntax stays within 3.10; a newer standard-library API is used only behind a `sys.version_info` check, with its backport on older versions.
+**1.1 Python versions.** The supported Python versions are those that `requires-python` and the classifiers in `pyproject.toml` and the matrix in `.github/workflows/tests.yml` promise. Syntax stays within the floor (`target-version` under `[tool.ruff]`, `python-version` under `[tool.ty.environment]`); a newer standard-library API is used only behind a `sys.version_info` check, with its backport on older versions.
 
 **1.2 Entry points.** Users import from these, each of which collects the public elements of its kind and nothing internal:
 
@@ -135,31 +128,21 @@ Helpers are imported from `pyroflow.utils` directly.
 
 **1.10 Code versus rule.** Code that violates a rule is fixed. A rule is never weakened to justify code.
 
-### Priority 2 — Pyrogram integration
+### Priority 2 — Dependencies
 
-**2.1 Patch, don't subclass.** Methods added to Pyrogram types (`Client`, `Message`, `User`, ...) go inside the class decorated with `@patch_cls`, never in a subclass, so users keep using Pyrogram's own classes.
+**2.1 Optional by default.** A dependency that only one feature needs is an extra, never required by the rest of the library.
 
-**2.2 Override signatures.** An override that calls its kurigram original takes `*args, **kw` and passes them on, with pyroflow's own parameters keyword-only between them (`def __init__(self, *args, key_functions=(), **kw)`), so a kurigram signature change needs no change here. One that replaces the original without calling it (`Dispatcher.handler_worker(self)`) and a filter's `__call__(self, client, update)` keep kurigram's signature; change one only after checking it against the installed `kurigram`.
+**2.2 Version bounds.** Every dependency has a floor and, by default, no ceiling. The reason for each bound is a comment beside it in `pyproject.toml`. A ceiling is added only for a real break in a major version, with its reason.
 
-**2.3 A new update type gets its listener.** Support for it is an `XListener` bound to the type with `__update_type__`.
+**2.3 Adding a dependency.** Add it to its extra, or to `[project] dependencies` if every feature needs it, with the reason for its bound (2.2). Run `uv lock` and commit `uv.lock` with it. Tooling goes into a `[dependency-groups]` group, never an extra.
 
-**2.4 Errors.** A new error lives in `pyroflow.errors` and subclasses its family: `ListenerError` for waiting and the `ask_*` methods, or `PyroflowError` when it does not fit. Its class docstring is the message template, formatted with the value at raise time.
+### Priority 3 — Files and layout
 
-### Priority 3 — Dependencies
+**3.1 Files by responsibility.** Files are grouped by function and logic, never by element type.
 
-**3.1 Optional by default.** A dependency that only one feature needs is an extra, never required by the rest of the library.
+**3.2 File size.** Keep a module under about 300 lines; past that, prefer splitting it into cohesive submodules. This is a recommendation, not a hard limit: a split that only spreads lines around is worse than a long cohesive file.
 
-**3.2 Version bounds.** Every dependency has a floor and, by default, no ceiling. The reason for each bound is a comment beside it in `pyproject.toml`. A ceiling is added only for a real break in a major version, with its reason.
-
-**3.3 Adding a dependency.** Add it to its extra, or to `[project] dependencies` if every feature needs it, with the reason for its bound (3.2). Run `uv lock` and commit `uv.lock` with it. Tooling goes into a `[dependency-groups]` group, never an extra.
-
-### Priority 4 — Files and layout
-
-**4.1 Files by responsibility.** Files are grouped by function and logic, never by element type.
-
-**4.2 File size.** Keep a module under about 300 lines; past that, prefer splitting it into cohesive submodules. This is a recommendation, not a hard limit: a split that only spreads lines around is worse than a long cohesive file.
-
-**4.3 Module order.** Every module follows this order:
+**3.3 Module order.** Every module follows this order:
 
 1. The module docstring.
 2. `from __future__ import annotations as _annotations`.
@@ -175,44 +158,29 @@ A definition that something above it needs at import time moves up, with a comme
 from logging import Handler, Logger, getLogger, DEBUG, root
 ```
 
-### Priority 5 — Types, constants and runtime behaviour
+`ruff`'s isort rule (`I001`) is not used: it orders the names inside one `from ... import` as constants, classes, then the rest alphabetically, not in this order, and no `ruff` rule orders the module body.
 
-**5.1 Type syntax.** Built-in generics (`list[str]`) and `|` unions, never the deprecated `typing` aliases (`UP`).
+### Priority 4 — Types, constants and runtime behaviour
 
-**5.2 Deferred annotations.** Every module starts with `from __future__ import annotations as _annotations` after its docstring; the `_annotations` alias marks it as an import kept for its side effect. Names imported under `TYPE_CHECKING` are then used unquoted, and quoted annotations are prohibited (`I002`, `UP037`). The exceptions: aggregation `__init__.py` files, which have no annotations, and the target of `typing.cast`, which is quoted (`TC006`).
+**4.1 Mechanical rules.** The rule sets selected under `[tool.ruff.lint]` in `pyproject.toml` and the settings under `[tool.ty]` are rules of this project, not repeated here: each selected set's comment names what it enforces, and why where that is not obvious; each ignore says why. `make lint` and `make typecheck` run them, and none is weakened to let a change pass (1.10).
 
-**5.3 Constants.** A module constant is `NAME: Final[T] = value`. A class constant is `NAME: ClassVar[T] = value`, never `ClassVar[Final[T]]`. `__version__` takes no `Final`, because the build backend reads it as a plain assignment. An attribute meant to be overridden is a setting, not a constant: lower-case, with a plain annotation.
+**4.2 Constants.** A module constant is `NAME: Final[T] = value`. A class constant is `NAME: ClassVar[T] = value`, never `ClassVar[Final[T]]`. `__version__` takes no `Final`, because the build backend reads it as a plain assignment. An attribute meant to be overridden is a setting, not a constant: lower-case, with a plain annotation.
 
-**5.4 Omitted versus `None`.** When omitting an argument must differ from passing `None`, its default is the `object` class itself, tested with `is object`; `None` stays a value the caller can pass on purpose.
+**4.3 Omitted versus `None`.** When omitting an argument must differ from passing `None`, its default is the `object` class itself, tested with `is object`; `None` stays a value the caller can pass on purpose.
 
-**5.5 Guards and exceptions.** `assert` is never a runtime guard: `python -O` strips it (`S101`). An exception's message is assigned to a variable before the `raise`, so the traceback does not print it twice (`EM`).
-
-```python
-# Correct
-if timeout <= 0:
-    msg = f"timeout must be positive, got {timeout}"
-    raise ValueError(msg)
-
-# Incorrect
-assert timeout > 0
-raise ValueError(f"timeout must be positive, got {timeout}")
-```
-
-**5.6 Complete type hints.** Every parameter and return value is annotated (`ANN`). `Any` is allowed only where it is the honest type, never as a way around a type error. Hints pass `ty`.
-
-**5.7 Suppressions carry reasons.** Every `type: ignore`, `ty: ignore` and `noqa` names its code, followed by the reason (`PGH`).
+**4.4 Suppressions carry reasons.** Every `type: ignore`, `ty: ignore` and `noqa` is followed by its reason, after the code it names (4.1).
 
 ```python
 """Listener for {value} timed out"""  # noqa: D415  # the docstring is the runtime message template
 ```
 
-**5.8 Logging.** Each module logs through `log = logging.getLogger(__name__)`. Messages are in English. An unexpected error is logged with `log.exception`, which keeps the traceback.
+**4.5 Logging.** Each module logs through `log = logging.getLogger(__name__)`. Messages are in English. An unexpected error is logged with `log.exception`, which keeps the traceback.
 
-### Priority 6 — Style, documentation and Git
+### Priority 5 — Style, documentation and Git
 
-**6.1 Clarity.** Names say what a thing is or does. A comment says why; it never repeats what the code already says.
+**5.1 Clarity.** Names say what a thing is or does. A comment says why; it never repeats what the code already says.
 
-**6.2 Code in comments.** Code named in a comment is wrapped in backticks.
+**5.2 Code in comments.** Code named in a comment is wrapped in backticks.
 
 ```python
 # Correct
@@ -222,9 +190,9 @@ raise ValueError(f"timeout must be positive, got {timeout}")
 # cancel may run before resolve returns, so check the future first.
 ```
 
-**6.3 Docstrings.** Every function and class has a Google-style docstring, however small (`D`, `convention = "google"`). Docstrings, log messages and error messages are in English.
+**5.3 Docstrings.** Docstrings, log messages and error messages are in English. Their Google style is a mechanical rule (4.1).
 
-**6.4 Variables and fields.** Every module-level variable, public or private (constants, type aliases, type variables), and every element of a model-like structure (dataclass, `TypedDict` and `NamedTuple` fields, enum members, class attributes, and the instance attributes a stateful class sets in `__init__`) has a one-line docstring on the line right under it. The docstring says what it holds, never repeating its name or type. The class docstring has no `Attributes` section repeating them.
+**5.4 Variables and fields.** Every module-level variable, public or private (constants, type aliases, type variables), and every element of a model-like structure (dataclass, `TypedDict` and `NamedTuple` fields, enum members, class attributes, and the instance attributes a stateful class sets in `__init__`) has a one-line docstring on the line right under it. The docstring says what it holds, never repeating its name or type. The class docstring has no `Attributes` section repeating them.
 
 ```python
 _DEFAULT_TIMEOUT: Final[float] = 30.0
@@ -241,7 +209,7 @@ class ChatKind(Enum):
     """A group or supergroup."""
 ```
 
-**6.5 Docstring sections.** A brief line first, then `Args`, `Returns` and `Raises` when they apply. An `Example` section is a doctest that `make test-doctest` runs, so it needs no network, filesystem, Telegram client or optional dependency.
+**5.5 Docstring sections.** A brief line first, then `Args`, `Returns` and `Raises` when they apply. An `Example` section is a doctest that `make test-doctest` runs, so it needs no network, filesystem, Telegram client or optional dependency.
 
 ```python
 def chunk(text: str, size: int) -> list[str]:
@@ -263,11 +231,11 @@ def chunk(text: str, size: int) -> list[str]:
     """
 ```
 
-**6.6 Public documentation.** Public documentation explains concepts, never data that changes with every addition (counts, file lists, line numbers). A detail that changes has one source, and other documents link to it rather than copy it.
+**5.6 Public documentation.** Public documentation explains concepts, never data that changes with every addition (counts, file lists, line numbers). A detail that changes has one source, and other documents link to it rather than copy it.
 
-**6.7 Commits and pull requests.** Commit messages follow Conventional Commits. A breaking change adds `!` to the type and a `BREAKING CHANGE` note that states the migration; the release notes on GitHub are generated from the pull requests, so there is no changelog file.
+**5.7 Commits and pull requests.** Commit messages follow Conventional Commits. A breaking change adds `!` to the type and a `BREAKING CHANGE` note that states the migration; the release notes on GitHub are generated from the pull requests, so there is no changelog file.
 
-**6.8 Branches.** Every change is made on its own branch and merged through a pull request, never committed directly to `main`.
+**5.8 Branches.** Every change is made on its own branch and merged through a pull request, never committed directly to `main`.
 
 ## Scope of application
 
@@ -275,4 +243,4 @@ Every rule applies to the whole library: existing code as well as new. Code that
 
 ## Extending the rules
 
-Reread these rules before working in a domain they do not yet cover. When a new rule is needed, add it at the priority it belongs to, and update the tests and documentation it affects. No rule is assumed for a domain that has not been worked on yet.
+Reread these rules before working in a domain they do not yet cover. When a new rule is needed, add it at the priority it belongs to, and update the tests and documentation it affects. No rule is assumed for a domain that has not been worked on yet. A rule specific to one package or module lives in that package's or module's docstring, not here.
