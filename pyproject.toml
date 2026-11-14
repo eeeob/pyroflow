@@ -83,6 +83,8 @@ lint = [
 test = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.24",
+    # Fails a test that hangs instead of freezing the run; 2.4.0 is the floor tested.
+    "pytest-timeout>=2.4.0",
     # TOML reading below 3.11, for test_compat_static. Its `load` takes a binary
     # file, which older releases refuse.
     "tomli>=2; python_version < '3.11'",
@@ -105,6 +107,8 @@ packages = ["pyroflow"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The whole suite runs in seconds, so a test past this is hung, not slow.
+timeout = 60
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
