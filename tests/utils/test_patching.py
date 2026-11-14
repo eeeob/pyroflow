@@ -104,6 +104,43 @@ async def test_patch_cls_default_setter_wraps_coroutine_methods() -> None:
     assert await Base().run() == "ran"
 
 
+def test_patch_cls_twice_keeps_the_first_original() -> None:
+    class Base:
+        def greet(self) -> str:
+            return "old"
+
+    def patch() -> None:
+        # The same body applied again, as `importlib.reload` of a patch module does.
+        @patch_cls
+        class Patch(Base):
+            def greet(self) -> str:
+                return "new " + self.oldgreet()  # ty: ignore[unresolved-attribute]
+
+    patch()
+    patch()
+
+    assert Base().oldgreet() == "old"  # ty: ignore[unresolved-attribute]
+    assert Base().greet() == "new old"
+
+
+def test_patch_cls_twice_adds_no_old_for_a_new_member() -> None:
+    class Base:
+        pass
+
+    def patch() -> None:
+        @patch_cls
+        class Patch(Base):
+            def added(self) -> str:
+                return "added"
+
+    patch()
+    patch()
+
+    assert Base().added() == "added"  # ty: ignore[unresolved-attribute]
+    assert not hasattr(Base, "oldadded")
+    assert vars(Base)["_pyroflow_originals"]["added"] is patching._MISSING
+
+
 # --- patch_setter ---------------------------------------------------------
 
 
