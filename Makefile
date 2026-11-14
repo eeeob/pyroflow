@@ -10,6 +10,8 @@ PYTHON_CEIL := 3.14
 # Throwaway environments built from pyproject.toml, never from uv.lock;
 # `.gitignore` covers `.venv*`. `uv sync` is unusable for them: asked for
 # another resolution, it rewrites uv.lock.
+# The main environment, where `uv sync` puts it; `clean` deletes it.
+VENV := $(or $(UV_PROJECT_ENVIRONMENT),$(CURDIR)/.venv)
 VENV_MIN := $(CURDIR)/.venv-minimal
 VENV_FLOOR := $(CURDIR)/.venv-floor
 VENV_CEIL := $(CURDIR)/.venv-ceil
@@ -24,7 +26,7 @@ TAG = v$(VERSION)
 
 # Other recipes sync on their own; this exists so CI can install in its own step.
 sync:
-	$(UV) sync
+	$(UV) sync --locked
 
 hooks:
 	$(RUN) pre-commit install
@@ -52,10 +54,11 @@ test-doctest:
 	$(RUN) pytest --doctest-modules pyroflow || [ $$? -eq 5 ]
 
 # The bare package plus the test runner, built from source rather than the lock.
+# The smoke import runs inside the venv, so it loads the installed package, not the source tree.
 test-minimal:
 	$(UV) venv --clear $(VENV_MIN)
 	VIRTUAL_ENV=$(VENV_MIN) $(UV) pip install . --group test
-	$(VENV_MIN)/$(BIN)/python -c "import pyroflow; print(len(pyroflow.__all__), 'symbols exported OK')"
+	cd $(VENV_MIN) && ./$(BIN)/python -c "import sys, pathlib, pyroflow; assert pathlib.Path(pyroflow.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve()), pyroflow.__file__; print(len(pyroflow.__all__), 'symbols exported OK')"
 	$(VENV_MIN)/$(BIN)/python -m pytest
 
 # The lowest version every floor in pyproject.toml allows, on the oldest Python.
@@ -79,8 +82,9 @@ version:
 	@printf '%s\n' "$(VERSION)"
 
 tag:
+	@test -n "$(VERSION)" || { echo "Could not read the version" >&2; exit 1; }
 	git tag $(TAG)
 	git push origin $(TAG)
 
 clean:
-	rm -rf .venv .venv-minimal .venv-floor .venv-ceil dist build *.egg-info
+	rm -rf $(VENV) $(VENV_MIN) $(VENV_FLOOR) $(VENV_CEIL) dist build *.egg-info
