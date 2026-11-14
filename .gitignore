@@ -113,24 +113,9 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# Serena's project configuration, memories and index cache.
-.serena/
-
-# Git worktrees for working on several branches at once, one directory per branch.
-.worktrees/
-
-# Private 
-.private/
 
 # AI coding assistants: Claude Code's project instructions and knowledge files.
-.claude/
+CLAUDE.local.md
 CLAUDE.md
 AGENTS.md
-.agents/
 skills-lock.json
-
-# Personal Claude Code notes
-CLAUDE.local.md
-
-
-graphify-out/
