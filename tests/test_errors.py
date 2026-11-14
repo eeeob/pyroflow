@@ -11,6 +11,7 @@ from pyroflow.errors import (
     ListenerCancelled,
     ListenerError,
     ListenerEvicted,
+    ListenerNotSent,
     ListenerRejected,
     ListenerReplaced,
     ListenerTimeout,
@@ -108,6 +109,15 @@ def test_listener_attempts_exhausted_defaults() -> None:
     assert str(err) == "No attempts left out of None"
 
 
+def test_listener_not_sent_message_and_family() -> None:
+    err = ListenerNotSent()
+    assert str(err) == (
+        "Telegram returned no message for the question, so there is nothing to wait on"
+    )
+    assert err.value is None
+    assert isinstance(err, ListenerError)
+
+
 def test_errors_all() -> None:
     assert pyroflow.errors.__all__ == (
         "PyroflowError",
@@ -119,5 +129,6 @@ def test_errors_all() -> None:
         "ListenerEvicted",
         "ListenerWorkersBusy",
         "ListenerAlreadyExists",
+        "ListenerNotSent",
         "ListenerAttemptsExhausted",
     )

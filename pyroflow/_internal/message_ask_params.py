@@ -1,10 +1,14 @@
 """Pyrogram arguments the `Message.ask_*` methods accept, for type checkers.
 
-Each class stands alone, with every argument any supported kurigram accepts,
-so an argument may be unknown to the installed one; a comment names the
-versions of such an argument, and of those Pyrogram deprecated. What would
-put the question off, such as `schedule_date`, stays out: `ask` waits for the
-answer to a question asked now.
+Each class holds the arguments of its kurigram counterpart
+(`Message.edit_text`, `reply` or `reply_rich`) without what the method
+fills in and without what does not suit `ask`: scheduling, since `ask`
+waits for the answer to a question asked now.
+
+There is one class for each of plain and rich text, editing
+(`force_send=False`) and sending (`force_send=True`). The classes are
+kept in sync with every kurigram release, and `tests/_internal` fails
+when they drift from their counterparts.
 """
 
 from __future__ import annotations as _annotations
@@ -16,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class MessageAskSendKw(TypedDict, total=False):
-    """What `Message.ask` and `ask_callback_query` accept to reply with a text."""
+    """What `Message.ask`, `ask_callback_query` and `flow_reply` accept to reply with a text: `Message.reply` without `text` and scheduling."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -47,7 +51,7 @@ class MessageAskSendKw(TypedDict, total=False):
 
 
 class MessageAskEditKw(TypedDict, total=False):
-    """What `Message.ask` and `ask_callback_query` accept to edit a text."""
+    """What `Message.ask`, `ask_callback_query` and `flow_edit` accept to edit a text: `Message.edit_text` without `text` and `rich_message`."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -60,7 +64,7 @@ class MessageAskEditKw(TypedDict, total=False):
 
 
 class MessageAskRichSendKw(TypedDict, total=False):
-    """What the `Message.ask_*_rich` methods accept to reply, as `Message.reply_rich`."""
+    """What the `Message.ask_*_rich` methods and `flow_reply_rich` accept to reply: `Message.reply_rich` without `rich_message`."""
 
     disable_notification: bool | None
     """Send the message silently."""
@@ -83,7 +87,7 @@ class MessageAskRichSendKw(TypedDict, total=False):
 
 
 class MessageAskRichEditKw(TypedDict, total=False):
-    """What the `Message.ask_*_rich` methods accept to edit, as `Message.edit` with `rich_message`."""
+    """What the `Message.ask_*_rich` methods and `flow_edit_rich` accept to edit: `Message.edit_text` without `rich_message` and what only a text takes."""
 
     link_preview_options: pyro_types.LinkPreviewOptions | None
     """Link preview options for the message."""

@@ -9,10 +9,11 @@ from unittest.mock import AsyncMock, Mock, call
 import pyrogram
 import pytest
 from pyrogram.enums import ChatType
-from pyrogram.types import Chat
+from pyrogram.types import Chat, EphemeralMessageParameters, ReplyParameters
 
 from pyroflow.errors import (
     ListenerAttemptsExhausted,
+    ListenerNotSent,
     ListenerRejected,
     ListenerReplaced,
     ListenerTimeout,
@@ -92,8 +93,12 @@ def test_editable_when_outgoing_without_a_sender() -> None:
     assert m.editable is True
 
 
-def test_not_editable_when_ephemeral_even_if_sent_by_self() -> None:
-    assert make_msg(is_self=True, ephemeral_message_id=3).editable is False
+def test_editable_when_ephemeral_and_sent_by_self() -> None:
+    assert make_msg(is_self=True, ephemeral_message_id=3).editable is True
+
+
+def test_not_editable_when_ephemeral_and_incoming() -> None:
+    assert make_msg(ephemeral_message_id=3).editable is False
 
 
 def test_not_editable_when_sender_chat_is_another_chat() -> None:
@@ -108,7 +113,175 @@ def test_not_editable_without_sender_or_me() -> None:
     assert m.editable is False
 
 
-# --- Message.respond ------------------------------------------------------
+# --- Message.flow_* --------------------------------------------------------
+
+RICH = object()
+"""Stands in for an `InputRichMessage`."""
+RECEIVER_ID = 8
+"""The user who received the client's own ephemeral message."""
+
+
+def mock_sending(m: Any) -> Any:
+    client = m._client
+    client.send_message = AsyncMock(return_value=SENT)
+    client.send_rich_message = AsyncMock(return_value=SENT)
+    client.edit_message_text = AsyncMock(return_value=SENT)
+    client.edit_ephemeral_message_text = AsyncMock(return_value=SENT)
+    return client
+
+
+def replied_with(**kw: Any) -> dict[str, Any]:
+    """What `flow_reply*` sends besides the content, on a message of `make_msg`, updated with `kw`."""
+    return {
+        "chat_id": 100,
+        "message_thread_id": None,
+        "direct_messages_topic_id": None,
+        "ephemeral_message_parameters": None,
+        "reply_parameters": ReplyParameters(message_id=5),
+        "business_connection_id": None,
+        **kw,
+    }
+
+
+FLOW_EDITS = [
+    pytest.param("flow_edit", "text", "hi", id="text"),
+    pytest.param("flow_edit_rich", "rich_message", RICH, id="rich"),
+]
+"""Each `flow_edit*` method, the argument that carries the content, and the content."""
+FLOW_REPLIES = [
+    pytest.param("flow_reply", "send_message", "text", "hi", id="text"),
+    pytest.param("flow_reply_rich", "send_rich_message", "rich_message", RICH, id="rich"),
+]
+"""Each `flow_reply*` method, the client method it sends with, its content argument, and the content."""
+
+
+@pytest.mark.parametrize(("method", "content_kw", "content"), FLOW_EDITS)
+async def test_flow_edit_edits_this_message_through_its_business_connection(
+    method: str, content_kw: str, content: object
+) -> None:
+    m = make_msg(is_self=True, business_connection_id="biz")
+    client = mock_sending(m)
+
+    assert await getattr(m, method)(content, reply_markup=None) is SENT
+
+    client.edit_message_text.assert_awaited_once_with(
+        chat_id=100,
+        message_id=5,
+        business_connection_id="biz",
+        reply_markup=None,
+        **{content_kw: content},
+    )
+    client.edit_ephemeral_message_text.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("method", "content_kw", "content"), FLOW_EDITS)
+async def test_flow_edit_edits_the_clients_own_ephemeral_message_for_its_receiver(
+    method: str, content_kw: str, content: object
+) -> None:
+    m = make_msg(is_self=True, ephemeral_message_id=3, receiver_user=User(id=RECEIVER_ID))
+    m.id = 0
+    client = mock_sending(m)
+    client.edit_ephemeral_message_text.return_value = None
+
+    assert await getattr(m, method)(content, reply_markup=None) is None
+
+    client.edit_ephemeral_message_text.assert_awaited_once_with(
+        chat_id=100,
+        receiver_user_id=RECEIVER_ID,
+        ephemeral_message_id=3,
+        reply_markup=None,
+        **{content_kw: content},
+    )
+    client.edit_message_text.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("method", "content_kw", "content"), FLOW_EDITS)
+async def test_flow_edit_refuses_an_ephemeral_message_without_a_receiver(
+    method: str, content_kw: str, content: object
+) -> None:
+    m = make_msg(is_self=True, ephemeral_message_id=3)
+    client = mock_sending(m)
+
+    with pytest.raises(ValueError, match="its receiver is unknown"):
+        await getattr(m, method)(content)
+
+    client.edit_ephemeral_message_text.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("method", "sender", "content_kw", "content"), FLOW_REPLIES)
+async def test_flow_reply_replies_in_the_chat_topics_and_business_connection(
+    method: str, sender: str, content_kw: str, content: object
+) -> None:
+    m = make_msg(message_thread_id=3, direct_messages_topic_id=4, business_connection_id="biz")
+    client = mock_sending(m)
+
+    assert await getattr(m, method)(content, disable_notification=True) is SENT
+
+    getattr(client, sender).assert_awaited_once_with(
+        **{content_kw: content},
+        **replied_with(
+            message_thread_id=3,
+            direct_messages_topic_id=4,
+            business_connection_id="biz",
+            disable_notification=True,
+        ),
+    )
+
+
+@pytest.mark.parametrize(("method", "sender", "content_kw", "content"), FLOW_REPLIES)
+@pytest.mark.parametrize("outgoing", [False, True], ids=["from_self", "outgoing"])
+async def test_flow_reply_sends_to_the_receiver_of_the_clients_own_ephemeral_message(
+    method: str, sender: str, content_kw: str, content: object, outgoing: bool
+) -> None:
+    m = make_msg(
+        is_self=not outgoing,
+        outgoing=outgoing,
+        ephemeral_message_id=3,
+        receiver_user=User(id=RECEIVER_ID),
+    )
+    if outgoing:
+        m.from_user = None
+    client = mock_sending(m)
+
+    await getattr(m, method)(content)
+
+    getattr(client, sender).assert_awaited_once_with(
+        **{content_kw: content},
+        **replied_with(
+            reply_parameters=ReplyParameters(ephemeral_message_id=3),
+            ephemeral_message_parameters=EphemeralMessageParameters(receiver_user_id=RECEIVER_ID),
+        ),
+    )
+
+
+@pytest.mark.parametrize(("method", "sender", "content_kw", "content"), FLOW_REPLIES)
+async def test_flow_reply_sends_to_the_sender_of_an_incoming_ephemeral_message(
+    method: str, sender: str, content_kw: str, content: object
+) -> None:
+    m = make_msg(ephemeral_message_id=3, receiver_user=User(id=ME_ID))
+    client = mock_sending(m)
+
+    await getattr(m, method)(content)
+
+    sent = getattr(client, sender).await_args.kwargs
+    assert sent["ephemeral_message_parameters"] == EphemeralMessageParameters(receiver_user_id=7)
+
+
+@pytest.mark.parametrize(("method", "sender", "content_kw", "content"), FLOW_REPLIES)
+async def test_flow_reply_refuses_an_ephemeral_message_without_a_user_to_reply_to(
+    method: str, sender: str, content_kw: str, content: object
+) -> None:
+    m = make_msg(ephemeral_message_id=3)
+    m.from_user = None
+    client = mock_sending(m)
+
+    with pytest.raises(ValueError, match="the user to reply to is unknown"):
+        await getattr(m, method)(content)
+
+    getattr(client, sender).assert_not_awaited()
+
+
+# --- Message.respond* and flow_respond* -------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -134,42 +307,87 @@ async def test_respond_edits_or_replies_through_the_instance_and_the_class(
     getattr(m, unused).assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    ("is_self", "expected"),
+    [
+        (True, call.edit(rich_message=RICH, reply_markup=None)),
+        (False, call.reply_rich(RICH, reply_markup=None)),
+    ],
+)
+async def test_respond_rich_edits_or_replies(is_self: bool, expected: Any) -> None:
+    m = make_msg(is_self=is_self)
+    sender = Mock(
+        edit=AsyncMock(return_value=SENTINEL), reply_rich=AsyncMock(return_value=SENTINEL)
+    )
+    m.edit, m.reply_rich = sender.edit, sender.reply_rich
+
+    assert await m.respond_rich(RICH, reply_markup=None) is SENTINEL
+
+    assert sender.mock_calls == [expected]
+
+
+@pytest.mark.parametrize(
+    ("is_self", "used", "unused"),
+    [(True, "flow_edit", "flow_reply"), (False, "flow_reply", "flow_edit")],
+)
+async def test_flow_respond_edits_or_replies(is_self: bool, used: str, unused: str) -> None:
+    m = make_msg(is_self=is_self)
+    m.flow_edit = AsyncMock(return_value=SENTINEL)
+    m.flow_reply = AsyncMock(return_value=SENTINEL)
+
+    assert await m.flow_respond("hi", reply_markup=None) is SENTINEL
+
+    getattr(m, used).assert_awaited_once_with("hi", reply_markup=None)
+    getattr(m, unused).assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("is_self", "used", "unused"),
+    [(True, "flow_edit_rich", "flow_reply_rich"), (False, "flow_reply_rich", "flow_edit_rich")],
+)
+async def test_flow_respond_rich_edits_or_replies(is_self: bool, used: str, unused: str) -> None:
+    m = make_msg(is_self=is_self)
+    m.flow_edit_rich = AsyncMock(return_value=SENTINEL)
+    m.flow_reply_rich = AsyncMock(return_value=SENTINEL)
+
+    assert await m.flow_respond_rich(RICH, reply_markup=None) is SENTINEL
+
+    getattr(m, used).assert_awaited_once_with(RICH, reply_markup=None)
+    getattr(m, unused).assert_not_awaited()
+
+
 # --- Message.ask_* --------------------------------------------------------
 
-RICH = object()
-
-# One row per `ask_*` method: its name, the method that sends, the content it
-# takes, how `edit` is called with that content, and the key it waits on.
+# One row per `ask_*` method: its name, the client method that replies, the
+# argument that carries the content, the content, and the key it waits on.
 ASK_METHODS = [
-    pytest.param("ask", "reply", "hi", call("hi"), MessageKey, id="message"),
+    pytest.param("ask", "send_message", "text", "hi", MessageKey, id="message"),
     pytest.param(
-        "ask_rich",
-        "reply_rich",
-        RICH,
-        call(rich_message=RICH),
-        MessageKey,
-        id="message_rich",
+        "ask_rich", "send_rich_message", "rich_message", RICH, MessageKey, id="message_rich"
     ),
     pytest.param(
-        "ask_callback_query", "reply", "hi", call("hi"), CallbackQueryKey, id="callback_query"
+        "ask_callback_query",
+        "send_message",
+        "text",
+        "hi",
+        CallbackQueryKey,
+        id="callback_query",
     ),
     pytest.param(
         "ask_callback_query_rich",
-        "reply_rich",
+        "send_rich_message",
+        "rich_message",
         RICH,
-        call(rich_message=RICH),
         CallbackQueryKey,
         id="callback_query_rich",
     ),
 ]
-ASK_ARGS = "method, sender, content, edit_call, key_type"
+ASK_ARGS = "method, sender, content_kw, content, key_type"
 
 
 def make_ask_msg(*, is_self: bool = False, **fields: Any) -> Any:
     m = make_msg(is_self=is_self, **fields)
-    m.reply = AsyncMock(return_value=SENT)
-    m.edit = AsyncMock(return_value=SENT)
-    m.reply_rich = AsyncMock(return_value=SENT)
+    mock_sending(m)
     return m
 
 
@@ -190,7 +408,7 @@ def assert_listened(m: Any, key: object, **expected: Any) -> None:
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_rejects_an_empty_message(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
     m.empty = True
@@ -198,23 +416,23 @@ async def test_ask_rejects_an_empty_message(
     with pytest.raises(ValueError, match="on an empty message"):
         await getattr(m, method)(content)
 
-    getattr(m, sender).assert_not_awaited()
+    getattr(m._client, sender).assert_not_awaited()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_takes_a_service_message(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
     m.service = True
 
     assert await getattr(m, method)(content) is SENTINEL
-    getattr(m, sender).assert_awaited_once()
+    getattr(m._client, sender).assert_awaited_once()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_replies_when_not_editable_and_waits_on_any_user(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
     result = await getattr(m, method)(
@@ -227,8 +445,10 @@ async def test_ask_replies_when_not_editable_and_waits_on_any_user(
     )
 
     assert result is SENTINEL
-    assert getattr(m, sender).await_args == call(content, extra="kw")
-    m.edit.assert_not_awaited()
+    assert getattr(m._client, sender).await_args == call(
+        **{content_kw: content}, **replied_with(extra="kw")
+    )
+    m._client.edit_message_text.assert_not_awaited()
     assert_listened(
         m,
         key_type.from_sent(SENT),
@@ -253,33 +473,41 @@ async def test_ask_keys_the_wait_with_the_key_type_of_the_listener() -> None:
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_edits_when_editable_and_waits_on_any_user(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg(is_self=True)
 
     assert await getattr(m, method)(content, reply_markup=None) is SENTINEL
 
-    assert m.edit.await_args == call(*edit_call.args, **edit_call.kwargs, reply_markup=None)
-    getattr(m, sender).assert_not_awaited()
+    assert m._client.edit_message_text.await_args == call(
+        chat_id=100,
+        message_id=5,
+        business_connection_id=None,
+        reply_markup=None,
+        **{content_kw: content},
+    )
+    getattr(m._client, sender).assert_not_awaited()
     assert_listened(m, key_type.from_sent(SENT))
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_force_send_replies_even_when_editable(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg(is_self=True)
     await getattr(m, method)(content, True, disable_notification=True)
 
-    assert getattr(m, sender).await_args == call(content, disable_notification=True)
-    m.edit.assert_not_awaited()
+    assert getattr(m._client, sender).await_args == call(
+        **{content_kw: content}, **replied_with(disable_notification=True)
+    )
+    m._client.edit_message_text.assert_not_awaited()
     assert_listened(m, key_type.from_sent(SENT))
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 @pytest.mark.parametrize("is_self", [False, True])
 async def test_ask_waits_on_listen_user_id(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type, is_self: bool
+    method: str, sender: str, content_kw: str, content: object, key_type: type, is_self: bool
 ) -> None:
     m = make_ask_msg(is_self=is_self)
     await getattr(m, method)(content, listen_user_id=42)
@@ -289,7 +517,7 @@ async def test_ask_waits_on_listen_user_id(
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_waits_on_any_user_after_a_message_without_a_sender(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg(sender_chat=Chat(id=999, type=ChatType.CHANNEL))
     m.from_user = None
@@ -300,7 +528,7 @@ async def test_ask_waits_on_any_user_after_a_message_without_a_sender(
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_sends_nothing_without_a_listener(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
     m._client.dispatcher.listeners.clear()
@@ -309,15 +537,15 @@ async def test_ask_sends_nothing_without_a_listener(
     with pytest.raises(RuntimeError, match=f"No listener registered for {update_type}"):
         await getattr(m, method)(content)
 
-    getattr(m, sender).assert_not_awaited()
+    getattr(m._client, sender).assert_not_awaited()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS[:2])
 async def test_ask_message_keys_the_answer_by_the_topics_of_the_sent_message(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
-    getattr(m, sender).return_value = Message(
+    getattr(m._client, sender).return_value = Message(
         id=9, chat=Chat(id=-1001), message_thread_id=3, direct_messages_topic_id=4
     )
     await getattr(m, method)(content)
@@ -327,7 +555,7 @@ async def test_ask_message_keys_the_answer_by_the_topics_of_the_sent_message(
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS[2:])
 async def test_ask_callback_query_keys_the_press_by_the_sent_message(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
     await getattr(m, method)(content)
@@ -337,7 +565,7 @@ async def test_ask_callback_query_keys_the_press_by_the_sent_message(
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_passes_a_context_holding_a_message_as_it_is(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ask_msg()
     context = ListenerContext(message="mine")
@@ -351,8 +579,8 @@ async def test_ask_passes_a_context_holding_a_message_as_it_is(
 async def test_ask_without_ask_context_message_passes_the_context_as_it_is(
     method: str,
     sender: str,
+    content_kw: str,
     content: object,
-    edit_call: Any,
     key_type: type,
     context: ListenerContext | None,
 ) -> None:
@@ -367,28 +595,84 @@ async def test_ask_without_ask_context_message_passes_the_context_as_it_is(
 
 
 def make_ephemeral_msg(*, is_self: bool = False) -> Any:
-    m = make_ask_msg(is_self=is_self, ephemeral_message_id=3)
+    m = make_ask_msg(is_self=is_self, ephemeral_message_id=3, receiver_user=User(id=RECEIVER_ID))
     m.id = 0
-    m.reply.return_value = EPHEMERAL_SENT
-    m.edit.return_value = EPHEMERAL_SENT
-    m.reply_rich.return_value = EPHEMERAL_SENT
+    client = m._client
+    for sender in (
+        client.send_message,
+        client.send_rich_message,
+        client.edit_message_text,
+        client.edit_ephemeral_message_text,
+    ):
+        sender.return_value = EPHEMERAL_SENT
     return m
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_on_the_clients_own_ephemeral_message_replies_instead_of_editing(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+async def test_ask_on_the_clients_own_ephemeral_message_edits_it_for_its_receiver(
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ephemeral_msg(is_self=True)
     await getattr(m, method)(content)
 
-    getattr(m, sender).assert_awaited_once()
-    m.edit.assert_not_awaited()
+    edit = m._client.edit_ephemeral_message_text.await_args.kwargs
+    assert edit["receiver_user_id"] == RECEIVER_ID != ME_ID
+    getattr(m._client, sender).assert_not_awaited()
+    m._client.edit_message_text.assert_not_awaited()
+    assert_listened(
+        m,
+        key_type.from_sent(EPHEMERAL_SENT),
+        context=ListenerContext(message=EPHEMERAL_SENT),
+    )
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_raises_listener_not_sent_when_the_ephemeral_edit_returns_none(
+    method: str, sender: str, content_kw: str, content: object, key_type: type
+) -> None:
+    m = make_ephemeral_msg(is_self=True)
+    m._client.edit_ephemeral_message_text.return_value = None
+
+    with pytest.raises(ListenerNotSent):
+        await getattr(m, method)(content)
+
+    wait_of(m).assert_not_awaited()
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+@pytest.mark.parametrize("make", [make_ask_msg, make_ephemeral_msg])
+async def test_ask_raises_listener_not_sent_when_the_reply_returns_none(
+    method: str,
+    sender: str,
+    content_kw: str,
+    content: object,
+    key_type: type,
+    make: Any,
+) -> None:
+    m = make()
+    getattr(m._client, sender).return_value = None
+
+    with pytest.raises(ListenerNotSent):
+        await getattr(m, method)(content)
+
+    wait_of(m).assert_not_awaited()
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_force_send_on_the_clients_own_ephemeral_message_replies_to_its_receiver(
+    method: str, sender: str, content_kw: str, content: object, key_type: type
+) -> None:
+    m = make_ephemeral_msg(is_self=True)
+    await getattr(m, method)(content, True)
+
+    sent = getattr(m._client, sender).await_args.kwargs
+    assert sent["ephemeral_message_parameters"].receiver_user_id == RECEIVER_ID != ME_ID
+    m._client.edit_ephemeral_message_text.assert_not_awaited()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
 async def test_ask_replying_to_an_ephemeral_message_waits_ephemerally_on_any_user(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ephemeral_msg()
     await getattr(m, method)(content)
@@ -399,22 +683,21 @@ async def test_ask_replying_to_an_ephemeral_message_waits_ephemerally_on_any_use
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
-async def test_ask_on_an_ephemeral_message_without_a_sender_takes_listen_user_id(
-    method: str, sender: str, content: object, edit_call: Any, key_type: type
+async def test_ask_refuses_an_incoming_ephemeral_message_without_a_sender(
+    method: str, sender: str, content_kw: str, content: object, key_type: type
 ) -> None:
     m = make_ephemeral_msg()
     m.from_user = None
-    await getattr(m, method)(content, listen_user_id=42)
 
-    key = wait_of(m).await_args.args[0]
-    assert key == key_type.from_sent(EPHEMERAL_SENT, 42)
-    assert (key.user_id, key.ephemeral) == (42, True)
+    with pytest.raises(ValueError, match="the user to reply to is unknown"):
+        await getattr(m, method)(content, listen_user_id=42)
+
+    getattr(m._client, sender).assert_not_awaited()
+    wait_of(m).assert_not_awaited()
 
 
 # --- the ask_*_until() methods ----------------------------------------------
 
-RICH = object()
-"""Stands in for an `InputRichMessage`."""
 RICH_AGAIN = object()
 """Stands in for another `InputRichMessage`."""
 

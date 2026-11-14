@@ -45,7 +45,8 @@ classifiers = [
 # bound sits beside it.
 dependencies = [
     # 2.2.27 calls `Dispatcher.handler_worker()` with no lock, which the patched one
-    # matches; `Message.ask_rich` needs `reply_rich` and `edit(rich_message=...)`.
+    # matches; `flow_reply*` needs `EphemeralMessageParameters` and `respond_rich`
+    # needs `edit(rich_message=...)`, both from 2.2.26.
     "kurigram>=2.2.27",
     # Every name used is in pytrove 1.1.0; 2.0 is the floor tested and locked, which keeps
     # out the 1.x behavior of safe_await, patch_cls and to_list.

@@ -11,7 +11,7 @@ from pyrogram import (
 )
 
 from ..enums import WorkersPolicy
-from ..errors import ListenerAttemptsExhausted
+from ..errors import ListenerAttemptsExhausted, ListenerNotSent
 from ..models import AskAgain, ListenerContext
 from pytrove import call_sync_or_await
 
@@ -80,7 +80,8 @@ class Client(PyroClient):
             workers_policy: What waits inside handlers do when the workers
                 run short; `WorkersPolicy.CANCEL_OLDEST` by default. With
                 `None` there is no policy: waits hold their workers, and the
-                bot freezes if all of them wait.
+                bot freezes if all of them wait. See `WorkersPolicy` for
+                sizing `workers`.
             ask_context_message: Whether the `ask_*` methods put the message
                 they sent or edited in the wait's `context`. Otherwise
                 `listen_context` reaches the listener as it is.
@@ -155,6 +156,7 @@ class Client(PyroClient):
         message_thread_id: int | None = None,
         direct_messages_topic_id: int | None = None,
         ephemeral: bool = False,
+        business_connection_id: str | None = None,
         **kw: Unpack[ListenKw],
     ) -> Message:
         """Wait for the next message matching the given fields; `None` matches any value.
@@ -166,10 +168,13 @@ class Client(PyroClient):
             chat_id: The chat to listen in; a user's private chat has the
                 user's id.
             user_id: The sender to wait for.
-            message_thread_id: The forum topic to listen in.
+            message_thread_id: The forum topic to listen in; `1` for General.
             direct_messages_topic_id: The topic of a channel's direct messages
                 chat to listen in.
             ephemeral: Wait on ephemeral messages, the only wait they reach.
+            business_connection_id: Wait on messages of this business
+                connection, the only wait they reach; `None` waits on
+                non-business messages only.
             **kw: The arguments of the wait, as `UpdateListener.listen` takes them.
 
         Returns:
@@ -191,6 +196,7 @@ class Client(PyroClient):
             message_thread_id=message_thread_id,
             direct_messages_topic_id=direct_messages_topic_id,
             ephemeral=ephemeral,
+            business_connection_id=business_connection_id,
         )
         return await listener.listen(key, **kw)
 
@@ -201,6 +207,7 @@ class Client(PyroClient):
         message_id: int | None = None,
         inline_message_id: str | None = None,
         ephemeral: bool = False,
+        business_connection_id: str | None = None,
         **kw: Unpack[ListenKw],
     ) -> CallbackQuery:
         """Wait for the next button press matching the given fields; `None` matches any value.
@@ -217,6 +224,9 @@ class Client(PyroClient):
                 on.
             ephemeral: Wait on presses on ephemeral messages, the only wait
                 they reach.
+            business_connection_id: Wait on presses on messages of this
+                business connection, the only wait they reach; `None` waits
+                on non-business presses only.
             **kw: The arguments of the wait, as `UpdateListener.listen` takes them.
 
         Returns:
@@ -238,6 +248,7 @@ class Client(PyroClient):
             message_id=message_id,
             inline_message_id=inline_message_id,
             ephemeral=ephemeral,
+            business_connection_id=business_connection_id,
         )
         return await listener.listen(key, **kw)
 
@@ -424,6 +435,9 @@ class Client(PyroClient):
             text: The text to send or edit.
             edit_message_id: If provided, edit this message instead of sending a new one.
             listen_user_id: The user to wait for, or `None` for any user.
+                Pass it in a group, or any member's message answers. Pass
+                it for an ephemeral question too: without it, an answer by
+                any user on any ephemeral message in the chat answers it.
             listen_context: Values attached to the listener. With
                 `ask_context_message` on (see `setup_pyroflow`), it gets the
                 sent or edited message as `message`, on a copy, unless it
@@ -438,13 +452,17 @@ class Client(PyroClient):
                 without one; see the warning in `UpdateListener.listen`.
             listen_timeout: Seconds to wait before raising `ListenerTimeout`;
                 `None` uses the listener's `timeout`.
-            **kw: Passed to `send_message` or `edit_message_text`.
+            **kw: Passed to `send_message` or `edit_message_text`: their
+                arguments except scheduling, such as `schedule_date` and
+                `repeat_period`, since a question is asked now.
 
         Returns:
             The answer.
 
         Raises:
             RuntimeError: If no listener is registered for `Message`.
+            ListenerNotSent: If Telegram returns no message for the question,
+                which `send_message` allows.
             ListenerTimeout: If the timeout expires before the answer arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: If the wait would start inside a handler with
@@ -455,10 +473,9 @@ class Client(PyroClient):
                 sent or edited by then.
         """
         listener = self.require_listener(Message)
-        # What `ask_*` accepts always gets a message back, and `patch_cls` makes pyrogram's
-        # `Message` the same class as pyroflow's at runtime.
+        # `patch_cls` makes pyrogram's `Message` the same class as pyroflow's at runtime.
         sent = cast(
-            "Message",
+            "Message | None",
             await (
                 self.send_message(chat_id=chat_id, text=text, **kw)
                 if edit_message_id is None
@@ -467,6 +484,8 @@ class Client(PyroClient):
                 )
             ),
         )
+        if sent is None:
+            raise ListenerNotSent
 
         return await listener.listen(
             listener.__key_type__.from_sent(sent, listen_user_id),
@@ -540,6 +559,7 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `Message`.
+            ListenerNotSent: As in `ask`.
             ListenerTimeout: If the timeout expires before the answer arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: As in `ask`.
@@ -547,7 +567,7 @@ class Client(PyroClient):
         """
         listener = self.require_listener(Message)
         sent = cast(
-            "Message",
+            "Message | None",
             await (
                 self.send_rich_message(chat_id=chat_id, rich_message=rich_message, **kw)
                 if edit_message_id is None
@@ -556,6 +576,8 @@ class Client(PyroClient):
                 )
             ),
         )
+        if sent is None:
+            raise ListenerNotSent
 
         return await listener.listen(
             listener.__key_type__.from_sent(sent, listen_user_id),
@@ -622,7 +644,8 @@ class Client(PyroClient):
             chat_id: Chat to send to, or that holds the message to edit.
             text: The text to send or edit.
             edit_message_id: If provided, edit this message instead of sending a new one.
-            listen_user_id: As in `ask`.
+            listen_user_id: As in `ask`. Pass it for an ephemeral question: without it, a
+                press by any user on any ephemeral message in the chat answers it.
             listen_context: As in `ask`.
             listen_filters: As in `ask`.
             listen_strict: As in `ask`.
@@ -634,6 +657,7 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
+            ListenerNotSent: As in `ask`.
             ListenerTimeout: If the timeout expires before the press arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: As in `ask`.
@@ -641,7 +665,7 @@ class Client(PyroClient):
         """
         listener = self.require_listener(CallbackQuery)
         sent = cast(
-            "Message",
+            "Message | None",
             await (
                 self.send_message(chat_id=chat_id, text=text, **kw)
                 if edit_message_id is None
@@ -650,6 +674,8 @@ class Client(PyroClient):
                 )
             ),
         )
+        if sent is None:
+            raise ListenerNotSent
 
         return await listener.listen(
             listener.__key_type__.from_sent(sent, listen_user_id),
@@ -711,7 +737,8 @@ class Client(PyroClient):
             chat_id: Chat to send to, or that holds the message to edit.
             rich_message: The rich message to send or edit.
             edit_message_id: If provided, edit this message instead of sending a new one.
-            listen_user_id: As in `ask`.
+            listen_user_id: As in `ask`. Pass it for an ephemeral question: without it, a
+                press by any user on any ephemeral message in the chat answers it.
             listen_context: As in `ask`.
             listen_filters: As in `ask`.
             listen_strict: As in `ask`.
@@ -723,6 +750,7 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
+            ListenerNotSent: As in `ask`.
             ListenerTimeout: If the timeout expires before the press arrives.
             ListenerCancelled: If the listener is cancelled while waiting.
             ListenerWorkersBusy: As in `ask`.
@@ -730,7 +758,7 @@ class Client(PyroClient):
         """
         listener = self.require_listener(CallbackQuery)
         sent = cast(
-            "Message",
+            "Message | None",
             await (
                 self.send_rich_message(chat_id=chat_id, rich_message=rich_message, **kw)
                 if edit_message_id is None
@@ -739,6 +767,8 @@ class Client(PyroClient):
                 )
             ),
         )
+        if sent is None:
+            raise ListenerNotSent
 
         return await listener.listen(
             listener.__key_type__.from_sent(sent, listen_user_id),
@@ -813,7 +843,7 @@ class Client(PyroClient):
         An answer that reaches `parse` was taken by the wait, so it reaches no
         handler even when rejected, and a command sent instead of an answer
         counts as one. Let those through with `listen_filters`, for example
-        `~filters.command`: what fails `listen_filters` goes on to the handlers
+        `~filters.regex(r"^/")`: what fails `listen_filters` goes on to the handlers
         without reaching `parse`, or with `listen_strict` raises
         `ListenerRejected` at once.
 
@@ -1024,7 +1054,8 @@ class Client(PyroClient):
             edit_message_id: As in `ask`, for the first question only.
             parse: As in `ask_until`.
             attempts: As in `ask_until`.
-            listen_user_id: As in `ask`.
+            listen_user_id: As in `ask`. Pass it for an ephemeral question: without it, a
+                press by any user on any ephemeral message in the chat answers it.
             listen_context: As in `ask`.
             listen_filters: As in `ask_until`.
             listen_strict: As in `ask_until`.
@@ -1122,7 +1153,8 @@ class Client(PyroClient):
             edit_message_id: As in `ask`, for the first question only.
             parse: As in `ask_until`.
             attempts: As in `ask_until`.
-            listen_user_id: As in `ask`.
+            listen_user_id: As in `ask`. Pass it for an ephemeral question: without it, a
+                press by any user on any ephemeral message in the chat answers it.
             listen_context: As in `ask`.
             listen_filters: As in `ask_until`.
             listen_strict: As in `ask_until`.

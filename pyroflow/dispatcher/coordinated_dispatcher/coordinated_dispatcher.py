@@ -139,6 +139,8 @@ class CoordinatedDispatcher(Dispatcher):
     until it ends, its waits included. While it runs,
     one offer pass task shared by all the lanes offers the lane's
     `waiting_updates` to the waits, so no worker is needed to offer a reply.
+    An update queued in its lane takes no worker either, so a user who
+    sends many messages does not slow other users.
 
     Everything lives in this process; nothing is shared between sessions.
 
@@ -146,6 +148,10 @@ class CoordinatedDispatcher(Dispatcher):
         A wait with no timeout freezes its key for good, along with any
         `/cancel` handler of the key, which is just another queued update.
         Bound the waits of coordinated handlers with a timeout.
+
+        The timeout of such a wait starts only once the wait gets the
+        `offer_lock` of the handler's hold, so a slow filter of another wait
+        on the same lane delays its start.
 
         The workers parse the replies too: when every worker waits, no reply
         is parsed until a wait ends. Keep a `workers_policy` (the default of

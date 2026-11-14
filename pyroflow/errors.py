@@ -1,4 +1,9 @@
-"""Exceptions raised by pyroflow."""
+"""Exceptions raised by pyroflow.
+
+A new error lives here and subclasses its family: `ListenerError` for waits
+and the `ask_*` methods, or `PyroflowError` when it does not fit. Its class
+docstring is the message template, formatted with the value at raise time.
+"""
 
 from __future__ import annotations as _annotations
 
@@ -67,6 +72,10 @@ class ListenerAlreadyExists(ListenerError):
     """A listener already exists for {value}"""  # noqa: D415  # the docstring is the runtime message template
 
 
+class ListenerNotSent(ListenerError):
+    """Telegram returned no message for the question, so there is nothing to wait on"""  # noqa: D415  # the docstring is the runtime message template
+
+
 class ListenerAttemptsExhausted(ListenerError):
     """No attempts left out of {value}"""  # noqa: D415  # the docstring is the runtime message template
 
@@ -99,5 +108,6 @@ __all__ = (
     "ListenerEvicted",
     "ListenerWorkersBusy",
     "ListenerAlreadyExists",
+    "ListenerNotSent",
     "ListenerAttemptsExhausted",
 )

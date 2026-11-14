@@ -76,6 +76,13 @@ class WorkersPolicy(StrEnum):
     `CANCEL_OLDEST` is the default; with `None`, nothing steps in. With one
     worker, every wait inside a handler is refused.
 
+    Each open question holds a worker. Once they are full, `CANCEL_OLDEST`
+    drops the oldest question for every new one, `REJECT` refuses new
+    questions, and `None` stops the bot once every worker waits with no
+    timeout. So size `workers` to the questions open at once, as in
+    `Client("bot", workers=64)`; Kurigram's default is
+    `pyrogram.Client.WORKERS`.
+
     Only a wait in the worker's own task is counted. One in another task is
     not, though the worker waits for it: in a sync handler, in
     `asyncio.gather`, or in `asyncio.wait_for` before Python 3.12. Bound
@@ -89,7 +96,7 @@ class WorkersPolicy(StrEnum):
     REJECT = auto()
     """The wait raises `ListenerWorkersBusy`; suits a deliberate cap on conversations."""
     CANCEL_OLDEST = auto()
-    """End the oldest wait and take its place."""
+    """End the oldest wait with `ListenerEvicted` and take its place."""
 
 
 class CommandUsernamePolicy(StrEnum):

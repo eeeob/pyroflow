@@ -1,6 +1,10 @@
 """Conversation extensions for Pyrogram: the `ask_*` methods, listeners, the `CoordinatedDispatcher`, text filters and inline keyboards.
 
-Importing this package patches Pyrogram's classes in place.
+Importing this package patches Pyrogram's classes in place:
+`pyroflow.Client` is `pyrogram.Client`, so existing code keeps working.
+
+Import it before creating any `Client`: a client built earlier lacks
+pyroflow's state and fails on `start()`.
 """
 
 __version__ = "0.2.1"

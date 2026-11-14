@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
-from typing import ClassVar, TYPE_CHECKING
+from typing import ClassVar, Final, TYPE_CHECKING
 
 from pytrove import classproperty
 
@@ -54,7 +54,7 @@ class ListenerKey(ABC, UpdateBound[UpdateType]):
 
             Example:
                 >>> MessageKey.key_fields
-                ('chat_id', 'user_id', 'message_thread_id', 'direct_messages_topic_id', 'ephemeral')
+                ('chat_id', 'user_id', 'message_thread_id', 'direct_messages_topic_id', 'ephemeral', 'business_connection_id')
             """
             return tuple(f.name for f in fields(cls))
 
@@ -64,7 +64,7 @@ class ListenerKey(ABC, UpdateBound[UpdateType]):
 
             Example:
                 >>> MessageKey.exact_fields
-                ('ephemeral',)
+                ('ephemeral', 'business_connection_id')
             """
             return tuple(f.name for f in fields(cls) if f.metadata.get("exact"))
 
@@ -98,7 +98,7 @@ class ListenerKey(ABC, UpdateBound[UpdateType]):
 
         Example:
             >>> MessageKey(1, 2).to_tuple()
-            (1, 2, None, None, False)
+            (1, 2, None, None, False, None)
         """
         return tuple(getattr(self, name) for name in self.key_fields)
 
@@ -107,9 +107,13 @@ class ListenerKey(ABC, UpdateBound[UpdateType]):
 
         Example:
             >>> CallbackQueryKey(1, 2, 3).to_dict()
-            {'chat_id': 1, 'user_id': 2, 'message_id': 3, 'inline_message_id': None, 'ephemeral': False}
+            {'chat_id': 1, 'user_id': 2, 'message_id': 3, 'inline_message_id': None, 'ephemeral': False, 'business_connection_id': None}
         """
         return {name: getattr(self, name) for name in self.key_fields}
+
+
+_GENERAL_TOPIC_ID: Final[int] = 1
+"""The `message_thread_id` of a forum's General topic, which Telegram leaves unset."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +122,7 @@ class MessageKey(ListenerKey[Message]):
 
     Example:
         >>> MessageKey(user_id=2)
-        MessageKey(chat_id=None, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
+        MessageKey(chat_id=None, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False, business_connection_id=None)
     """
 
     __update_type__ = Message  # ty: ignore[invalid-attribute-override]  # a frozen dataclass makes its attributes read-only to ty
@@ -129,15 +133,20 @@ class MessageKey(ListenerKey[Message]):
     user_id: int | None = None
     """The sender, or `None` for any sender."""
     message_thread_id: int | None = None
-    """The forum topic, or `None` for any topic."""
+    """The forum topic, `1` for General, or `None` for any topic."""
     direct_messages_topic_id: int | None = None
     """The topic of a channel's direct messages chat, or `None` for any."""
     ephemeral: bool = field(default=False, metadata={"exact": True})
     """Whether the wait takes ephemeral messages, and only them."""
+    business_connection_id: str | None = field(default=None, metadata={"exact": True})
+    """The business connection the wait takes messages of, or `None` for non-business ones only."""
 
     @classmethod
     def from_update(cls, update: Message) -> Self | None:
-        """Key an incoming message by its chat, sender and topics.
+        """Key an incoming message by its chat, sender, topics and business connection.
+
+        A message of a forum's General topic, which has no `message_thread_id`,
+        is keyed with topic `1`.
 
         Args:
             update: The message.
@@ -149,9 +158,9 @@ class MessageKey(ListenerKey[Message]):
 
         Example:
             >>> from pyrogram.types import Chat, Message, User
-            >>> update = Message(id=5, chat=Chat(id=1), from_user=User(id=2))
+            >>> update = Message(id=5, chat=Chat(id=1, is_forum=True), from_user=User(id=2))
             >>> MessageKey.from_update(update)
-            MessageKey(chat_id=1, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
+            MessageKey(chat_id=1, user_id=2, message_thread_id=1, direct_messages_topic_id=None, ephemeral=False, business_connection_id=None)
         """
         if (
             update.outgoing
@@ -168,14 +177,20 @@ class MessageKey(ListenerKey[Message]):
             update.chat.id,
             # `from_user` can be `None` (an anonymous admin, a channel post).
             getattr(update.from_user, "id", None),
-            update.message_thread_id,
+            _GENERAL_TOPIC_ID
+            if update.message_thread_id is None and getattr(update.chat, "is_forum", False)
+            else update.message_thread_id,
             update.direct_messages_topic_id,
             update.ephemeral_message_id is not None,
+            update.business_connection_id,
         )
 
     @classmethod
     def from_sent(cls, sent: Message, user_id: int | None = None) -> Self:
-        """Key the answer to a message just sent or edited: its chat and topics.
+        """Key the answer to a message just sent or edited: its chat, topics and business connection.
+
+        A message sent in a forum's General topic, which has no
+        `message_thread_id`, waits on topic `1`, so only General answers it.
 
         Args:
             sent: The message sent or edited.
@@ -187,14 +202,19 @@ class MessageKey(ListenerKey[Message]):
         Example:
             >>> from pyrogram.types import Chat, Message
             >>> MessageKey.from_sent(Message(id=5, chat=Chat(id=1), message_thread_id=3), 2)
-            MessageKey(chat_id=1, user_id=2, message_thread_id=3, direct_messages_topic_id=None, ephemeral=False)
+            MessageKey(chat_id=1, user_id=2, message_thread_id=3, direct_messages_topic_id=None, ephemeral=False, business_connection_id=None)
         """
+        chat = sent.chat
+
         return cls(
-            sent.chat.id,  # ty: ignore[unresolved-attribute]  # a sent message has a chat
+            chat.id,  # ty: ignore[unresolved-attribute]  # a sent message has a chat
             user_id,
-            sent.message_thread_id,
+            _GENERAL_TOPIC_ID
+            if sent.message_thread_id is None and getattr(chat, "is_forum", False)
+            else sent.message_thread_id,
             sent.direct_messages_topic_id,
             sent.ephemeral_message_id is not None,
+            sent.business_connection_id,
         )
 
 
@@ -204,7 +224,7 @@ class CallbackQueryKey(ListenerKey[CallbackQuery]):
 
     Example:
         >>> CallbackQueryKey(1, message_id=3)
-        CallbackQueryKey(chat_id=1, user_id=None, message_id=3, inline_message_id=None, ephemeral=False)
+        CallbackQueryKey(chat_id=1, user_id=None, message_id=3, inline_message_id=None, ephemeral=False, business_connection_id=None)
     """
 
     __update_type__ = CallbackQuery  # ty: ignore[invalid-attribute-override]  # a frozen dataclass makes its attributes read-only to ty
@@ -220,10 +240,12 @@ class CallbackQueryKey(ListenerKey[CallbackQuery]):
     """The inline-mode message whose button is pressed, or `None` for any."""
     ephemeral: bool = field(default=False, metadata={"exact": True})
     """Whether the wait takes presses on ephemeral messages, and only them."""
+    business_connection_id: str | None = field(default=None, metadata={"exact": True})
+    """The business connection the wait takes presses of, or `None` for non-business ones only."""
 
     @classmethod
     def from_update(cls, update: CallbackQuery) -> Self | None:
-        """Key a press by its message's chat, the user and the message.
+        """Key a press by its message's chat, the user, the message and its business connection.
 
         A press on an ephemeral message is keyed with no `message_id` and
         `ephemeral` set, as ephemeral ids can repeat. A press on a message
@@ -243,7 +265,7 @@ class CallbackQueryKey(ListenerKey[CallbackQuery]):
             ...     id="q", from_user=User(id=2), chat_instance="c", message=Message(id=3, chat=Chat(id=1))
             ... )
             >>> CallbackQueryKey.from_update(query)
-            CallbackQueryKey(chat_id=1, user_id=2, message_id=3, inline_message_id=None, ephemeral=False)
+            CallbackQueryKey(chat_id=1, user_id=2, message_id=3, inline_message_id=None, ephemeral=False, business_connection_id=None)
         """
         m = update.message
 
@@ -253,10 +275,18 @@ class CallbackQueryKey(ListenerKey[CallbackQuery]):
 
             return cls(user_id=update.from_user.id, inline_message_id=update.inline_message_id)
 
+        # kurigram sets the business connection only on the press's message.
         if m.ephemeral_message_id is not None:
-            return cls(m.chat.id, update.from_user.id, ephemeral=True)
+            return cls(
+                m.chat.id,
+                update.from_user.id,
+                ephemeral=True,
+                business_connection_id=m.business_connection_id,
+            )
 
-        return cls(m.chat.id, update.from_user.id, m.id)
+        return cls(
+            m.chat.id, update.from_user.id, m.id, business_connection_id=m.business_connection_id
+        )
 
     @classmethod
     def from_sent(cls, sent: Message, user_id: int | None = None) -> Self:
@@ -276,14 +306,16 @@ class CallbackQueryKey(ListenerKey[CallbackQuery]):
             ... )
             >>> markup = InlineKeyboardMarkup([[InlineKeyboardButton("Yes", callback_data="y")]])
             >>> CallbackQueryKey.from_sent(Message(id=5, chat=Chat(id=1), reply_markup=markup))
-            CallbackQueryKey(chat_id=1, user_id=None, message_id=5, inline_message_id=None, ephemeral=False)
+            CallbackQueryKey(chat_id=1, user_id=None, message_id=5, inline_message_id=None, ephemeral=False, business_connection_id=None)
         """
         chat_id = sent.chat.id  # ty: ignore[unresolved-attribute]  # a sent message has a chat
 
         if sent.ephemeral_message_id is not None:
-            return cls(chat_id, user_id, ephemeral=True)
+            return cls(
+                chat_id, user_id, ephemeral=True, business_connection_id=sent.business_connection_id
+            )
 
-        return cls(chat_id, user_id, sent.id)
+        return cls(chat_id, user_id, sent.id, business_connection_id=sent.business_connection_id)
 
 
 __all__ = (

@@ -24,6 +24,7 @@ from pyroflow.enums import DuplicatePolicy, WorkersPolicy
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerAttemptsExhausted,
+    ListenerNotSent,
     ListenerRejected,
     ListenerReplaced,
     ListenerTimeout,
@@ -303,6 +304,26 @@ async def test_listen_callback_query_waits_on_a_key_of_the_listeners_key_type() 
     ]
 
 
+async def test_listen_message_passes_the_business_connection_into_the_key() -> None:
+    c = make_client()
+    listener = _RecordingListener(MessageKey)
+    c.dispatcher.listeners[Message] = listener
+
+    await c.listen_message(1, business_connection_id="bc")
+
+    assert listener.calls == [{"key": MessageKey(1, business_connection_id="bc")}]
+
+
+async def test_listen_callback_query_passes_the_business_connection_into_the_key() -> None:
+    c = make_client()
+    listener = _RecordingListener(CallbackQueryKey)
+    c.dispatcher.listeners[CallbackQuery] = listener
+
+    await c.listen_callback_query(1, business_connection_id="bc")
+
+    assert listener.calls == [{"key": CallbackQueryKey(1, business_connection_id="bc")}]
+
+
 async def test_listen_message_makes_the_key_with_the_key_class_of_the_listener() -> None:
     class OwnKey(MessageKey):
         pass
@@ -437,6 +458,25 @@ async def test_ask_with_message_id_edits_instead_of_sending(
         }
     ]
     assert listener.calls[0]["key"] == key_type.from_sent(edit.result)
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+@pytest.mark.parametrize("edit_message_id", [None, 5])
+async def test_ask_raises_listener_not_sent_when_no_message_comes_back(
+    method: str,
+    sender: str,
+    content_arg: str,
+    update_type: type,
+    key_type: type,
+    edit_message_id: int | None,
+) -> None:
+    c, listener, _, edit = _ask_client(update_type=update_type)
+    getattr(c, sender).result = edit.result = None
+
+    with pytest.raises(ListenerNotSent):
+        await getattr(c, method)(100, "hi", edit_message_id)
+
+    assert listener.calls == []
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS[:2])

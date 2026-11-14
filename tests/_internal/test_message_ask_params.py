@@ -42,8 +42,8 @@ def test_message_ask_send_kw_covers_reply() -> None:
     assert params == MessageAskSendKw.__optional_keys__
 
 
-def test_message_ask_edit_kw_covers_edit() -> None:
-    params = _params(pyroflow.types.Message.edit, "text", "rich_message")
+def test_message_ask_edit_kw_covers_edit_text() -> None:
+    params = _params(pyroflow.types.Message.edit_text, "text", "rich_message", *_NOT_FOR_ASK)
     assert params == MessageAskEditKw.__optional_keys__
 
 
@@ -66,11 +66,25 @@ def test_nothing_that_puts_the_question_off_is_accepted(kw: Any) -> None:
 
 
 def test_message_ask_rich_send_kw_covers_reply_rich() -> None:
-    params = _params(pyroflow.types.Message.reply_rich, "rich_message")
+    params = _params(pyroflow.types.Message.reply_rich, "rich_message", *_NOT_FOR_ASK)
     assert params == MessageAskRichSendKw.__optional_keys__
 
 
 def test_message_ask_rich_edit_kw_leaves_out_what_only_text_takes() -> None:
-    # `Message.edit` reads `parse_mode` and `entities` only for a text.
-    params = _params(pyroflow.types.Message.edit, "text", "rich_message", "parse_mode", "entities")
+    # `Message.edit_text` reads `parse_mode` and `entities` only for a text.
+    params = _params(
+        pyroflow.types.Message.edit_text,
+        "text",
+        "rich_message",
+        "parse_mode",
+        "entities",
+        *_NOT_FOR_ASK,
+    )
     assert params == MessageAskRichEditKw.__optional_keys__
+
+
+@pytest.mark.parametrize("kw", [MessageAskEditKw, MessageAskRichEditKw])
+def test_the_edit_kw_fit_an_ephemeral_edit(kw: Any) -> None:
+    # `Message.flow_edit` and `flow_edit_rich` edit an ephemeral message with these.
+    params = set(inspect.signature(pyroflow.Client.edit_ephemeral_message_text).parameters)
+    assert kw.__optional_keys__ <= params
