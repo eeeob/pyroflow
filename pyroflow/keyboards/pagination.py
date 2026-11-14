@@ -12,7 +12,6 @@ from pytrove.typings import _T
 from ..models import (
     ArrowBarTexts,
     BarStyle,
-    ItemCount,
     NumberedBarTexts,
     Page,
     PageArrangement,
