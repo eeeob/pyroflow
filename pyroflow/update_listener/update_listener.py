@@ -99,7 +99,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         **kw: Passed to the next class in the MRO.
 
     Raises:
-        TypeError: If `__key_type__` keys another update type than `__update_type__`.
+        TypeError: If `__key_type__` keys another update type than `__update_type__`,
+            or `timeout` is neither a number nor `None`.
 
     Example:
         >>> from pyrogram.types import Chat, Message
@@ -120,6 +121,31 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         ...     return resolved, (await waiter).id
         >>> asyncio.run(main())
         (True, 7)
+
+        A listener for an update type of your own is a key class plus a
+        listener class, and `Client.listen` then works for it with no
+        further code. To wait for inline queries by user:
+
+        >>> from dataclasses import dataclass
+        >>> from pyrogram.types import InlineQuery
+        >>> from pyroflow.models import ListenerKey
+        >>> @dataclass(frozen=True, slots=True)
+        ... class InlineQueryKey(ListenerKey[InlineQuery]):
+        ...     __update_type__ = InlineQuery
+        ...     user_id: int | None = None
+        ...     @classmethod
+        ...     def from_update(cls, update):
+        ...         return cls(update.from_user.id)
+        ...     @classmethod
+        ...     def from_sent(cls, sent, user_id=None):
+        ...         return cls(user_id)
+        >>> class InlineQueryListener(UpdateListener[InlineQuery]):
+        ...     __update_type__ = InlineQuery
+        ...     __key_type__ = InlineQueryKey
+        >>> InlineQueryListener().__key_type__(user_id=7)
+        InlineQueryKey(user_id=7)
+        >>> client.register_listener(InlineQueryListener())  # doctest: +SKIP
+        >>> query = await client.listen(InlineQueryKey(user_id=7), timeout=30)  # doctest: +SKIP
     """
 
     __key_type__: type[ListenerKey[UpdateType]]
@@ -148,6 +174,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             msg = (
                 f"{type(self).__name__}.__key_type__ {self.__key_type__.__name__} keys "
                 f"{key_update_type.__name__}, not {self.__update_type__.__name__}"
+            )
+            raise TypeError(msg)
+
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+        ):
+            msg = (
+                f"{type(self).__name__} timeout must be a number or None, "
+                f"not {type(timeout).__name__}"
             )
             raise TypeError(msg)
 
@@ -424,13 +459,17 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 skips the update and keeps waiting.
             timeout: Seconds to wait; `None` falls back to the listener's own
                 `timeout`, and waits indefinitely when that is `None` too.
+                Inside a coordinated handler it starts only once the wait
+                gets the lane's `offer_lock`, so a slow filter of another
+                wait on the same lane delays its start.
 
         Returns:
             The matching Pyrogram update.
 
         Raises:
-            TypeError: If `key` is not exactly a `__key_type__`; a subclass
-                key would never match the lookups `resolve` builds.
+            TypeError: If `key` is not exactly a `__key_type__`, as a subclass
+                key would never match the lookups `resolve` builds, or
+                `timeout` is neither a number nor `None`.
             RuntimeError: If the listener is not registered on a client; no
                 update would ever reach it.
             ListenerAlreadyExists: If a listener already waits on the key and
@@ -485,12 +524,21 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             ...     except ListenerTimeout as e:
             ...         return e.value
             >>> asyncio.run(main())
-            MessageKey(chat_id=1, user_id=None, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
+            MessageKey(chat_id=1, user_id=None, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False, business_connection_id=None)
         """
         if type(key) is not self.__key_type__:
             msg = (
                 f"{self.__class__.__name__}.listen needs exactly a {self.__key_type__.__name__}, "
                 f"not {type(key).__name__}"
+            )
+            raise TypeError(msg)
+
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+        ):
+            msg = (
+                f"{self.__class__.__name__}.listen timeout must be a number or None, "
+                f"not {type(timeout).__name__}"
             )
             raise TypeError(msg)
 
@@ -733,7 +781,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> from pyroflow.update_listener import MessageListener
             >>> update = Message(id=5, chat=Chat(id=1), from_user=User(id=2))
             >>> MessageListener().extract_key(update)
-            MessageKey(chat_id=1, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False)
+            MessageKey(chat_id=1, user_id=2, message_thread_id=None, direct_messages_topic_id=None, ephemeral=False, business_connection_id=None)
         """
         self.validate_update(update)
         key = self.extract_key_func(update)

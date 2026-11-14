@@ -1,4 +1,8 @@
-"""Per-update-type listeners that resolve `listen` and `ask_*` waits."""
+"""Per-update-type listeners that resolve `listen` and `ask_*` waits.
+
+Support for a new update type is an `XListener` subclass of `UpdateListener`,
+bound to the type with `__update_type__`.
+"""
 
 from .update_listener import *
 from .message_listener import *

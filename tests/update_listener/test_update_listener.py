@@ -234,8 +234,14 @@ def test_init_rejects_a_key_of_another_update_type() -> None:
         Mixed()
 
 
+@pytest.mark.parametrize("timeout", ["5", True])
+def test_init_rejects_a_timeout_that_is_not_a_number(timeout: object) -> None:
+    with pytest.raises(TypeError, match="_Listener timeout must be a number or None, not "):
+        _Listener(timeout=timeout)  # ty: ignore[invalid-argument-type]
+
+
 def test_init_computes_the_exact_mask_of_the_key_type() -> None:
-    assert _Listener()._exact_mask == 0b10000
+    assert _Listener()._exact_mask == 0b110000
 
 
 def test_init_passes_unknown_kwargs_up_the_mro() -> None:
@@ -521,6 +527,23 @@ async def test_listen_refuses_a_subclass_key_its_lookups_never_match() -> None:
         await lis.listen(_LanguageKey(1))
 
     assert lis.listeners == {}
+
+
+@pytest.mark.parametrize("timeout", ["5", True])
+async def test_listen_refuses_a_timeout_that_is_not_a_number(timeout: object) -> None:
+    lis = _make()
+    holder = _Holder()
+    token = _as_worker(lis, holder)
+    try:
+        with pytest.raises(
+            TypeError, match="_Listener.listen timeout must be a number or None, not "
+        ):
+            await lis.listen(MessageKey(1), timeout=timeout)  # ty: ignore[invalid-argument-type]
+    finally:
+        _HANDLER_WORKER.reset(token)
+
+    assert lis.listeners == {}
+    assert holder.listener_waits == {}
 
 
 async def test_listen_without_a_chat_takes_any_update() -> None:
@@ -1490,7 +1513,7 @@ async def test_a_key_class_with_a_field_of_its_own_needs_no_listener_change() ->
     french = make_message(100, 7, 6)
     french.from_user.language_code = "fr"
 
-    assert lis._shape_order == (CHAT | 0b100000, CHAT)
+    assert lis._shape_order == (CHAT | 0b1000000, CHAT)
     assert await lis.resolve(french) is True
     assert await lis.resolve(english) is True
     assert await by_language is english
