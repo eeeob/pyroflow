@@ -117,9 +117,13 @@ class _HandlerHold:
         is not refused the same queued update forever.
 
         Args:
-            update: The update declined.
+            update: The update declined; one that cannot be weakly referenced
+                is not kept.
         """
-        self.declined_by_handler_waits[id(update)] = update
+        try:
+            self.declined_by_handler_waits[id(update)] = update
+        except TypeError:  # not weakly referenceable
+            pass
 
     async def wait_offer_lock(self, handler_active_required: bool = False) -> bool:
         """Wait until no offer of this hold is under way, so what follows runs between two offers.

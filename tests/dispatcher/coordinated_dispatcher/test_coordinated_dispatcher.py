@@ -2309,6 +2309,15 @@ def test_on_handler_wait_declined_keeps_the_update_weakly() -> None:
     assert dict(hold.declined_by_handler_waits) == {}
 
 
+def test_on_handler_wait_declined_skips_an_update_it_cannot_reference_weakly() -> None:
+    dispatcher = _by_chat()
+    _, hold = _holding(dispatcher)
+
+    hold.on_handler_wait_declined("text")
+
+    assert dict(hold.declined_by_handler_waits) == {}
+
+
 def test_note_handler_wait_after_the_handler_ended_counts_for_nothing() -> None:
     dispatcher = _by_chat()
     _, hold = _holding(dispatcher)
