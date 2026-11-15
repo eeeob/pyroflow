@@ -314,6 +314,11 @@ class CoordinatedDispatcher(Dispatcher):
 
                     # An update that runs free keeps the worker's `None`.
                     if lane is not None:
+                        # shortcut: a hold opens at the current wait generation, so once a
+                        # coordinated wait started anywhere since, its first pass re-offers the
+                        # lane's whole backlog: O(n^2) resolves to drain n queued updates of one
+                        # key; upgrade (an index of waiting updates by key) if a constant or hot
+                        # key builds backlogs of thousands.
                         lane.handler_hold = _HandlerHold(lane, self.wait_generation)
                         handler_hold_token = _HANDLER_HOLD.set(lane.handler_hold)
                         lane.handler_hold.request_offer_pass(self.offer_pass_requests)
@@ -421,6 +426,7 @@ class CoordinatedDispatcher(Dispatcher):
             ):
                 parsed_update = update_to_run.parsed_update
                 lane = None
+                new_lane = False
 
                 if parsed_update is not None:
                     for index, function in enumerate(self.key_functions):
@@ -435,6 +441,7 @@ class CoordinatedDispatcher(Dispatcher):
 
                             if function_and_key not in self.lanes_by_key:
                                 self.lanes_by_key[function_and_key] = _Lane(function_and_key)
+                                new_lane = True
                         except Exception:
                             log.exception(
                                 "Error in key function %r; the update goes to the next one",
@@ -450,10 +457,8 @@ class CoordinatedDispatcher(Dispatcher):
                 update_to_run.lane = lane
                 self.unfinished_updates.increment()
 
-                if lane is None:
-                    self.worker_instructions.put_nowait(update_to_run)
-                elif not lane.turn_taken:
-                    lane.turn_taken = True
+                # A new lane has nothing running, so its first update takes the turn.
+                if lane is None or new_lane:
                     self.worker_instructions.put_nowait(update_to_run)
                 else:
                     lane.waiting_updates.append(update_to_run)

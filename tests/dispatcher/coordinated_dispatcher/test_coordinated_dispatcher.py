@@ -1932,7 +1932,7 @@ async def test_parse_posts_the_first_update_of_a_lane_and_queues_the_next() -> N
 
     posted = dispatcher.worker_instructions.get_nowait()
     assert posted.parsed_update.id == 1
-    assert posted.lane.turn_taken is True
+    assert list(dispatcher.lanes_by_key.values()) == [posted.lane]
     assert dispatcher.worker_instructions.empty()
     assert bot.queued() == [2]
     assert dispatcher.unfinished_updates._count == 2
@@ -2240,16 +2240,14 @@ def _admit(dispatcher: CoordinatedDispatcher, *updates: _UpdateToRun) -> None:
     for update_to_run in updates:
         function_and_key = (0, sequencing.chat_key(update_to_run.parsed_update))
         lane = dispatcher.lanes_by_key.get(function_and_key)
+        new_lane = lane is None
 
-        if lane is None:
+        if new_lane:
             lane = dispatcher.lanes_by_key[function_and_key] = _Lane(function_and_key)
 
         update_to_run.lane = lane
 
-        if lane is None:
-            dispatcher.worker_instructions.put_nowait(update_to_run)
-        elif not lane.turn_taken:
-            lane.turn_taken = True
+        if new_lane:
             dispatcher.worker_instructions.put_nowait(update_to_run)
         else:
             lane.waiting_updates.append(update_to_run)

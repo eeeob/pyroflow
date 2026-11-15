@@ -40,12 +40,7 @@ def test_entry_starts_free_and_never_offered() -> None:
 def test_lane_starts_empty_and_free() -> None:
     lane = _Lane((0, 1))
 
-    assert (lane.key, lane.waiting_updates, lane.handler_hold, lane.turn_taken) == (
-        (0, 1),
-        deque(),
-        None,
-        False,
-    )
+    assert (lane.key, lane.waiting_updates, lane.handler_hold) == ((0, 1), deque(), None)
 
 
 def test_hold_starts_open_and_idle() -> None:

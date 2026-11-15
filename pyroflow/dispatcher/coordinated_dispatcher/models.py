@@ -147,7 +147,12 @@ class _HandlerHold:
 
 @dataclass(eq=False, slots=True)
 class _Lane:
-    """Updates of one key that take turns: one runs or is posted, and the rest wait here."""
+    """Updates of one key that take turns: one runs or is posted, and the rest wait here.
+
+    A lane is made with its first update, which is posted at once, and leaves
+    `lanes_by_key` once nothing of it runs or waits, so a lane found there
+    always has an update running or posted.
+    """
 
     key: CoordinationKeyT
     """The lane's key in `lanes_by_key`: `(index of its function, key)`."""
@@ -155,8 +160,6 @@ class _Lane:
     """The updates behind the one running, oldest first."""
     handler_hold: _HandlerHold | None = None
     """The hold of the running handler; `None` while no handler runs."""
-    turn_taken: bool = False
-    """Whether an update of the lane is running or posted."""
 
 
 __all__ = ()
