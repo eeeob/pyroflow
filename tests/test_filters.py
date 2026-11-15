@@ -41,6 +41,7 @@ from pyroflow import filters
 from pyroflow.dispatcher import Dispatcher
 from pyroflow.enums import CommandUsernamePolicy
 from pyroflow.errors import ListenerRejected
+from pyroflow.filters import _TooFastState
 from pyroflow.models import MessageKey
 from pyroflow.update_listener import MessageListener
 
@@ -1191,9 +1192,61 @@ async def test_too_fast_ignores_an_expired_press_when_answering() -> None:
 
 
 async def test_too_fast_answers_only_button_presses() -> None:
-    flt = filters.too_fast(2, key=lambda message: message.from_user.id)
+    message = make_message()
+    message.answer = AsyncMock()
 
-    assert await run(flt, message_after(0), message_after(1)) == [False, True]
+    await filters.too_fast.answer_press(message)
+
+    message.answer.assert_not_awaited()
+
+
+async def test_too_fast_answer_press_answers_a_press_with_no_text() -> None:
+    query = press(0)
+
+    await filters.too_fast.answer_press(query)
+
+    query.answer.assert_awaited_once_with()
+
+
+async def test_too_fast_answer_press_ignores_an_expired_press() -> None:
+    query = press(0)
+    query.answer = AsyncMock(side_effect=QueryIdInvalid())
+
+    await filters.too_fast.answer_press(query)
+
+    query.answer.assert_awaited_once_with()
+
+
+def test_too_fast_extract_key_keys_a_press_by_its_chat_user_and_message() -> None:
+    query = make_callback_query(chat_id=100, user_id=7, message_id=5)
+    query.message.ephemeral_message_id = 3
+    query.message.business_connection_id = "bc"
+
+    assert filters.too_fast.extract_key(query) == (100, 7, 5, 3, "bc")
+
+
+def test_too_fast_extract_key_keys_a_press_on_an_inline_message_by_its_user_and_id() -> None:
+    query = make_callback_query(user_id=7, message=None, inline_message_id="i1")
+
+    assert filters.too_fast.extract_key(query) == (7, "i1")
+
+
+def test_too_fast_extract_key_gives_none_for_a_press_with_no_message() -> None:
+    query = make_callback_query(message=None, inline_message_id=None)
+
+    assert filters.too_fast.extract_key(query) is None
+
+
+def test_too_fast_extract_key_gives_none_for_an_update_that_is_not_a_press() -> None:
+    assert filters.too_fast.extract_key(make_message()) is None
+
+
+def test_too_fast_state_starts_empty_with_its_own_dicts() -> None:
+    first, second = _TooFastState(), _TooFastState()
+
+    assert (first.until, first.is_spam, first.kept) == ({}, {}, 0)
+    assert first.until is not second.until
+    assert first.is_spam is not second.is_spam
 
 
 async def test_too_fast_keeps_its_state_per_client() -> None:

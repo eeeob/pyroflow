@@ -712,6 +712,9 @@ async def test_a_subclass_gets_no_bar_on_a_single_page() -> None:
     assert texts(await rows_of(JumpTen([1], item=item_button))) == [["i1"]]
 
 
+# --- SlidingPagination ------------------------------------------------------
+
+
 def make_sliding(count: int, **kw: Any) -> SlidingPagination[int]:
     return SlidingPagination(
         list(range(1, count + 1)),
@@ -751,6 +754,14 @@ async def test_sliding_bar_brings_the_next_pages_at_the_last_number(
 
 async def test_sliding_bar_is_not_pulled_back_near_the_end() -> None:
     assert await bar(make_sliding(10), 8) == numbers(7, 10, 8)
+
+
+async def test_sliding_bar_shows_every_page_on_the_last_one_when_they_fit() -> None:
+    assert await bar(make_sliding(8), 8) == numbers(1, 8, 8)
+
+
+async def test_sliding_bar_keeps_the_last_page_in_the_group_before_it() -> None:
+    assert await bar(make_sliding(14), 14) == numbers(7, 14, 14)
 
 
 @pytest.mark.parametrize("size", [3, 4, 5, 8])
@@ -797,6 +808,17 @@ async def test_sliding_pagination_fetches_with_a_count() -> None:
 def test_sliding_pagination_refuses_a_fetch_without_a_count() -> None:
     with pytest.raises(TypeError, match="SlidingPagination needs the count"):
         SlidingPagination(Fetch(3), item=item_button)
+
+
+# --- every kind of pagination -----------------------------------------------
+
+
+@pytest.mark.parametrize("make", [make_pages, make_arrows, make_sliding])
+def test_paginations_have_no_instance_dict(make: Any) -> None:
+    assert not hasattr(make(1), "__dict__")
+
+
+# --- build: counts, empty pages, header and footer --------------------------
 
 
 async def test_a_count_function_returning_a_negative_number_counts_no_items() -> None:
@@ -874,19 +896,6 @@ async def test_first_if_empty_does_not_loop_on_an_empty_first_page() -> None:
 
     assert (page.number, list(page.items)) == (1, [])
     assert fetch.calls == [(0, 2)]
-
-
-async def test_sliding_bar_shows_every_page_on_the_last_one_when_they_fit() -> None:
-    assert await bar(make_sliding(8), 8) == numbers(1, 8, 8)
-
-
-async def test_sliding_bar_keeps_the_last_page_in_the_group_before_it() -> None:
-    assert await bar(make_sliding(14), 14) == numbers(7, 14, 14)
-
-
-@pytest.mark.parametrize("make", [make_pages, make_arrows, make_sliding])
-def test_paginations_have_no_instance_dict(make: Any) -> None:
-    assert not hasattr(make(1), "__dict__")
 
 
 async def test_a_strict_count_fetches_and_shows_only_what_is_left() -> None:

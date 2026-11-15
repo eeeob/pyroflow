@@ -4,7 +4,6 @@ from __future__ import annotations as _annotations
 
 from typing import Any
 
-import pytest
 from pyrogram import Client, filters, handlers
 from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 from pyrogram.types import BotCommand, BotCommandScopeAllPrivateChats
@@ -57,10 +56,7 @@ def test_stacked_mark_bot_commands_keep_every_entry() -> None:
 
 
 def test_mark_bot_commands_marks_business_message_handlers() -> None:
-    business_cls = getattr(handlers, "BusinessMessageHandler", None)
-    if business_cls is None:  # pragma: no cover - depends on the installed fork
-        pytest.skip("BusinessMessageHandler is not available")
-    handler = business_cls(_callback)
+    handler = handlers.BusinessMessageHandler(_callback)
 
     async def func(client: Any, message: Any) -> None:  # pragma: no cover
         pass

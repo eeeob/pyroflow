@@ -37,10 +37,9 @@ EPHEMERAL_SENT = Message(
 CONTEXT = ListenerContext(step=1)
 
 
-def make_client(me_id: int | None = ME_ID) -> pyroflow.Client:
+def make_client() -> pyroflow.Client:
     client = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True)
     client.setup_pyroflow(ask_context_message=True)
-    client.me = None if me_id is None else SimpleNamespace(id=me_id)
     listen = AsyncMock(return_value=SENTINEL)
     client.dispatcher.listeners[Message] = SimpleNamespace(listen=listen, __key_type__=MessageKey)
     client.dispatcher.listeners[CallbackQuery] = SimpleNamespace(
@@ -101,14 +100,8 @@ def test_not_editable_when_ephemeral_and_incoming() -> None:
     assert make_msg(ephemeral_message_id=3).editable is False
 
 
-def test_not_editable_when_sender_chat_is_another_chat() -> None:
-    m = make_msg(sender_chat=Chat(id=999, type=ChatType.CHANNEL))
-    m.from_user = None
-    assert m.editable is False
-
-
-def test_not_editable_without_sender_or_me() -> None:
-    m = make_msg(client=make_client(me_id=None))
+def test_not_editable_without_sender_when_not_outgoing() -> None:
+    m = make_msg()
     m.from_user = None
     assert m.editable is False
 

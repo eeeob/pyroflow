@@ -13,11 +13,7 @@ import pyroflow
 import pytest
 
 from pyrogram import filters as pyro_filters
-from pyrogram.types import (
-    BotCommand,
-    InlineKeyboardMarkup,
-    ReplyKeyboardRemove,
-)
+from pyrogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove
 
 import pyroflow.client.client as client_module
 from pyroflow.enums import DuplicatePolicy, WorkersPolicy
@@ -74,10 +70,6 @@ def test_ask_context_message_defaults_to_false() -> None:
 
 
 # --- shared fakes for the rest of the module ---------------------------------
-
-
-def _cmd(name: str) -> BotCommand:
-    return BotCommand(name, f"{name} description")
 
 
 class _RecordingListener:
