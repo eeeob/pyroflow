@@ -332,6 +332,8 @@ class CallbackData(Generic[_P, _T]):
 
         Raises:
             TypeError: If a name is not a field, or `args` do not fit `schema`.
+            ValueError: If a value holds `sep`, as `pack` refuses it, so the
+                filter could never pass.
         """
         if args:
             values = dict(zip(self.fields, self.schema(*args, **values), strict=True))
@@ -348,6 +350,12 @@ class CallbackData(Generic[_P, _T]):
             else str(value.value if isinstance(value := values[name], Enum) else value)
             for name in self.fields
         ]
+
+        for want in wanted:
+            if want is not None and self.sep in want:
+                msg = f"A value must not contain {self.sep!r}: {want!r}"
+                raise ValueError(msg)
+
         needed = max((i for i, want in enumerate(wanted, 1) if want is not None), default=0)
 
         async def caller(_: Filter, __: Client, update: object) -> bool:

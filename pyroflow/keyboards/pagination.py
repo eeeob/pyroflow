@@ -209,7 +209,8 @@ class Pagination(ABC, Generic[_T]):
         if has_bar and (bar := self.nav_row(number, total_pages, has_next)):
             keyboard.append(bar)
 
-        markup = InlineKeyboardMarkup([*self.header, *keyboard, *self.footer])
+        # Fresh rows on every page, so a caller adding a button to one page adds it to no other.
+        markup = InlineKeyboardMarkup([*map(list, self.header), *keyboard, *map(list, self.footer)])
 
         return Page(number, items, total_pages, has_next, markup)
 

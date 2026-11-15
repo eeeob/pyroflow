@@ -972,3 +972,15 @@ async def test_build_orders_the_header_items_bar_and_footer() -> None:
     )
 
     assert texts(await rows_of(pages)) == [["h"], ["i1"], ["· 1 ·", "2 »"], ["f"]]
+
+
+async def test_build_gives_each_page_its_own_header_and_footer_rows() -> None:
+    pages = make_pages(2, header=[[btn("h", "h")]], footer=[[btn("f", "f")]])
+    first = await rows_of(pages)
+    first[0].append(btn("mine", "mine"))
+    first[-1].append(btn("mine", "mine"))
+
+    rows = await rows_of(pages)
+
+    assert (texts(rows)[0], texts(rows)[-1]) == (["h"], ["f"])
+    assert texts([*pages.header, *pages.footer]) == [["h"], ["f"]]

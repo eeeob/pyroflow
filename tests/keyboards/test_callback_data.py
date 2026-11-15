@@ -508,6 +508,11 @@ def test_filter_equal_refuses_what_pack_refuses_when_created(item: CallbackData)
         item.filter_equal(id="1:2", action="x")
 
 
+def test_filter_refuses_a_value_holding_the_separator_when_created(item: CallbackData) -> None:
+    with pytest.raises(ValueError, match="must not contain ':': '1:2'"):
+        item.filter(id="1:2")
+
+
 # --- from_fields ------------------------------------------------------------
 
 
