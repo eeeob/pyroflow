@@ -154,6 +154,18 @@ from pyroflow import MessageListener, filters
 client.register_listener(MessageListener(strict_filter=~filters.registered_command()))
 ```
 
+**Repeated presses.** `filters.too_fast` matches an update that arrived within an interval of the last one with its key, such as a button pressed again quickly, so `on_spam` answers it and `~` keeps the handler from running again. Make one filter per update type and use it on all of that type's handlers, not one per handler.
+
+```python
+from pyroflow import filters
+
+# A press within 2 seconds of the last one on its message is answered and skipped.
+spam = filters.too_fast(2, on_spam=lambda query: query.answer("Slow down"))
+
+@client.on_callback_query(~spam)
+async def on_press(client, query): ...
+```
+
 **Bot commands.** `BotCommandsMixin` publishes the commands marked with `mark_bot_commands` when the client starts.
 
 ```python

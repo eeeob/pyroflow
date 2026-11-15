@@ -154,6 +154,18 @@ from pyroflow import MessageListener, filters
 client.register_listener(MessageListener(strict_filter=~filters.registered_command()))
 ```
 
+**الضغط المتكرر.** `filters.too_fast` يطابق الـ update الذي وصل خلال مدة من آخر update بمفتاحه، كزر مضغوط مرة أخرى بسرعة، فيجيب عنه `on_spam`، و`~` يمنع الـ handler من العمل مرة أخرى. أنشئ فلتراً واحداً لكل نوع update واستعمله على كل handlers ذلك النوع، لا فلتراً لكل handler.
+
+```python
+from pyroflow import filters
+
+# A press within 2 seconds of the last one on its message is answered and skipped.
+spam = filters.too_fast(2, on_spam=lambda query: query.answer("Slow down"))
+
+@client.on_callback_query(~spam)
+async def on_press(client, query): ...
+```
+
 **أوامر البوت.** `BotCommandsMixin` ينشر الأوامر المعلّمة بـ `mark_bot_commands` عند بدء الـ client.
 
 ```python

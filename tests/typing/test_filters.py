@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from enum import Enum
 
     from pyrogram.filters import Filter
-    from pyrogram.types import BotCommandScope, BotCommandScopeChat
+    from pyrogram.types import BotCommandScope, BotCommandScopeChat, CallbackQuery, Message
     from typing_extensions import assert_type
 
     from pyroflow import filters
@@ -39,6 +39,26 @@ if TYPE_CHECKING:
         filters.registered_command(username_policy="any")  # ty: ignore[invalid-argument-type]
         filters.registered_command(scopes=["default"])  # ty: ignore[invalid-argument-type]
         filters.registered_command(language_codes=[1])  # ty: ignore[invalid-argument-type]
+
+    def _check_too_fast() -> None:
+        flt = filters.too_fast(2)
+        _as_filter: Filter = flt
+        filters.too_fast(0.5, key=lambda update: 1, on_spam=None)
+        filters.too_fast(lambda update: 2)
+        filters.too_fast("2")  # ty: ignore[invalid-argument-type]
+        filters.too_fast(2, 1)  # ty: ignore[invalid-argument-type]
+        filters.too_fast(2, on_spam=1)  # ty: ignore[invalid-argument-type]
+
+        def _by_user(query: CallbackQuery) -> int:
+            return query.from_user.id
+
+        def _interval(message: Message) -> float:
+            return 2
+
+        assert_type(filters.too_fast(2, key=_by_user), filters.too_fast[CallbackQuery])
+        assert_type(filters.too_fast(_interval), filters.too_fast[Message])
+        assert_type(filters.too_fast[Message](_interval), filters.too_fast[Message])
+        filters.too_fast[Message](2, key=_by_user)  # ty: ignore[invalid-argument-type]
 
     def _check_factories() -> None:
         assert_type(filters.startswith("a", ["b", ("c",)]), Filter)

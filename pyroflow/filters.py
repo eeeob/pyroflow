@@ -7,16 +7,25 @@ Pyrogram filter. The text of a `Message` is its `text`, falling back to its
 `InlineQuery` or a `ChosenInlineResult` is its `query`. Any other update raises
 `TypeError`. A `str` pattern matches a `str` text only, and a `bytes` pattern
 `bytes` data only; Pyrogram leaves `data` as `bytes` only when it is not valid UTF-8.
+
+`too_fast` is not about text: it matches an update that came within an
+interval of the last one with its key, such as a button pressed again quickly
+by the same user, so `on_spam` answers it and the real handler skips it.
 """
 
 from __future__ import annotations as _annotations
 
 import asyncio
+import logging
 import re
+import time
 import weakref
-from typing import ClassVar, Final, NamedTuple, Protocol, AnyStr, TYPE_CHECKING
+from collections.abc import Hashable
+from dataclasses import dataclass, field
+from typing import ClassVar, Final, Generic, NamedTuple, Protocol, AnyStr, TYPE_CHECKING
 from enum import Enum, EnumMeta as EnumType
 
+from pyrogram.errors import QueryIdInvalid
 from pyrogram.filters import Filter, create
 from pyrogram.types import (
     BotCommandScope,
@@ -26,6 +35,7 @@ from pyrogram.types import (
     BotCommandScopeDefault,
 )
 from pytrove import (
+    DefaultWeakKeyDict,
     call_sync_or_await,
     gather_abort,
     iter_flat_cont,
@@ -33,19 +43,22 @@ from pytrove import (
 )
 
 from .enums import CommandUsernamePolicy
-from .types import Message
+from .types import CallbackQuery, Message
+from .typings import UpdateType
 from .utils import get_update_text
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from pyrogram.types import ChosenInlineResult, InlineQuery, User
-    from pytrove.typings import NestedContainer
+    from pytrove.typings import NestedContainer, Number
 
     from .client import Client
-    from .types import CallbackQuery as Query
     from .typings import MaybeAwaitableCallable
 
+
+log = logging.getLogger(__name__)
+"""Logger for `too_fast` `on_spam` errors."""
 
 # Not `pytrove.TG_BOT_COMMAND_PATTERN`: it refuses arguments, a name not starting with a
 # letter, as Bot API allows, and captures neither the name nor the username.
@@ -75,6 +88,20 @@ class _BotCommands(NamedTuple):
 
     ephemeral: frozenset[str]
     """Lowercased names of the commands Telegram marks `is_ephemeral`."""
+
+
+@dataclass(slots=True)
+class _TooFastState:
+    """What `too_fast` keeps of one client."""
+
+    until: dict[Hashable, float] = field(default_factory=dict)
+    """Per key: when the interval of its last update not matched ends."""
+
+    is_spam: dict[int, bool] = field(default_factory=dict)
+    """Per `id()` of an update checked and still in memory: whether it came too soon."""
+
+    kept: int = 0
+    """How many keys the last sweep kept; the next one waits for twice as many."""
 
 
 class registered_command(Filter):  # lowercase: used like the factories in this module
@@ -259,6 +286,206 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
         return commands
 
 
+class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factories in this module
+    """Match an update that came too soon: within `interval` seconds of the last one let through with its key.
+
+    An update is let through (not matched) if it arrived once the interval of
+    the last update let through with its key had ended, and it starts a new
+    interval; one that came sooner is matched and does not extend it.
+    The arrival is `arrived_at`, which the dispatcher sets when the update
+    reaches it, so presses that waited behind a running handler, in the
+    updates queue or in a `CoordinatedDispatcher` lane, still count as the
+    moment they were pressed. An update that did not come through a
+    dispatcher has no `arrived_at` and is never matched.
+
+    By default the key is `extract_key`: the chat, the user and the message
+    of a button press, or its inline or ephemeral message, so each user is
+    counted apart on each message; any other update is never matched without
+    `key`. An update checked again, by another handler or after a wait, gets
+    the same decision, and `on_spam` runs once at most for it; each decision
+    is forgotten when its update is deleted from memory.
+
+    The state is kept per client, in memory, until the interval of each key
+    ends, and is lost on restart, and each filter keeps its own. So make one
+    filter for each update type and use it on every handler of that type,
+    as it is on the handler that takes the fast updates and with `~` on the
+    ones that do the work, not a new one per handler: two filters each let
+    the same update through on their own, so both handlers run, and
+    `on_spam` may run twice for one update.
+
+    The filter is generic on the update it takes, so `interval` and `key`
+    are typed as taking that update: `too_fast[CallbackQuery](2, key=...)`,
+    or let the type come from the functions passed.
+
+    Warning:
+        Put it last in `&`: an update it lets through starts the interval even
+        when a filter after it fails and no handler runs. A press that arrives
+        after the interval is let through, so with a handler slower than the
+        interval a second press runs it again: pick an interval longer than the
+        handler. Orders, payments and other actions that must not repeat need
+        a guard of their own too.
+
+    Args:
+        interval: The seconds after an update let through within which one
+            with the same key is matched, or a sync function that takes the
+            update and returns them; zero or less matches nothing.
+        key: A sync function that takes the update and returns its key;
+            `None` from it leaves that update unmatched. By default
+            `extract_key`, which keys button presses only.
+        on_spam: A function (sync or async) called with each update it
+            matches, once per update; what it raises is logged, and the update
+            still counts as too soon.
+            By default `answer_press`, which answers a button press with no
+            text to end its loading indicator; `None` calls nothing.
+
+    Raises:
+        TypeError: If `key` is not callable.
+
+    Example:
+        >>> import asyncio, time
+        >>> from pyrogram.types import Message, User
+        >>> class Bot:
+        ...     pass
+        >>> per_user = too_fast(2, key=lambda message: message.from_user.id)
+        >>> start = time.monotonic()
+        >>> def arriving_after(seconds):
+        ...     message = Message(id=1, from_user=User(id=7))
+        ...     message.arrived_at = start + seconds
+        ...     return message
+        >>> bot = Bot()
+        >>> [asyncio.run(per_user(bot, arriving_after(seconds))) for seconds in (0, 1, 2.5)]
+        [False, True, False]
+    """
+
+    @staticmethod
+    def extract_key(update: object) -> Hashable | None:
+        """Return the default key of `update`: who pressed, and on which message.
+
+        Args:
+            update: The update to key.
+
+        Returns:
+            For a press on a message in a chat, its chat, user, message id,
+            ephemeral message id and business connection; for one on an inline
+            message, its user and inline message id; otherwise `None`. An
+            ephemeral message has the id `0` and its own in the ephemeral id,
+            so it never shares a key with an ordinary one.
+        """
+        if not isinstance(update, CallbackQuery):
+            return None
+
+        user_id = update.from_user.id
+        message = update.message
+
+        if message is None or message.chat is None:
+            if update.inline_message_id is None:
+                return None
+
+            return user_id, update.inline_message_id
+
+        return (
+            message.chat.id,
+            user_id,
+            message.id,
+            message.ephemeral_message_id,
+            message.business_connection_id,
+        )
+
+    @staticmethod
+    async def answer_press(update: object) -> None:
+        """Answer `update` with no text if it is a button press, which ends its loading indicator.
+
+        Args:
+            update: The update `too_fast` matched; any other than a `CallbackQuery` is left.
+        """
+        if not isinstance(update, CallbackQuery):
+            return
+
+        try:
+            await update.answer()
+        except QueryIdInvalid:
+            pass  # the press expired; there is nothing left to answer
+
+    def __init__(
+        self,
+        interval: Number | Callable[[UpdateType], Number],
+        key: Callable[[UpdateType], Hashable | None] = extract_key,
+        on_spam: MaybeAwaitableCallable[[UpdateType], object] | None = answer_press,
+    ) -> None:
+        """Initialise the filter with nothing kept; see the class docstring for the parameters."""
+        if not callable(key):
+            msg = f"too_fast key must be callable, not {type(key).__name__}"
+            raise TypeError(msg)
+
+        self.interval = interval
+        """The seconds after an update let through within which one with its key is matched, or the function that gives them."""
+        self.key = key
+        """The function that gives an update's key."""
+        self.on_spam = on_spam
+        """The function called with each update it matches, or `None`."""
+        self.states: DefaultWeakKeyDict[Client, _TooFastState] = DefaultWeakKeyDict(_TooFastState)
+        """Per client: what this filter keeps of it."""
+
+    async def __call__(self, client: Client, update: UpdateType) -> bool:  # ty: ignore[invalid-method-override]  # pyroflow's `Client` is pyrogram's at runtime via `patch_cls`
+        """Return whether the update came too soon, calling `on_spam` with it if so.
+
+        Args:
+            client: The client that received the update.
+            update: The update to test.
+
+        Returns:
+            Whether it came within the interval of the last update let through with its key.
+        """
+        arrived_at: float | None = getattr(update, "arrived_at", None)
+
+        if arrived_at is None:
+            return False
+
+        state = self.states[client]
+        decision_id = id(update)
+
+        if (spam := state.is_spam.get(decision_id)) is not None:
+            return spam
+
+        key = self.key(update)
+
+        if key is None:
+            return False
+
+        interval = (
+            self.interval if isinstance(self.interval, (int, float)) else self.interval(update)
+        )
+
+        if interval <= 0:
+            return False
+
+        # From the lookup above to here nothing is awaited, so no other check decides between.
+        now = time.monotonic()
+        until = state.until.get(key)
+        spam = until is not None and arrived_at < until
+
+        if not spam:
+            state.until[key] = arrived_at + interval
+
+        state.is_spam[decision_id] = spam
+        # The id is reused only once the update is freed, after this, so no newer decision is popped.
+        weakref.finalize(update, state.is_spam.pop, decision_id, None)
+
+        # Forget the keys whose interval ended, once they doubled since the last time.
+        if len(state.until) > 2 * state.kept:
+            state.until = {key: until for key, until in state.until.items() if until > now}
+            state.kept = len(state.until)
+
+        if spam and self.on_spam is not None:
+            try:
+                await call_sync_or_await(self.on_spam, update)
+            except Exception:
+                # Logged, not raised: the dispatcher would skip the handler and lose the decision.
+                log.exception("Error in too_fast on_spam %r", self.on_spam)
+
+        return spam
+
+
 def _normalize_rule(
     rule: MaybeAwaitableCallable[[str], bool] | NestedContainer[str] | EnumType | re.Pattern[str],
 ) -> frozenset[str] | re.Pattern[str] | MaybeAwaitableCallable[[str], bool]:
@@ -334,7 +561,7 @@ def _text_filter(
     str_texts, bytes_texts = tuple(str_view), tuple(bytes_view)
 
     async def caller(
-        _: Filter, __: Client, update: Message | Query | InlineQuery | ChosenInlineResult
+        _: Filter, __: Client, update: Message | CallbackQuery | InlineQuery | ChosenInlineResult
     ) -> bool:
         """Return whether the update's text matches the patterns of its own kind."""
         text = get_update_text(update)
@@ -472,7 +699,9 @@ def split_text(
         raise ValueError(msg)
 
     async def caller(
-        _: Filter, client: Client, update: Message | Query | InlineQuery | ChosenInlineResult
+        _: Filter,
+        client: Client,
+        update: Message | CallbackQuery | InlineQuery | ChosenInlineResult,
     ) -> bool:
         """Return whether the update's text splits into parts that each satisfy their rule."""
         text = get_update_text(update)
@@ -513,4 +742,5 @@ __all__ = (
     "equal",
     "split_text",
     "registered_command",
+    "too_fast",
 )

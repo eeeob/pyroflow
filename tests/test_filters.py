@@ -12,15 +12,18 @@ import gc
 import inspect
 import re
 import threading
+import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from types import SimpleNamespace
 from typing import Any, TYPE_CHECKING
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from pyrogram import filters as pyrogram_filters
+from pyrogram.errors import QueryIdInvalid
 from pyrogram.enums import ChatType
 from pyrogram.handlers import MessageHandler
 from pyrogram.types import (
@@ -993,6 +996,257 @@ async def test_a_wider_wait_with_filters_takes_a_command_a_strict_wait_rejected(
 # --- module surface -------------------------------------------------------------
 
 
+# --- too_fast ---------------------------------------------------------------------
+
+
+class TooFastBot:
+    """A client stand-in that a `WeakKeyDictionary` can key."""
+
+
+def press(after: float, *, user: int = 7, message: int = 5, query_id: str = "q1") -> Any:
+    """A press that arrives `after` seconds from now, on the clock the filter sweeps with, with its `answer` recorded."""
+    query = make_callback_query(user_id=user, message_id=message, id=query_id)
+    query.arrived_at = time.monotonic() + after
+    query.answer = AsyncMock()
+    return query
+
+
+def message_after(after: float, *, user: int = 7) -> Message:
+    message = make_message(user_id=user)
+    message.arrived_at = time.monotonic() + after
+    return message
+
+
+async def run(flt: filters.too_fast, *updates: Any, bot: object | None = None) -> list[bool]:
+    bot = bot or TooFastBot()
+    return [await flt(bot, update) for update in updates]  # ty: ignore[invalid-argument-type]
+
+
+async def test_too_fast_matches_an_update_within_the_interval() -> None:
+    assert await run(filters.too_fast(2), press(0, query_id="a"), press(1, query_id="b")) == [
+        False,
+        True,
+    ]
+
+
+async def test_too_fast_lets_an_update_through_once_the_interval_ends() -> None:
+    assert await run(filters.too_fast(2), press(0, query_id="a"), press(2, query_id="b")) == [
+        False,
+        False,
+    ]
+
+
+async def test_too_fast_does_not_extend_the_interval_for_a_matched_update() -> None:
+    presses = press(0, query_id="a"), press(1.5, query_id="b"), press(2.1, query_id="c")
+
+    assert await run(filters.too_fast(2), *presses) == [False, True, False]
+
+
+async def test_too_fast_keys_a_press_by_its_user_and_message_by_default() -> None:
+    presses = (
+        press(0, query_id="a"),
+        press(0.1, user=8, query_id="b"),
+        press(0.2, message=6, query_id="c"),
+        press(0.3, query_id="d"),
+    )
+
+    assert await run(filters.too_fast(2), *presses) == [False, False, False, True]
+
+
+async def test_too_fast_keys_a_press_on_an_inline_message_by_its_id_and_user() -> None:
+    presses = [press(0.1 * i, user=user, query_id=str(i)) for i, user in enumerate((7, 8, 7, 7))]
+
+    for query, inline_message_id in zip(presses, ("i1", "i1", "i2", "i1"), strict=True):
+        query.message = None
+        query.inline_message_id = inline_message_id
+
+    assert await run(filters.too_fast(2), *presses) == [False, False, False, True]
+
+
+async def test_too_fast_keys_a_press_on_an_ephemeral_message_by_its_ephemeral_id() -> None:
+    presses = [press(0.1 * i, query_id=str(i)) for i in range(4)]
+
+    # The first is an ordinary message with the same number as the ephemeral one after it.
+    for query, ephemeral_message_id in zip(presses, (None, 5, 6, 5), strict=True):
+        query.message.ephemeral_message_id = ephemeral_message_id
+
+    assert await run(filters.too_fast(2), *presses) == [False, False, False, True]
+
+
+def test_too_fast_rejects_a_key_that_is_not_callable() -> None:
+    with pytest.raises(TypeError, match="too_fast key must be callable, not int"):
+        filters.too_fast(2, 1)  # ty: ignore[invalid-argument-type]
+
+
+async def test_too_fast_uses_the_key_function() -> None:
+    per_user = filters.too_fast(2, key=lambda query: query.from_user.id)
+
+    assert await run(per_user, press(0, query_id="a"), press(0.1, message=6, query_id="b")) == [
+        False,
+        True,
+    ]
+
+
+async def test_too_fast_does_not_match_an_update_whose_key_is_none() -> None:
+    flt = filters.too_fast(2, key=lambda query: None)
+
+    assert await run(flt, press(0, query_id="a"), press(0.1, query_id="b")) == [False, False]
+
+
+async def test_too_fast_takes_the_interval_from_a_function() -> None:
+    flt = filters.too_fast(lambda query: 5 if query.from_user.id == 7 else 1)
+    presses = (
+        press(0, query_id="a"),
+        press(2, query_id="b"),
+        press(0, user=8, message=6, query_id="c"),
+        press(2, user=8, message=6, query_id="d"),
+    )
+
+    assert await run(flt, *presses) == [False, True, False, False]
+
+
+async def test_too_fast_matches_nothing_with_an_interval_of_zero() -> None:
+    assert await run(filters.too_fast(0), press(0, query_id="a"), press(0, query_id="b")) == [
+        False,
+        False,
+    ]
+
+
+async def test_too_fast_does_not_match_an_update_that_is_not_a_press_with_no_key() -> None:
+    assert await run(filters.too_fast(2), message_after(0), message_after(0.1)) == [False, False]
+
+
+async def test_too_fast_matches_any_update_with_a_key() -> None:
+    flt = filters.too_fast(2, key=lambda message: message.from_user.id)
+
+    assert await run(flt, message_after(0), message_after(1)) == [False, True]
+
+
+async def test_too_fast_does_not_match_an_update_with_no_arrival() -> None:
+    first, second = make_callback_query(id="a"), make_callback_query(id="b")
+
+    assert await run(filters.too_fast(60), first, second) == [False, False]
+
+
+async def test_too_fast_gives_an_update_checked_again_the_same_decision() -> None:
+    flt, bot = filters.too_fast(2), TooFastBot()
+    first, second = press(0, query_id="a"), press(1, query_id="b")
+
+    assert await run(flt, first, first, second, second, bot=bot) == [False, False, True, True]
+    second.answer.assert_awaited_once()
+
+
+async def test_too_fast_answers_a_matched_press_by_default() -> None:
+    first, second = press(0, query_id="a"), press(1, query_id="b")
+
+    await run(filters.too_fast(2), first, second)
+
+    first.answer.assert_not_awaited()
+    second.answer.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize("on_spam", [AsyncMock(), Mock()])
+async def test_too_fast_calls_on_spam_with_the_matched_update(on_spam: Mock) -> None:
+    first, second = press(0, query_id="a"), press(1, query_id="b")
+
+    await run(filters.too_fast(2, on_spam=on_spam), first, second)
+
+    on_spam.assert_called_once_with(second)
+    second.answer.assert_not_awaited()
+
+
+async def test_too_fast_logs_what_on_spam_raises_and_still_matches(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    on_spam = Mock(side_effect=RuntimeError("boom"))
+
+    with caplog.at_level("ERROR", logger="pyroflow.filters"):
+        result = await run(
+            filters.too_fast(2, on_spam=on_spam), press(0, query_id="a"), press(1, query_id="b")
+        )
+
+    assert result == [False, True]
+    assert "Error in too_fast on_spam" in caplog.text
+    assert "boom" in caplog.text
+
+
+async def test_too_fast_calls_nothing_with_no_on_spam() -> None:
+    second = press(1, query_id="b")
+
+    assert await run(filters.too_fast(2, on_spam=None), press(0, query_id="a"), second) == [
+        False,
+        True,
+    ]
+    second.answer.assert_not_awaited()
+
+
+async def test_too_fast_ignores_an_expired_press_when_answering() -> None:
+    second = press(1, query_id="b")
+    second.answer = AsyncMock(side_effect=QueryIdInvalid())
+
+    assert await run(filters.too_fast(2), press(0, query_id="a"), second) == [
+        False,
+        True,
+    ]
+
+
+async def test_too_fast_answers_only_button_presses() -> None:
+    flt = filters.too_fast(2, key=lambda message: message.from_user.id)
+
+    assert await run(flt, message_after(0), message_after(1)) == [False, True]
+
+
+async def test_too_fast_keeps_its_state_per_client() -> None:
+    flt = filters.too_fast(2)
+
+    assert await run(flt, press(0, query_id="a")) == [False]
+    assert await run(flt, press(1, query_id="b")) == [False]
+
+
+async def test_too_fast_decides_two_concurrent_checks_of_one_key_once() -> None:
+    flt, bot = filters.too_fast(2), TooFastBot()
+    results = await asyncio.gather(
+        flt(bot, press(0, query_id="a")),  # ty: ignore[invalid-argument-type]
+        flt(bot, press(0.1, query_id="b")),  # ty: ignore[invalid-argument-type]
+    )
+
+    assert results == [False, True]
+
+
+async def test_too_fast_forgets_a_decision_when_its_update_is_deleted() -> None:
+    flt, bot = filters.too_fast(60, key=lambda message: message.from_user.id), TooFastBot()
+    message = message_after(0)
+    await run(flt, message, bot=bot)
+    assert flt.states[bot].is_spam == {id(message): False}
+
+    del message
+    gc.collect()
+
+    assert flt.states[bot].is_spam == {}
+
+
+async def test_too_fast_forgets_the_keys_whose_interval_ended_once_they_double() -> None:
+    flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
+    state = flt.states[bot]  # ty: ignore[invalid-argument-type]
+    state.until["old"] = time.monotonic() - 1
+
+    await run(flt, press(0, query_id="a"), bot=bot)
+
+    assert list(state.until) == [7]
+    assert state.kept == 1
+
+
+async def test_too_fast_keeps_the_keys_until_they_double() -> None:
+    flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
+    state = flt.states[bot]  # ty: ignore[invalid-argument-type]
+    state.until["old"] = time.monotonic() - 1
+    state.kept = 1
+
+    await run(flt, press(0, query_id="a"), bot=bot)
+
+    assert set(state.until) == {"old", 7}
+
+
 def test_all_lists_the_public_factories() -> None:
     assert filters.__all__ == (
         "endswith",
@@ -1000,4 +1254,5 @@ def test_all_lists_the_public_factories() -> None:
         "equal",
         "split_text",
         "registered_command",
+        "too_fast",
     )
