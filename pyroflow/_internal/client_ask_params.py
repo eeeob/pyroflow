@@ -2,9 +2,10 @@
 
 Each class stands alone, with every argument any supported kurigram accepts,
 so an argument may be unknown to the installed one; a comment marks those
-Pyrogram deprecated. What would
-put the question off, such as `schedule_date`, stays out: `ask` waits for the
-answer to a question asked now.
+Pyrogram deprecated. What would put the question off, such as
+`schedule_date`, stays out: `ask` waits for the answer to a question asked
+now. `AskRichEditKw` also leaves out `parse_mode` and `entities`, which an
+edit reads only for a text.
 """
 
 from __future__ import annotations as _annotations
@@ -81,6 +82,8 @@ class AskEditKw(TypedDict, total=False):
     """Entities to use instead of `parse_mode`."""
     link_preview_options: pyro_types.LinkPreviewOptions | None
     """Link preview options for the message."""
+    business_connection_id: str | None
+    """Business connection to edit through."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram
@@ -127,6 +130,8 @@ class AskRichEditKw(TypedDict, total=False):
 
     link_preview_options: pyro_types.LinkPreviewOptions | None
     """Link preview options for the message."""
+    business_connection_id: str | None
+    """Business connection to edit through."""
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram

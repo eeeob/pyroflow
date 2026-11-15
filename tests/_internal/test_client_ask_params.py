@@ -43,14 +43,8 @@ def test_ask_send_kw_covers_send_message() -> None:
 
 
 def test_ask_edit_kw_covers_edit_message_text() -> None:
-    # Pyrogram returns no message for a business edit, so `ask` cannot wait on one.
     params = _params(
-        pyroflow.Client.edit_message_text,
-        "message_id",
-        "text",
-        "rich_message",
-        "business_connection_id",
-        *_NOT_FOR_ASK,
+        pyroflow.Client.edit_message_text, "message_id", "text", "rich_message", *_NOT_FOR_ASK
     )
     assert params <= AskEditKw.__optional_keys__
 
@@ -65,11 +59,6 @@ def test_nothing_that_puts_the_question_off_is_accepted(kw: Any) -> None:
     assert not kw.__optional_keys__ & set(_NOT_FOR_ASK)
 
 
-def test_ask_edit_kws_leave_out_the_business_connection() -> None:
-    assert "business_connection_id" not in AskEditKw.__optional_keys__
-    assert "business_connection_id" not in AskRichEditKw.__optional_keys__
-
-
 def test_ask_rich_send_kw_covers_send_rich_message() -> None:
     params = _params(pyroflow.Client.send_rich_message, "rich_message")
     assert params <= AskRichSendKw.__optional_keys__
@@ -82,7 +71,6 @@ def test_ask_rich_edit_kw_leaves_out_what_only_text_takes() -> None:
         "message_id",
         "text",
         "rich_message",
-        "business_connection_id",
         "parse_mode",
         "entities",
         *_NOT_FOR_ASK,

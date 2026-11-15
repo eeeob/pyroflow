@@ -632,10 +632,13 @@ async def test_rich_asks_edit_passes_the_edit_arguments(
 ) -> None:
     c, _, _, edit = _ask_client(update_type=update_type)
 
-    await getattr(c, method)(100, object(), 5, reply_markup=CALLBACK_MARKUP)
+    await getattr(c, method)(
+        100, object(), 5, reply_markup=CALLBACK_MARKUP, business_connection_id="bc"
+    )
 
     call = edit.calls[0]
     assert call["reply_markup"] is CALLBACK_MARKUP
+    assert call["business_connection_id"] == "bc"
     assert "text" not in call
 
 
