@@ -4,6 +4,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import logging
+import time
 from contextvars import ContextVar
 from typing import Any, Final, cast, TYPE_CHECKING
 
@@ -12,6 +13,7 @@ from pyrogram.dispatcher import Dispatcher as PyroDispatcher
 from pyrogram.handlers import ErrorHandler, RawUpdateHandler, Handler as PyroHandler
 from pytrove import gather_helper
 
+from ..types import Update
 from ..utils import call_maybe_async, patch_cls
 
 if TYPE_CHECKING:
@@ -59,6 +61,8 @@ class Dispatcher(PyroDispatcher):
     """Original Pyrogram `start`, kept by `patch_cls`."""
     oldstop: Callable[..., Awaitable[None]]
     """Original Pyrogram `stop`, kept by `patch_cls`."""
+    oldenqueue: Callable[..., None]
+    """Original Pyrogram `enqueue`, kept by `patch_cls`."""
 
     def __init__(self, *args: object, **kw: object) -> None:
         """Run the original initializer, then set up an empty listener registry.
@@ -77,6 +81,31 @@ class Dispatcher(PyroDispatcher):
 
         self.listener_waits: dict[ListenerModel, UpdateListener[Any]] = {}
         """The waits inside handlers that hold their worker, oldest first; `UpdateListener.listen` keeps it."""
+
+        self.arrivals: dict[int, float] = {}
+        """Per raw update queued, by `id()`: when `enqueue` received it, on `time.monotonic()`."""
+
+    def enqueue(self, *args: Any, **kw: Any) -> None:
+        """Queue the update as the original `enqueue` does, then note when it arrived.
+
+        The raw update is a `TLObject` with `__slots__` and no `__weakref__`,
+        so the moment is kept in `arrivals` by its `id()`. A worker takes it
+        out with the packet and sets it as `arrived_at` on the parsed update.
+        Only an update the original queued is noted, so one it drops while
+        the dispatcher does not accept updates leaves nothing behind.
+
+        Args:
+            *args: Passed directly to the original `enqueue`; the first is the raw update.
+            **kw: Passed directly to the original `enqueue`.
+        """
+        update = args[0] if args else kw["update"]
+        queue = self.updates_queue
+        queued = queue.qsize()
+        self.oldenqueue(*args, **kw)
+
+        # Noted after `put_nowait` with no `await` between, so no worker takes it first.
+        if queue.qsize() > queued:
+            self.arrivals[id(update)] = time.monotonic()
 
     async def start(self, *args: object, **kw: object) -> None:
         """Start all registered listeners, then the dispatcher.
@@ -253,6 +282,38 @@ class Dispatcher(PyroDispatcher):
 
                 break
 
+    async def parse_update(
+        self,
+        packet: tuple[raw.base.Update, dict[int, raw.base.User], dict[int, raw.base.Chat]],
+    ) -> tuple[PyroUpdate | None, type[PyroHandler | None]]:
+        """Parse a packet from `updates_queue`, and set when it arrived on the parsed update.
+
+        The arrival is taken out of `arrivals` whether the parse succeeds or
+        not, so nothing is left behind.
+
+        Args:
+            packet: The raw `(update, users, chats)` tuple from Pyrogram.
+
+        Returns:
+            The parsed update, or `None` if no parser gives one, and the
+            handler class the parser gave it.
+
+        Raises:
+            Exception: Whatever the parser raises, unchanged.
+        """
+        update, users, chats = packet
+        arrived_at = self.arrivals.pop(id(update), None)
+        parsed_update, handler_type = (
+            await parser(update, users, chats)  # ty: ignore[invalid-argument-type]  # `kurigram`'s `update_parsers` is an untyped dict of differently-typed parsers, so ty infers their union
+            if (parser := self.update_parsers.get(type(update))) is not None
+            else (None, type(None))
+        )
+
+        if isinstance(parsed_update, Update):
+            parsed_update.arrived_at = arrived_at
+
+        return parsed_update, handler_type
+
     async def handler_worker(self) -> None:
         """Parse and dispatch updates from the queue until a `None` sentinel arrives.
 
@@ -273,12 +334,7 @@ class Dispatcher(PyroDispatcher):
                     break
 
                 try:
-                    update, users, chats = packet
-                    parsed_update, handler_type = (
-                        await parser(update, users, chats)  # ty: ignore[invalid-argument-type]  # `kurigram`'s `update_parsers` is an untyped dict of differently-typed parsers, so ty infers their union
-                        if (parser := self.update_parsers.get(type(update))) is not None
-                        else (None, type(None))
-                    )
+                    parsed_update, handler_type = await self.parse_update(packet)
 
                     if parsed_update is not None and await self.handle_listen(parsed_update):
                         continue

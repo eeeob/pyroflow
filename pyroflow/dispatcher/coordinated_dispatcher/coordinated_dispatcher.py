@@ -4,7 +4,7 @@ from __future__ import annotations as _annotations
 
 import asyncio
 import logging
-from typing import Any, cast, TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 
 from pyrogram import StopPropagation
 from pytrove import asafe_call
@@ -406,12 +406,7 @@ class CoordinatedDispatcher(Dispatcher):
         parsed = None
 
         try:
-            update, users, chats = cast("Any", update_to_parse.raw_update)
-            parsed_update, handler_type = (
-                await parser(update, users, chats)
-                if (parser := self.update_parsers.get(type(update))) is not None
-                else (None, type(None))
-            )
+            parsed_update, handler_type = await self.parse_update(update_to_parse.raw_update)
             parsed = _UpdateToRun(update_to_parse.raw_update, parsed_update, handler_type)
         except Exception:
             log.exception(

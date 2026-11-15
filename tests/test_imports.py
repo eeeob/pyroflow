@@ -52,6 +52,7 @@ MODULES = [
     "pyroflow.models.page",
     "pyroflow.models.pagination_options",
     "pyroflow.types",
+    "pyroflow.types.update",
     "pyroflow.types.user",
     "pyroflow.types.message",
     "pyroflow.types.callback_query",

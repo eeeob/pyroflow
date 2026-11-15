@@ -570,6 +570,90 @@ class FakeRawUpdate:
     pass
 
 
+# --- arrivals: Dispatcher.enqueue and the arrival a worker sets -----------------
+
+
+def fixed_clock(monkeypatch: pytest.MonkeyPatch, now: float) -> None:
+    # The module's `time` only: patching `time.monotonic` itself would stop the event loop's clock.
+    monkeypatch.setattr(dispatcher_module, "time", SimpleNamespace(monotonic=lambda: now))
+
+
+def test_init_starts_with_no_arrivals() -> None:
+    assert make_real_dispatcher().arrivals == {}
+
+
+def test_enqueue_queues_the_packet_as_the_original_does(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher._accepting_updates = True
+    update = FakeRawUpdate()
+
+    dispatcher.enqueue(update, users={1: "u"}, chats={2: "c"})  # ty: ignore[invalid-argument-type]
+
+    assert dispatcher.updates_queue.get_nowait() == (update, {1: "u"}, {2: "c"})
+
+
+def test_enqueue_notes_when_a_queued_update_arrived(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher._accepting_updates = True
+    update = FakeRawUpdate()
+    fixed_clock(monkeypatch, 7.0)
+
+    dispatcher.enqueue(update, users={}, chats={})  # ty: ignore[invalid-argument-type]
+
+    assert dispatcher.arrivals == {id(update): 7.0}
+
+
+def test_enqueue_notes_nothing_for_an_update_the_original_drops() -> None:
+    dispatcher = make_real_dispatcher()
+    dispatcher._accepting_updates = False
+
+    dispatcher.enqueue(FakeRawUpdate(), users={}, chats={})  # ty: ignore[invalid-argument-type]
+
+    assert dispatcher.updates_queue.empty()
+    assert dispatcher.arrivals == {}
+
+
+async def test_parse_update_sets_the_arrival_on_the_parsed_update() -> None:
+    dispatcher = make_real_dispatcher()
+    update, message = FakeRawUpdate(), make_message()
+
+    async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
+        return message, MessageHandler
+
+    dispatcher.update_parsers = {FakeRawUpdate: parser}
+    dispatcher.arrivals[id(update)] = 7.0
+
+    assert await dispatcher.parse_update((update, {}, {})) == (message, MessageHandler)  # ty: ignore[invalid-argument-type]
+    assert message.arrived_at == 7.0
+    assert dispatcher.arrivals == {}
+
+
+async def test_parse_update_forgets_the_arrival_of_an_unknown_update() -> None:
+    dispatcher = make_real_dispatcher()
+    update = FakeRawUpdate()
+    dispatcher.update_parsers = {}
+    dispatcher.arrivals[id(update)] = 7.0
+
+    assert await dispatcher.parse_update((update, {}, {})) == (None, type(None))  # ty: ignore[invalid-argument-type]
+    assert dispatcher.arrivals == {}
+
+
+async def test_parse_update_forgets_the_arrival_when_the_parser_fails() -> None:
+    dispatcher = make_real_dispatcher()
+    update = FakeRawUpdate()
+
+    async def parser(update: object, users: object, chats: object) -> tuple[object, type]:
+        msg = "bad"
+        raise ValueError(msg)
+
+    dispatcher.update_parsers = {FakeRawUpdate: parser}
+    dispatcher.arrivals[id(update)] = 7.0
+
+    with pytest.raises(ValueError, match="bad"):
+        await dispatcher.parse_update((update, {}, {}))  # ty: ignore[invalid-argument-type]
+    assert dispatcher.arrivals == {}
+
+
 async def test_handler_worker_parses_and_dispatches() -> None:
     dispatcher = make_real_dispatcher()
     packet = (FakeRawUpdate(), {}, {})

@@ -1809,6 +1809,33 @@ def _to_parse(arrival_order: ArrivalOrder, update: object) -> _UpdateToParse:
     return _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]
 
 
+async def test_arrival_is_the_enqueue_moment_for_an_update_that_waited_in_its_lane() -> None:
+    bot = _Bot(workers=2)
+    gate = asyncio.Event()
+    arrivals: dict[int, float | None] = {}
+
+    async def handler(client: object, message: Message) -> None:
+        arrivals[message.id] = message.arrived_at
+        if message.id == 1:
+            await gate.wait()
+
+    bot.on(handler)
+
+    async with _running(bot):
+        bot.send(1, 2)
+        sent_by = asyncio.get_running_loop().time()
+        await _until(lambda: 1 in arrivals)
+        await asyncio.sleep(0.05)
+        gate.set()
+        await _until(lambda: 2 in arrivals)
+        await bot.settle()
+
+    # The second waited behind the first, yet it carries the moment it was queued.
+    assert arrivals[2] is not None
+    assert arrivals[2] <= sent_by
+    assert bot.dispatcher.arrivals == {}
+
+
 def test_arrival_order_gives_numbers_in_turn() -> None:
     arrival_order = ArrivalOrder(2)
 
