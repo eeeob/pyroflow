@@ -96,8 +96,8 @@ class _BotCommands(NamedTuple):
 class _TooFastState:
     """What `too_fast` keeps of one client."""
 
-    until: dict[Hashable, float] = field(default_factory=dict)
-    """Per key: when the interval of its last update not matched ends."""
+    until: dict[Hashable, tuple[float, float]] = field(default_factory=dict)
+    """Per key: when the interval of its last update not matched ends, counted from its arrival and from its check."""
 
     is_spam: dict[int, bool] = field(default_factory=dict)
     """Per `id()` of an update checked and still in memory: whether it came too soon."""
@@ -308,8 +308,11 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
     is forgotten when its update is deleted from memory.
 
     The state is kept per client object, in memory, and each filter keeps its
-    own: a key stops counting once its interval ends and is dropped at a later
-    sweep. It survives the client stopping and starting, and is lost only when
+    own: a key stops counting once its interval has ended both from the
+    arrival of its last update let through and from that update's check, and
+    is dropped at a later sweep. So a press checked later than the interval
+    after that check, as behind a handler slower than the interval, may be let
+    through. It survives the client stopping and starting, and is lost only when
     the client object is freed or the process ends. So make one filter for
     each update type and use it on every handler of that type, as it is on
     the handler that takes the fast updates and with `~` on the ones that do
@@ -451,11 +454,46 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
             return False
 
         state = self.states[client]
-        decision_id = id(update)
 
-        if (spam := state.is_spam.get(decision_id)) is not None:
+        # An update checked before keeps that decision, and `on_spam` ran for it then.
+        if (spam := state.is_spam.get(id(update))) is not None:
             return spam
 
+        # Nothing is awaited from the lookup above through `_decide`, so no concurrent check
+        # of this update decides in between.
+        spam = self._decide(state, update, arrived_at)
+
+        if spam and self.on_spam is not None:
+            try:
+                await call_sync_or_await(self.on_spam, update)
+            except Exception:
+                # Logged, not raised: the dispatcher would skip the handler and lose the decision.
+                log.exception("Error in too_fast on_spam %r", self.on_spam)
+
+        return spam
+
+    def _decide(self, state: _TooFastState, update: UpdateType, arrived_at: float) -> bool:
+        """Decide whether an update not checked before came too soon, and record it in `state`.
+
+        A key is kept until its interval has ended both from the arrival of
+        its last update let through and from that update's check, so a press
+        checked late, behind a backlog or a busy lane, still meets the key of
+        the press before it when that press was checked less than the
+        interval before.
+
+        Args:
+            state: What this filter keeps of the update's client.
+            update: The update to decide on.
+            arrived_at: When the update reached the dispatcher.
+
+        Returns:
+            Whether it came within the interval of the last update let through
+            with its key; `False` for one with no key, or an interval of zero
+            or less, which is not recorded.
+
+        Raises:
+            Exception: Whatever `key` or `interval` raises on the update, unchanged.
+        """
         key = self.key(update)
 
         if key is None:
@@ -468,15 +506,14 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
         if interval <= 0:
             return False
 
-        # From the lookup above to here nothing is awaited, so no concurrent check of this
-        # update decides in between.
         now = time.monotonic()
-        until = state.until.get(key)
-        spam = until is not None and arrived_at < until
+        last = state.until.get(key)
+        spam = last is not None and arrived_at < last[0]
 
         if not spam:
-            state.until[key] = arrived_at + interval
+            state.until[key] = (arrived_at + interval, now + interval)
 
+        decision_id = id(update)
         state.is_spam[decision_id] = spam
         # The id is reused only once the update is freed, after this, so no newer decision is popped.
         weakref.finalize(update, state.is_spam.pop, decision_id, None)
@@ -484,15 +521,12 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
         # Forget the keys whose interval ended, once the keys more than doubled since the
         # last sweep.
         if len(state.until) > 2 * state.kept:
-            state.until = {key: until for key, until in state.until.items() if until > now}
+            state.until = {
+                key: ends
+                for key, ends in state.until.items()
+                if ends[0] > arrived_at or ends[1] > now
+            }
             state.kept = len(state.until)
-
-        if spam and self.on_spam is not None:
-            try:
-                await call_sync_or_await(self.on_spam, update)
-            except Exception:
-                # Logged, not raised: the dispatcher would skip the handler and lose the decision.
-                log.exception("Error in too_fast on_spam %r", self.on_spam)
 
         return spam
 

@@ -1279,7 +1279,8 @@ async def test_too_fast_forgets_a_decision_when_its_update_is_deleted() -> None:
 async def test_too_fast_forgets_the_keys_whose_interval_ended_once_they_double() -> None:
     flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
     state = flt.states[bot]  # ty: ignore[invalid-argument-type]  # a stand-in client
-    state.until["old"] = time.monotonic() - 1
+    ended = time.monotonic() - 1
+    state.until["old"] = (ended, ended)
 
     await run(flt, press(0, query_id="a"), bot=bot)
 
@@ -1290,12 +1291,63 @@ async def test_too_fast_forgets_the_keys_whose_interval_ended_once_they_double()
 async def test_too_fast_keeps_the_keys_until_they_double() -> None:
     flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
     state = flt.states[bot]  # ty: ignore[invalid-argument-type]  # a stand-in client
-    state.until["old"] = time.monotonic() - 1
+    ended = time.monotonic() - 1
+    state.until["old"] = (ended, ended)
     state.kept = 1
 
     await run(flt, press(0, query_id="a"), bot=bot)
 
     assert set(state.until) == {"old", 7}
+
+
+async def test_too_fast_matches_a_second_press_checked_later_than_the_interval() -> None:
+    # Both checked 3 s after the first arrived, as behind a backlog: their arrivals still count.
+    assert await run(filters.too_fast(2), press(-3), press(-2.7)) == [False, True]
+
+
+async def test_too_fast_keeps_a_key_checked_late_while_fresher_keys_sweep() -> None:
+    flt = filters.too_fast(2, key=lambda query: query.from_user.id)
+
+    assert await run(flt, press(-3), press(0, user=8), press(0, user=9), press(-2.7)) == [
+        False,
+        False,
+        False,
+        True,
+    ]
+
+
+async def test_too_fast_keeps_a_key_whose_arrival_end_is_after_a_stale_update_checked_now() -> None:
+    flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
+    state = flt.states[bot]  # ty: ignore[invalid-argument-type]  # a stand-in client
+    ended = time.monotonic() - 4
+    state.until[7] = (ended, ended)
+
+    # Key 8's update arrived before key 7's interval ended, so its sweep keeps key 7.
+    assert await run(flt, press(-5, user=8), press(-4.5, user=7), bot=bot) == [False, True]
+
+
+async def test_too_fast_decides_by_the_arrival_end_not_the_check_end() -> None:
+    # The first press is checked 3 s after it arrived: its interval ends 1 s ago from arrival.
+    assert await run(filters.too_fast(2), press(-3, query_id="a"), press(-0.5, query_id="b")) == [
+        False,
+        False,
+    ]
+
+
+async def test_too_fast_does_not_match_an_update_with_no_arrival_for_any_client() -> None:
+    # The arrival is checked before the client is looked up, so any client object will do.
+    assert await filters.too_fast(2)(None, make_message()) is False  # ty: ignore[invalid-argument-type]  # no client at all
+
+
+async def test_too_fast_decide_records_the_decision_and_both_ends_of_the_interval() -> None:
+    flt, state, update = filters.too_fast(2), _TooFastState(), press(-3)
+
+    assert flt._decide(state, update, update.arrived_at) is False
+
+    (ends,) = state.until.values()
+    assert ends[0] == update.arrived_at + 2
+    assert ends[1] == pytest.approx(time.monotonic() + 2, abs=0.5)
+    assert state.is_spam == {id(update): False}
 
 
 # --- module surface -------------------------------------------------------------
