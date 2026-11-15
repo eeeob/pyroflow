@@ -128,7 +128,7 @@ def test_update_bound_init_rejects_a_type_replaced_after_definition() -> None:
     class Good(UpdateBound):
         __update_type__ = Message
 
-    Good.__update_type__ = int  # type: ignore[assignment]
+    Good.__update_type__ = int
 
     with pytest.raises(TypeError, match=r"Good.__update_type__ must be a subclass of Update"):
         Good()

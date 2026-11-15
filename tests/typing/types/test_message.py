@@ -24,10 +24,10 @@ if TYPE_CHECKING:
     async def _check_ask_message_pyrogram_arguments(message: Message) -> None:
         await message.ask("hi", True, disable_notification=True, listen_timeout=5)
         await message.ask("hi", parse_mode=None)
-        await message.ask("hi", True, disable_notification="yes")  # ty: ignore[no-matching-overload]
+        await message.ask("hi", True, disable_notification="yes")  # ty: ignore[no-matching-overload]  # deliberately passes a wrong type
 
     async def _check_ask_message_rejects(message: Message) -> None:
-        await message.ask(1)  # ty: ignore[invalid-argument-type]
+        await message.ask(1)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
     async def _check_ask_message_rich(
         message: Message, rich: InputRichMessage, remove: ReplyKeyboardRemove
@@ -37,24 +37,24 @@ if TYPE_CHECKING:
         # The edit takes the edit arguments, and a reply the reply ones.
         await message.ask_rich(rich, link_preview_options=None)
         await message.ask_rich(rich, True, reply_markup=remove)
-        await message.ask_rich(rich, reply_markup=remove)  # ty: ignore[invalid-argument-type]
+        await message.ask_rich(rich, reply_markup=remove)  # ty: ignore[invalid-argument-type]  # a reply-only keyboard on an edit
 
     async def _check_ask_message_rich_rejects(message: Message) -> None:
-        await message.ask_rich("hi")  # ty: ignore[invalid-argument-type]
+        await message.ask_rich("hi")  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
 
     async def _check_ask_callback_query(message: Message) -> None:
         assert_type(await message.ask_callback_query("hi"), CallbackQuery)
         assert_type(await message.ask_callback_query("hi", force_send=True), CallbackQuery)
 
     async def _check_ask_callback_query_rejects(message: Message) -> None:
-        await message.ask_callback_query(1)  # ty: ignore[invalid-argument-type]
+        await message.ask_callback_query(1)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
     async def _check_ask_callback_query_rich(message: Message, rich: InputRichMessage) -> None:
         assert_type(await message.ask_callback_query_rich(rich), CallbackQuery)
         assert_type(await message.ask_callback_query_rich(rich, force_send=True), CallbackQuery)
 
     async def _check_ask_callback_query_rich_rejects(message: Message) -> None:
-        await message.ask_callback_query_rich("hi")  # ty: ignore[invalid-argument-type]
+        await message.ask_callback_query_rich("hi")  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
 
     def _accepts(answer: Message, kw: dict[str, Any]) -> Message:
         return answer
@@ -98,17 +98,17 @@ if TYPE_CHECKING:
         )
 
     async def _check_ask_until_rejects(message: Message, remove: ReplyKeyboardRemove) -> None:
-        await message.ask_until("hi")  # ty: ignore[no-matching-overload]
-        await message.ask_until("hi", parse=_accepts, attempts="3")  # ty: ignore[invalid-argument-type]
-        # Retries reply with the edit arguments, so an edit cannot take a reply-only keyboard.
-        await message.ask_until("hi", parse=_accepts, reply_markup=remove)  # ty: ignore[invalid-argument-type]
+        await message.ask_until("hi")  # ty: ignore[no-matching-overload]  # no `parse`
+        await message.ask_until("hi", parse=_accepts, attempts="3")  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
+        # An edit takes only an inline keyboard.
+        await message.ask_until("hi", parse=_accepts, reply_markup=remove)  # ty: ignore[invalid-argument-type]  # a reply-only keyboard on an edit
 
     async def _check_ask_rich_until(message: Message, rich: InputRichMessage) -> None:
         assert_type(await message.ask_rich_until(rich, parse=_accepts_rich), Message)
         assert_type(await message.ask_rich_until(rich, True, parse=_accepts_rich), Message)
 
     async def _check_ask_rich_until_rejects(message: Message, rich: InputRichMessage) -> None:
-        await message.ask_rich_until("hi", parse=_accepts_rich)  # ty: ignore[invalid-argument-type]
+        await message.ask_rich_until("hi", parse=_accepts_rich)  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
 
     async def _check_ask_callback_query_until(message: Message) -> None:
         assert_type(
@@ -119,8 +119,8 @@ if TYPE_CHECKING:
         )
 
     async def _check_ask_callback_query_until_rejects(message: Message) -> None:
-        await message.ask_callback_query_until("hi")  # ty: ignore[no-matching-overload]
-        await message.ask_callback_query_until("hi", parse=_accepts)  # ty: ignore[invalid-argument-type]
+        await message.ask_callback_query_until("hi")  # ty: ignore[no-matching-overload]  # no `parse`
+        await message.ask_callback_query_until("hi", parse=_accepts)  # ty: ignore[invalid-argument-type]  # a `parse` for a message, not a press
 
     async def _check_ask_callback_query_rich_until(
         message: Message, rich: InputRichMessage
@@ -137,8 +137,8 @@ if TYPE_CHECKING:
     async def _check_ask_callback_query_rich_until_rejects(
         message: Message, rich: InputRichMessage
     ) -> None:
-        await message.ask_callback_query_rich_until("hi", parse=_accepts_rich_press)  # ty: ignore[invalid-argument-type]
-        await message.ask_callback_query_rich_until(rich)  # ty: ignore[no-matching-overload]
+        await message.ask_callback_query_rich_until("hi", parse=_accepts_rich_press)  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
+        await message.ask_callback_query_rich_until(rich)  # ty: ignore[no-matching-overload]  # no `parse`
 
     async def _check_flow(message: Message, rich: InputRichMessage) -> None:
         assert_type(await message.flow_edit("hi", parse_mode=None), Message | None)
@@ -147,18 +147,18 @@ if TYPE_CHECKING:
         assert_type(await message.flow_reply_rich(rich, protect_content=True), Message | None)
 
     async def _check_flow_rejects(message: Message) -> None:
-        await message.flow_edit(1)  # ty: ignore[invalid-argument-type]
-        await message.flow_edit_rich("hi")  # ty: ignore[invalid-argument-type]
-        await message.flow_reply("hi", disable_notification="yes")  # ty: ignore[invalid-argument-type]
-        await message.flow_reply_rich("hi")  # ty: ignore[invalid-argument-type]
+        await message.flow_edit(1)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
+        await message.flow_edit_rich("hi")  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
+        await message.flow_reply("hi", disable_notification="yes")  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
+        await message.flow_reply_rich("hi")  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
 
     async def _check_respond(message: Message) -> None:
         assert_type(await message.respond("hi"), PyroMessage | None)
         await message.respond("hi", parse_mode=None)
 
     async def _check_respond_rejects_what_only_one_side_takes(message: Message) -> None:
-        await message.respond("hi", disable_notification=True)  # ty: ignore[unknown-argument]
-        await message.respond("hi", rich_message=None)  # ty: ignore[unknown-argument]
+        await message.respond("hi", disable_notification=True)  # ty: ignore[unknown-argument]  # a reply-only argument
+        await message.respond("hi", rich_message=None)  # ty: ignore[unknown-argument]  # an edit-only argument
 
     async def _check_respond_rich(message: Message, rich: InputRichMessage) -> None:
         assert_type(await message.respond_rich(rich, reply_markup=None), PyroMessage | None)
@@ -169,8 +169,8 @@ if TYPE_CHECKING:
 
     async def _check_flow_respond_rejects(message: Message, remove: ReplyKeyboardRemove) -> None:
         # The edit takes only an inline keyboard.
-        await message.flow_respond("hi", reply_markup=remove)  # ty: ignore[invalid-argument-type]
-        await message.flow_respond_rich("hi")  # ty: ignore[invalid-argument-type]
+        await message.flow_respond("hi", reply_markup=remove)  # ty: ignore[invalid-argument-type]  # a reply-only keyboard on an edit
+        await message.flow_respond_rich("hi")  # ty: ignore[invalid-argument-type]  # a text where a rich message is expected
 
     def _check_related_objects_are_the_patched_classes(message: Message) -> None:
         assert_type(message.from_user, User | None)

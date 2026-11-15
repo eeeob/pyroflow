@@ -21,5 +21,5 @@ if TYPE_CHECKING:
         assert_type(CallbackQueryKey.from_sent(message), CallbackQueryKey)
         assert_type(key.user_id, int | None)
         assert_type(key.ephemeral, bool)
-        MessageKey(user_id="2")  # ty: ignore[invalid-argument-type]
-        CallbackQueryKey(message_thread_id=3)  # ty: ignore[unknown-argument]
+        MessageKey(user_id="2")  # ty: ignore[invalid-argument-type]  # `user_id` must be an int
+        CallbackQueryKey(message_thread_id=3)  # ty: ignore[unknown-argument]  # a callback query key has no topic field

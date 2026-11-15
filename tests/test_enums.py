@@ -1,4 +1,4 @@
-"""Enum behaviour, including the StrEnum fallback used on Python < 3.11."""
+"""Enum behaviour, including the `StrEnum` fallback used on Python < 3.11."""
 
 from __future__ import annotations as _annotations
 

@@ -1,9 +1,9 @@
 """Shared object factories for the pyroflow test suite.
 
-Importing ``pyroflow`` here is deliberate and must happen before any test
-runs: ``@patch_cls`` monkey-patches Pyrogram's ``Client``, ``Dispatcher``,
-``Message``, ``CallbackQuery`` and ``User`` in-place at import time, and the whole
-suite relies on that global patch being active.
+Importing `pyroflow` here is deliberate and must happen before any test
+runs: `@patch_cls` monkey-patches Pyrogram's `Client`, `Dispatcher`,
+`Message`, `CallbackQuery`, `Update` and `User` in-place at import time, and the
+whole suite relies on that global patch being active.
 """
 
 from __future__ import annotations as _annotations
@@ -11,7 +11,7 @@ from __future__ import annotations as _annotations
 from types import SimpleNamespace
 from typing import TypeVar
 
-import pyroflow  # noqa: F401 — activates the @patch_cls global monkey-patch
+import pyroflow  # noqa: F401  # activates the `@patch_cls` global monkey-patch
 
 from pyrogram.types import (
     Message,
@@ -32,7 +32,7 @@ ListenerT = TypeVar("ListenerT")
 
 def bind_listener(listener: ListenerT) -> ListenerT:
     """Bind `listener` to a client stand-in with no `workers_policy`, as registering it does."""
-    listener.client = SimpleNamespace(  # ty: ignore[unresolved-attribute]
+    listener.client = SimpleNamespace(  # ty: ignore[unresolved-attribute]  # `ListenerT` is unbounded
         dispatcher=SimpleNamespace(listener_waits={}, handler_worker_tasks=[]),
         workers_policy=None,
     )
@@ -42,10 +42,10 @@ def bind_listener(listener: ListenerT) -> ListenerT:
 def make_message(
     chat_id: int = 100, user_id: int = 7, message_id: int = 5, **overrides: object
 ) -> Message:
-    """Build a minimal, listenable :class:`Message` instance.
+    """Build a minimal, listenable `Message` instance.
 
     Defaults produce a private, incoming, non-service message that
-    ``MessageKey.from_update`` keys. Any field can be
+    `MessageKey.from_update` keys. Any field can be
     overridden via keyword to exercise edge cases.
     """
     msg = Message(
@@ -65,7 +65,7 @@ def make_callback_query(
     data: str | bytes = "cb",
     **overrides: object,
 ) -> CallbackQuery:
-    """Build a minimal :class:`CallbackQuery` whose ``message`` is listenable."""
+    """Build a minimal `CallbackQuery` whose `message` is listenable."""
     cbq = CallbackQuery(
         id="cbq-1",
         from_user=User(id=user_id, is_self=False),

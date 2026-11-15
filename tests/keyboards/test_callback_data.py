@@ -64,7 +64,7 @@ class Bits(enum.IntFlag):
 
 Pair = namedtuple("Pair", "id action")  # noqa: PYI024  # the form `from_fields` is built for
 
-WithPage = namedtuple("WithPage", "id page", defaults=[1])  # noqa: PYI024
+WithPage = namedtuple("WithPage", "id page", defaults=[1])  # noqa: PYI024  # the form `from_fields` is built for
 
 
 class Slotted(CallbackFields, slots=True, frozen=True):

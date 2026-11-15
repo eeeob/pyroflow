@@ -1,5 +1,6 @@
-"""Tests for `pyroflow.client.client`: the patched `Client` (listener accessors,
-register/unregister forwarders, the `ask_*` methods)."""
+"""Tests for `pyroflow.client.client`: the patched `Client` (`setup_pyroflow`, the listener
+accessors and `listen*` waits, the register/unregister forwarders, `context_with_message`,
+`ask_repeatedly`, and the `ask_*` methods with their `*_until` variants)."""
 
 from __future__ import annotations as _annotations
 
@@ -73,7 +74,7 @@ def test_ask_context_message_defaults_to_false() -> None:
 
 
 class _RecordingListener:
-    """Stands in for a registered UpdateListener: records its wait, returns a sentinel."""
+    """Stands in for a registered `UpdateListener`: records its wait, returns a sentinel."""
 
     def __init__(self, key_type: type = MessageKey) -> None:
         self.__key_type__ = key_type
@@ -112,8 +113,6 @@ def _ask_client(
     return c, listener, send, edit
 
 
-# One row per `ask_*` method: its name, the Pyrogram method that sends, the
-# argument that carries the content, the update type it waits for, and its key.
 ASK_METHODS = [
     pytest.param("ask", "send_message", "text", Message, MessageKey, id="message"),
     pytest.param(
@@ -141,6 +140,7 @@ ASK_METHODS = [
         id="callback_query_rich",
     ),
 ]
+"""Each `ask_*` method, its Pyrogram sender, its content argument, the update it awaits, its key."""
 ASK_ARGS = "method, sender, content_arg, update_type, key_type"
 
 

@@ -1,1 +1,1 @@
-"""Tests for ``pyroflow.update_listener``."""
+"""Tests for `pyroflow.update_listener`."""

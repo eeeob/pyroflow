@@ -48,7 +48,8 @@ def test_message_ask_edit_kw_covers_edit_text() -> None:
 
 
 def test_message_ask_edit_kw_fits_the_reply_of_a_retry() -> None:
-    # `Message.ask_until` replies on retries with the arguments the first question edited with.
+    # A `parse` that returns its `kw` replies with them again, so the edit arguments must
+    # suit a reply too.
     assert MessageAskEditKw.__optional_keys__ <= MessageAskSendKw.__optional_keys__
 
 

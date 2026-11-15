@@ -1,1 +1,1 @@
-"""Static type tests for ``pyroflow``, checked by ``ty`` (``make typecheck``)."""
+"""Static type tests for `pyroflow`, checked by `ty` (`make typecheck`)."""

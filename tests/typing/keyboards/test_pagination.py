@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.keyboards.pagination``."""
+"""Static type tests for `pyroflow.keyboards.pagination`."""
 
 from __future__ import annotations as _annotations
 
@@ -38,17 +38,17 @@ if TYPE_CHECKING:
         )
         assert_type(pages, NumberedPagination[int])
         assert_type(await pages.build(2), Page[int])
-        PageArrangement(lines="1")  # ty: ignore[invalid-argument-type]
-        NumberedPagination([1, 2], item=_button, texts=ArrowBarTexts())  # ty: ignore[invalid-argument-type]
-        NumberedPagination([1, 2], item=str)  # ty: ignore[invalid-argument-type]
+        PageArrangement(lines="1")  # ty: ignore[invalid-argument-type]  # `lines` takes an `int`
+        NumberedPagination([1, 2], item=_button, texts=ArrowBarTexts())  # ty: ignore[invalid-argument-type]  # `texts` takes `NumberedBarTexts`
+        NumberedPagination([1, 2], item=str)  # ty: ignore[invalid-argument-type]  # `item` returns a button
         NumberedPagination(_fetch, item=_button, count=ItemCount(2))
-        NumberedPagination(_fetch, item=_button, count=2)  # ty: ignore[invalid-argument-type]
+        NumberedPagination(_fetch, item=_button, count=2)  # ty: ignore[invalid-argument-type]  # `count` takes an `ItemCount`
 
     async def _check_sliding() -> None:
         pages = SlidingPagination([1, 2], item=_button, bar=SlidingBar(size=4))
         assert_type(pages, SlidingPagination[int])
         assert_type(await pages.build(2), Page[int])
-        SlidingPagination([1, 2], item=_button, bar=ArrowBarTexts())  # ty: ignore[invalid-argument-type]
+        SlidingPagination([1, 2], item=_button, bar=ArrowBarTexts())  # ty: ignore[invalid-argument-type]  # `bar` takes a `SlidingBar`
 
     async def _check_arrow() -> None:
         pages: ArrowPagination[int] = ArrowPagination(
@@ -56,4 +56,4 @@ if TYPE_CHECKING:
         )
         assert_type(await pages.build(), Page[int])
         ArrowPagination[int](_fetch_async, item=_button)
-        ArrowBarTexts(counter=1)  # ty: ignore[invalid-argument-type]
+        ArrowBarTexts(counter=1)  # ty: ignore[invalid-argument-type]  # `counter` takes a `str`

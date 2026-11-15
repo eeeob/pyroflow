@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.models.ask_again`: AskAgain and AskParser."""
+"""Tests for `pyroflow.models.ask_again`: `AskAgain` and `AskParser`."""
 
 from __future__ import annotations as _annotations
 
@@ -34,7 +34,7 @@ def test_ask_again_is_frozen_and_slotted() -> None:
 
     assert not hasattr(again, "__dict__")
     with pytest.raises(dataclasses.FrozenInstanceError):
-        again.question = "other"  # ty: ignore[invalid-assignment]
+        again.question = "other"  # ty: ignore[invalid-assignment]  # writes a frozen field on purpose
 
 
 def test_ask_parser_is_generic_on_the_update_the_question_and_the_result() -> None:

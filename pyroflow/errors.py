@@ -30,9 +30,8 @@ class PyroflowError(Exception):
         """
         self.value = value
         """The subject of the error."""
-        # Subclasses carry their message as the class docstring. Fall back to
-        # the class name when it is missing, so a malformed subclass degrades
-        # to a plain message instead of raising `AttributeError` here.
+        # Messages are class docstrings, which `python -OO` strips and a subclass may lack:
+        # fall back to the class name rather than raise `AttributeError`.
         template = self.__class__.__doc__ or (self.__class__.__name__ + " {value}")
         super().__init__(template.format(value=value))
 

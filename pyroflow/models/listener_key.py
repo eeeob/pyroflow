@@ -31,9 +31,9 @@ class ListenerKey(ABC, UpdateBound[UpdateType]):
 
     A subclass sets `__update_type__`, adds the fields of its update type and
     defines `from_update` and `from_sent`. The key holds the values as given,
-    and changes none of them. A field
-    marked `exact` in its metadata is always compared, `None` included, so
-    it splits the waits rather than narrowing them.
+    and changes none of them. A field marked `exact` in its metadata is
+    always compared, `None` included, so it splits the waits rather than
+    narrowing them.
 
     Example:
         >>> MessageKey(1).chat_id

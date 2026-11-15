@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.utils.bot_commands``."""
+"""Static type tests for `pyroflow.utils.bot_commands`."""
 
 from __future__ import annotations as _annotations
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
             return ""
 
         assert_type(sync_handler(client, message), str)
-        sync_handler(client)  # ty: ignore[missing-argument]
+        sync_handler(client)  # ty: ignore[missing-argument]  # the marked function keeps its signature
 
     def _check_rejects() -> None:
-        mark_bot_commands("start")  # ty: ignore[invalid-argument-type]
+        mark_bot_commands("start")  # ty: ignore[invalid-argument-type]  # a command name is not a `BotCommand`

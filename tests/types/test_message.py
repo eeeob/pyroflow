@@ -86,7 +86,7 @@ def test_not_editable_for_other_user() -> None:
 
 
 def test_editable_when_outgoing_without_a_sender() -> None:
-    # The client's own channel post: no `from_user`, and the channel's id is no user's.
+    # The client's own channel post: no `from_user`; only `outgoing` marks it as the client's.
     m = make_msg(sender_chat=Chat(id=-1001, type=ChatType.CHANNEL), outgoing=True)
     m.from_user = None
     assert m.editable is True
@@ -351,8 +351,6 @@ async def test_flow_respond_rich_edits_or_replies(is_self: bool, used: str, unus
 
 # --- Message.ask_* --------------------------------------------------------
 
-# One row per `ask_*` method: its name, the client method that replies, the
-# argument that carries the content, the content, and the key it waits on.
 ASK_METHODS = [
     pytest.param("ask", "send_message", "text", "hi", MessageKey, id="message"),
     pytest.param(
@@ -375,6 +373,7 @@ ASK_METHODS = [
         id="callback_query_rich",
     ),
 ]
+"""Each `ask_*` method, the client method that replies, its content argument, the content and key type."""
 ASK_ARGS = "method, sender, content_kw, content, key_type"
 
 

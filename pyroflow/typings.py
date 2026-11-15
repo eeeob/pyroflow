@@ -26,7 +26,7 @@ BotCommandEntryT: TypeAlias = (
     | tuple[BotCommandScope, MaybeList[BotCommand]]
     | tuple[str, BotCommandScope, MaybeList[BotCommand]]
 )
-"""A `mark_bot_commands()` declaration: commands, optionally preceded by a scope and language."""
+"""A `mark_bot_commands()` declaration: `commands`, `(scope, commands)` or `(language_code, scope, commands)`."""
 
 BotCommandPartsT: TypeAlias = tuple[str | None, BotCommandScope | None, MaybeList[BotCommand]]
 """A `BotCommandEntryT` split into language, scope and commands, with `None` for omitted parts."""

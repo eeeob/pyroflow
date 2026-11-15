@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.utils.patching``."""
+"""Static type tests for `pyroflow.utils.patching`."""
 
 from __future__ import annotations as _annotations
 
@@ -8,6 +8,6 @@ if TYPE_CHECKING:
     from pyroflow.utils import patch_cls
 
     def _check_patch_cls_rejects() -> None:
-        patch_cls(1)  # ty: ignore[invalid-argument-type]
-        patch_cls(preserve_old=True)(1)  # ty: ignore[invalid-argument-type]
-        patch_cls(include_dunders=["__init__"])  # ty: ignore[invalid-argument-type]
+        patch_cls(1)  # ty: ignore[invalid-argument-type]  # only a class can be patched
+        patch_cls(preserve_old=True)(1)  # ty: ignore[invalid-argument-type]  # only a class can be patched
+        patch_cls(include_dunders=["__init__"])  # ty: ignore[invalid-argument-type]  # `include_dunders` must be a tuple

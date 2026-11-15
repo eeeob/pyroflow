@@ -19,4 +19,4 @@ if TYPE_CHECKING:
         assert base.client is client
 
     def _check_rejects(client: Client) -> None:
-        CoordinatedDispatcher(client, key_functions=[1])  # ty: ignore[invalid-argument-type]
+        CoordinatedDispatcher(client, key_functions=[1])  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type

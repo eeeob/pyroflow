@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.models.listener_model`: ListenerContext, ListenerModel."""
+"""Tests for `pyroflow.models.listener_model`: `ListenerContext`, `ListenerModel`."""
 
 from __future__ import annotations as _annotations
 
@@ -131,7 +131,7 @@ async def test_listener_model_is_slotted() -> None:
     assert model.key == MessageKey(1, 2)
     assert not hasattr(model, "__dict__")
     with pytest.raises(AttributeError):
-        model.unknown_attr = 1  # ty: ignore[unresolved-attribute]
+        model.unknown_attr = 1  # ty: ignore[invalid-assignment]  # sets an undeclared attribute on purpose
 
 
 async def test_listener_model_defaults() -> None:

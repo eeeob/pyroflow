@@ -89,6 +89,9 @@ def patch_cls(
     Returns:
         The patched base, or a decorator when `patch_class` is omitted.
 
+    Raises:
+        TypeError: If `patch_class` does not have exactly one base besides `object`.
+
     Example:
         >>> class Base:
         ...     def hello(self):

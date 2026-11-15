@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.client.client``."""
+"""Static type tests for `pyroflow.client.client`."""
 
 from __future__ import annotations as _annotations
 
@@ -30,25 +30,25 @@ if TYPE_CHECKING:
         await client.ask(1, "hi", disable_notification=True, listen_timeout=5)
         await client.ask(1, "hi", ephemeral_message_parameters=None, reply_to_message_id=3)
         await client.ask(1, "hi", 5, parse_mode=None, business_connection_id="bc")
-        await client.ask(1, "hi", disable_notification="yes")  # ty: ignore[invalid-argument-type]
+        await client.ask(1, "hi", disable_notification="yes")  # ty: ignore[invalid-argument-type]  # deliberately a `str` for a `bool`
 
     async def _check_ask_message_rejects(client: Client) -> None:
-        await client.ask(1, "hi", "5")  # ty: ignore[no-matching-overload]
+        await client.ask(1, "hi", "5")  # ty: ignore[no-matching-overload]  # deliberately a `str` `edit_message_id`
 
     async def _check_ask_message_rich(client: Client, rich: InputRichMessage) -> None:
         assert_type(await client.ask_rich(1, rich), Message)
         assert_type(await client.ask_rich(1, rich, 5), Message)
 
     async def _check_ask_message_rich_rejects(client: Client, rich: InputRichMessage) -> None:
-        await client.ask_rich(1, "hi")  # ty: ignore[invalid-argument-type]
-        await client.ask_rich(1, rich, "5")  # ty: ignore[no-matching-overload]
+        await client.ask_rich(1, "hi")  # ty: ignore[invalid-argument-type]  # deliberately a `str` for an `InputRichMessage`
+        await client.ask_rich(1, rich, "5")  # ty: ignore[no-matching-overload]  # deliberately a `str` `edit_message_id`
 
     async def _check_ask_callback_query(client: Client) -> None:
         assert_type(await client.ask_callback_query(1, "hi"), CallbackQuery)
         assert_type(await client.ask_callback_query(1, "hi", 5), CallbackQuery)
 
     async def _check_ask_callback_query_rejects(client: Client) -> None:
-        await client.ask_callback_query(1, "hi", "5")  # ty: ignore[no-matching-overload]
+        await client.ask_callback_query(1, "hi", "5")  # ty: ignore[no-matching-overload]  # deliberately a `str` `edit_message_id`
 
     async def _check_ask_callback_query_rich(client: Client, rich: InputRichMessage) -> None:
         assert_type(await client.ask_callback_query_rich(1, rich), CallbackQuery)
@@ -57,8 +57,8 @@ if TYPE_CHECKING:
     async def _check_ask_callback_query_rich_rejects(
         client: Client, rich: InputRichMessage
     ) -> None:
-        await client.ask_callback_query_rich(1, "hi")  # ty: ignore[invalid-argument-type]
-        await client.ask_callback_query_rich(1, rich, "5")  # ty: ignore[no-matching-overload]
+        await client.ask_callback_query_rich(1, "hi")  # ty: ignore[invalid-argument-type]  # deliberately a `str` for an `InputRichMessage`
+        await client.ask_callback_query_rich(1, rich, "5")  # ty: ignore[no-matching-overload]  # deliberately a `str` `edit_message_id`
 
     def _accepts(answer: Message, kw: dict[str, Any]) -> Message:
         return answer
@@ -103,17 +103,17 @@ if TYPE_CHECKING:
         await client.ask_until(1, "hi", parse=_accepts, disable_notification=True)
 
     async def _check_ask_until_rejects(client: Client, remove: ReplyKeyboardRemove) -> None:
-        await client.ask_until(1, "hi")  # ty: ignore[no-matching-overload]
-        await client.ask_until(1, "hi", parse=_accepts, attempts="3")  # ty: ignore[invalid-argument-type]
-        # Retries send with the edit arguments, so an edit cannot take a send-only keyboard.
-        await client.ask_until(1, "hi", 5, parse=_accepts, reply_markup=remove)  # ty: ignore[no-matching-overload]
+        await client.ask_until(1, "hi")  # ty: ignore[no-matching-overload]  # deliberately leaves out `parse`
+        await client.ask_until(1, "hi", parse=_accepts, attempts="3")  # ty: ignore[invalid-argument-type]  # deliberately a `str` `attempts`
+        # An edit takes only an inline keyboard.
+        await client.ask_until(1, "hi", 5, parse=_accepts, reply_markup=remove)  # ty: ignore[no-matching-overload]  # deliberately a non-inline keyboard on an edit
 
     async def _check_ask_rich_until(client: Client, rich: InputRichMessage) -> None:
         assert_type(await client.ask_rich_until(1, rich, parse=_accepts_rich), Message)
         assert_type(await client.ask_rich_until(1, rich, 5, parse=_accepts_rich), Message)
 
     async def _check_ask_rich_until_rejects(client: Client, rich: InputRichMessage) -> None:
-        await client.ask_rich_until(1, "hi", parse=_accepts_rich)  # ty: ignore[invalid-argument-type]
+        await client.ask_rich_until(1, "hi", parse=_accepts_rich)  # ty: ignore[invalid-argument-type]  # deliberately a `str` for an `InputRichMessage`
 
     async def _check_ask_callback_query_until(client: Client) -> None:
         assert_type(
@@ -126,9 +126,9 @@ if TYPE_CHECKING:
     async def _check_ask_callback_query_until_rejects(
         client: Client, remove: ReplyKeyboardRemove
     ) -> None:
-        await client.ask_callback_query_until(1, "hi")  # ty: ignore[no-matching-overload]
-        await client.ask_callback_query_until(1, "hi", parse=_accepts)  # ty: ignore[invalid-argument-type]
-        await client.ask_callback_query_until(1, "hi", 5, parse=_accepts_press, reply_markup=remove)  # ty: ignore[no-matching-overload]
+        await client.ask_callback_query_until(1, "hi")  # ty: ignore[no-matching-overload]  # deliberately leaves out `parse`
+        await client.ask_callback_query_until(1, "hi", parse=_accepts)  # ty: ignore[invalid-argument-type]  # deliberately a `Message` `parse` for a press
+        await client.ask_callback_query_until(1, "hi", 5, parse=_accepts_press, reply_markup=remove)  # ty: ignore[no-matching-overload]  # deliberately a non-inline keyboard on an edit
 
     async def _check_ask_callback_query_rich_until(client: Client, rich: InputRichMessage) -> None:
         assert_type(
@@ -143,5 +143,5 @@ if TYPE_CHECKING:
     async def _check_ask_callback_query_rich_until_rejects(
         client: Client, rich: InputRichMessage
     ) -> None:
-        await client.ask_callback_query_rich_until(1, "hi", parse=_accepts_rich_press)  # ty: ignore[invalid-argument-type]
-        await client.ask_callback_query_rich_until(1, rich)  # ty: ignore[no-matching-overload]
+        await client.ask_callback_query_rich_until(1, "hi", parse=_accepts_rich_press)  # ty: ignore[invalid-argument-type]  # deliberately a `str` for an `InputRichMessage`
+        await client.ask_callback_query_rich_until(1, rich)  # ty: ignore[no-matching-overload]  # deliberately leaves out `parse`

@@ -26,7 +26,7 @@ def test_packet_is_a_tuple() -> None:
 
 def test_update_to_parse_keeps_its_number_and_raw_update() -> None:
     raw_update = (object(), {}, {})
-    update_to_parse = _UpdateToParse(3, raw_update)  # ty: ignore[invalid-argument-type]
+    update_to_parse = _UpdateToParse(3, raw_update)  # ty: ignore[invalid-argument-type]  # a stand-in raw update
 
     assert (update_to_parse.arrival_number, update_to_parse.raw_update) == (3, raw_update)
 

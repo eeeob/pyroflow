@@ -1,4 +1,4 @@
-"""Conversation extensions for Pyrogram: the `ask_*` methods, listeners, the `CoordinatedDispatcher`, text filters and inline keyboards.
+"""Conversation extensions for Pyrogram: the `ask_*` methods, listeners, the `CoordinatedDispatcher`, filters and inline keyboards.
 
 Importing this package patches Pyrogram's classes in place:
 `pyroflow.Client` is `pyrogram.Client`, so existing code keeps working.

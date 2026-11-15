@@ -174,13 +174,14 @@ async def call_maybe_async(
     """Call `func` with `args` and return its result, awaiting it when it is a coroutine function.
 
     A plain coroutine function or bound coroutine method is awaited directly.
-    Anything else goes through
-    `pytrove.maybe_awaitable`: a wrapper or partial around a coroutine
-    function is awaited, and a sync callable runs in a thread on `executor`.
-    What a sync callable returns comes back as it is: a coroutine from an
-    object with `async def __call__`, or from a sync function, is not awaited.
-    An error `func` raises propagates unchanged, and nothing is logged, so
-    no stack is captured on each call.
+    Anything else goes through `pytrove.maybe_awaitable`: a wrapper or partial
+    around a coroutine function is awaited, and a sync callable runs in a
+    thread on `executor`, in a copy of the caller's context, so context
+    variables such as the dispatcher's `_HANDLER_HOLD` reach it. What a sync
+    callable returns comes back as it is: a coroutine from an object with
+    `async def __call__`, or from a sync function, is not awaited. An error
+    `func` raises propagates unchanged, and nothing is logged, so no stack is
+    captured on each call.
 
     Args:
         func: The callable, sync or async.

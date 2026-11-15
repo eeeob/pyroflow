@@ -17,7 +17,7 @@ The mechanical rules are enforced by `ruff` and `ty` (4.1); the rest are checked
 
 `uv` and `make` are the only prerequisites. `uv` provisions the interpreter and the locked environment.
 
-Every command is a `make` recipe. The `Makefile` is the one place commands are written down, and CI and the pre-commit hooks call the same recipes.
+Every check, test and build command is a `make` recipe. The `Makefile` is the one place they are written down, and CI and the pre-commit hooks call the same recipes.
 
 ```bash
 make sync    # the locked environment, with every tooling group

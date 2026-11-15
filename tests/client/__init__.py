@@ -1,1 +1,1 @@
-"""Tests for ``pyroflow.client``."""
+"""Tests for `pyroflow.client`."""

@@ -66,13 +66,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             on the event loop, so it must be fast. Passing `None` uses
             `from_update` of `__key_type__`.
         on_error_func: `(exc, listener_model) -> object`, sync or async and
-            light, as it runs on the event loop; called when a `ListenerError` ends a wait (a timeout, a
-            cancellation, an eviction or a strict rejection), after the wait
-            is removed and before `listen` raises the error. Errors raised
-            before a wait starts, `ListenerAlreadyExists`,
-            `ListenerWorkersBusy` and the `ListenerCancelled` of a stopped
-            listener, are not reported. A failing callback is
-            logged and never hides the error.
+            light, as it runs on the event loop; called when a `ListenerError`
+            ends a wait (a timeout, a cancellation, an eviction or a strict
+            rejection), after the wait is removed and before `listen` raises
+            the error. Errors raised before a wait starts,
+            `ListenerAlreadyExists`, `ListenerWorkersBusy` and the
+            `ListenerCancelled` of a stopped listener, are not reported. A
+            failing callback is logged and never hides the error.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         resolve_scope: Which matching waits `resolve` gives an update to:
             `ListenerScope.FIRST` the first in priority order,
@@ -379,7 +379,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     def reject(self, key: ListenerKey[UpdateType]) -> bool:
         """End the listener waiting on `key` because an update failed its filter.
 
-        Its waiter gets `ListenerRejected`.
+        Its waiter gets `ListenerRejected`, a `ListenerCancelled`.
 
         Args:
             key: The key identifying the listener.
@@ -447,8 +447,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             timeout: Seconds to wait; `None` falls back to the listener's own
                 `timeout`, and waits indefinitely when that is `None` too.
                 Inside a coordinated handler it starts only once the wait
-                gets the lane's `offer_lock`, so a slow filter of another
-                wait on the same lane delays its start.
+                gets the `offer_lock` of the handler's hold, so a slow filter
+                of another wait on the same lane delays its start.
 
         Returns:
             The matching Pyrogram update.
@@ -463,8 +463,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
-                waiting; `ListenerReplaced`, its subclass, when a newer
-                listener replaces it.
+                waiting; `ListenerReplaced` when a newer listener replaces it.
+                `ListenerReplaced`, `ListenerRejected` and `ListenerEvicted`
+                are its subclasses: catch them before `ListenerCancelled`.
             ListenerRejected: If `strict` is true, or `strict_filter` applies,
                 and an update whose key matches fails the filter.
             ListenerEvicted: If `WorkersPolicy.CANCEL_OLDEST` ended this
@@ -486,7 +487,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             `strict=True` when the first rejected update should end the wait,
             or end it with `cancel`. `strict=True` ends the wait on any
             rejected update of the key, such as a photo while text is
-            awaited; catch `ListenerRejected` to ask again.
+            awaited; catch `ListenerRejected` (before any
+            `except ListenerCancelled`) to ask again.
 
             `WorkersPolicy` counts a wait only in the worker's own task, so
             not one in a sync handler, in `asyncio.gather`, or in
@@ -535,13 +537,14 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             msg = f"{type(self).__name__} is not registered on a client"
             raise RuntimeError(msg)
 
-        # Read here alone, with no `current_task` check: a wait in a sync handler or a spawned task counts.
+        # Read here alone, with no `current_task` check: a wait in a sync handler or a
+        # spawned task counts.
         hold = _HANDLER_HOLD.get()
 
         # A wait of a coordinated handler starts between two offers of its lane, never during
         # one; once the handler ended there is no offer to wait for, and the wait goes on as
-        # a plain one. Nothing below suspends
-        # before the wait is registered, so the lock is not kept.
+        # a plain one. Nothing below suspends before the wait is registered, so the lock is
+        # not kept.
         if hold is not None:
             await hold.wait_offer_lock(handler_active_required=True)
 
@@ -657,11 +660,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         `ListenerScope.FIRST` only the first one does, with `ListenerScope.ALL`
         every one does. A listener whose filter fails, raises (logged), or
         runs over `filters_timeout` (logged), is skipped and keeps waiting,
-        or, when `strict`, fails with
-        `ListenerRejected`; either way the next candidate is tried. A sync
-        filter runs on the client's executor. A wait whose filter failed an
-        update skips it if it is offered again, as a `CoordinatedDispatcher`
-        does.
+        or, when `strict`, fails with `ListenerRejected`; either way the next
+        candidate is tried. A sync filter runs on the client's executor. A
+        wait whose filter failed an update skips it if it is offered again,
+        as a `CoordinatedDispatcher` does.
 
         Args:
             update: The incoming Pyrogram update.

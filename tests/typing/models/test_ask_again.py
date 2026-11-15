@@ -31,8 +31,8 @@ if TYPE_CHECKING:
         _takes_parser(_accepts)
         _takes_parser(_asks_again)
         _takes_parser(_replaces)
-        _takes_parser(_wrong_question)  # ty: ignore[invalid-argument-type]
-        _takes_parser(_wrong_result)  # ty: ignore[invalid-argument-type]
+        _takes_parser(_wrong_question)  # ty: ignore[invalid-argument-type]  # the question type must match
+        _takes_parser(_wrong_result)  # ty: ignore[invalid-argument-type]  # the result type must match
 
     def _check_ask_again(again: AskAgain[str]) -> None:
         assert_type(again.question, str)

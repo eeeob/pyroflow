@@ -51,7 +51,6 @@ class Client(PyroClient):
     synchronously from outside an event loop.
     """
 
-    # `patch_cls` makes pyroflow's `Dispatcher` the same class as pyrogram's at runtime.
     dispatcher: Dispatcher  # ty: ignore[invalid-mutable-override]  # same class at runtime via `patch_cls`
     """The dispatcher that routes updates to listeners and handlers."""
 
@@ -139,9 +138,15 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for the update type of `key`.
-            TypeError: If `key` is not exactly the `__key_type__` of that listener.
+            TypeError: If `key` is not exactly the `__key_type__` of that listener,
+                or `timeout` is neither a number nor `None`.
             ListenerTimeout: If the timeout expires before an update arrives.
-            ListenerCancelled: If the wait is cancelled.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer
+                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: If the wait would start inside a handler with
                 no worker to spare (see `WorkersPolicy`).
             ListenerAlreadyExists: If the listener refuses a second wait on
@@ -159,10 +164,12 @@ class Client(PyroClient):
         business_connection_id: str | None = None,
         **kw: Unpack[ListenKw],
     ) -> Message:
-        """Wait for the next message matching the given fields; `None` matches any value.
+        """Wait for the next message matching the given fields.
 
         Calls `listen` of the listener registered for `Message`, with a key
-        of its `__key_type__` made of these fields.
+        of its `__key_type__` made of these fields. `None` matches any value,
+        except for `business_connection_id`, where it takes non-business
+        messages only.
 
         Args:
             chat_id: The chat to listen in; a user's private chat has the
@@ -182,8 +189,14 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `Message`.
+            TypeError: If `timeout` is neither a number nor `None`.
             ListenerTimeout: If the timeout expires before a message arrives.
-            ListenerCancelled: If the wait is cancelled.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer
+                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: If the wait would start inside a handler with
                 no worker to spare (see `WorkersPolicy`).
             ListenerAlreadyExists: If the listener refuses a second wait on
@@ -210,10 +223,12 @@ class Client(PyroClient):
         business_connection_id: str | None = None,
         **kw: Unpack[ListenKw],
     ) -> CallbackQuery:
-        """Wait for the next button press matching the given fields; `None` matches any value.
+        """Wait for the next button press matching the given fields.
 
         Calls `listen` of the listener registered for `CallbackQuery`, with
-        a key of its `__key_type__` made of these fields.
+        a key of its `__key_type__` made of these fields. `None` matches any
+        value, except for `business_connection_id`, where it takes
+        non-business presses only.
 
         Args:
             chat_id: The chat to listen in; a user's private chat has the
@@ -234,8 +249,14 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
+            TypeError: If `timeout` is neither a number nor `None`.
             ListenerTimeout: If the timeout expires before a press arrives.
-            ListenerCancelled: If the wait is cancelled.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer
+                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: If the wait would start inside a handler with
                 no worker to spare (see `WorkersPolicy`).
             ListenerAlreadyExists: If the listener refuses a second wait on
@@ -448,8 +469,9 @@ class Client(PyroClient):
                 `listen_filters` does: `True` ends the wait with
                 `ListenerRejected`, `False` skips it and keeps waiting.
                 Without `listen_strict`, a rejected update that cannot come
-                again leaves the wait open until `listen_timeout`, or forever
-                without one; see the warning in `UpdateListener.listen`.
+                again leaves the wait open until `listen_timeout`, or the
+                listener's `timeout`, or forever without either; see the
+                warning in `UpdateListener.listen`.
             listen_timeout: Seconds to wait before raising `ListenerTimeout`;
                 `None` uses the listener's `timeout`.
             **kw: Passed to `send_message` or `edit_message_text`: their
@@ -463,8 +485,15 @@ class Client(PyroClient):
             RuntimeError: If no listener is registered for `Message`.
             ListenerNotSent: If Telegram returns no message for the question,
                 which `send_message` allows.
+            TypeError: If `listen_timeout` is neither a number nor `None`; the
+                question is already sent or edited by then.
             ListenerTimeout: If the timeout expires before the answer arrives.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer
+                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `listen_strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: If the wait would start inside a handler with
                 no worker to spare (see `WorkersPolicy`). The message is
                 already sent or edited by then.
@@ -560,8 +589,9 @@ class Client(PyroClient):
         Raises:
             RuntimeError: If no listener is registered for `Message`.
             ListenerNotSent: As in `ask`.
+            TypeError: As in `ask`.
             ListenerTimeout: If the timeout expires before the answer arrives.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: As in `ask`.
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -658,8 +688,9 @@ class Client(PyroClient):
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
             ListenerNotSent: As in `ask`.
+            TypeError: As in `ask`.
             ListenerTimeout: If the timeout expires before the press arrives.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: As in `ask`.
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -751,8 +782,9 @@ class Client(PyroClient):
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
             ListenerNotSent: As in `ask`.
+            TypeError: As in `ask`.
             ListenerTimeout: If the timeout expires before the press arrives.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: As in `ask`.
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -795,7 +827,7 @@ class Client(PyroClient):
         **kw: Unpack[AskSendKw],
     ) -> ResultT: ...
 
-    # Retries send what the first question edits, so only edit arguments fit both.
+    # A `parse` that returns its `kw` sends them again, so the edit arguments must suit a send too.
     @overload
     async def ask_until(
         self,
@@ -848,9 +880,9 @@ class Client(PyroClient):
         `ListenerRejected` at once.
 
         With `edit_message_id` only the first question edits that message; after a
-        rejection each question is sent as a new message, since Telegram
-        refuses an edit that changes nothing. A retry sends only the `kw` of
-        `AskAgain`, so name the topic there.
+        rejection each question is sent as a new message, so it comes after
+        the rejected reply instead of staying above it. A retry sends only
+        the `kw` of `AskAgain`, so name the topic there.
 
         Args:
             chat_id: As in `ask`.
@@ -874,7 +906,7 @@ class Client(PyroClient):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects an answer when
                 `attempts` questions were asked; `update` holds that answer.
-            Anything else `ask` or `parse` raises, at once.
+            Exception: Whatever `ask` or `parse` raises, unchanged and at once.
         """
         return await self.ask_repeatedly(
             self.ask,
@@ -972,7 +1004,7 @@ class Client(PyroClient):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects an answer when
                 `attempts` questions were asked; `update` holds that answer.
-            Anything else `ask_rich` or `parse` raises, at once.
+            Exception: Whatever `ask_rich` or `parse` raises, unchanged and at once.
         """
         return await self.ask_repeatedly(
             self.ask_rich,
@@ -1007,7 +1039,7 @@ class Client(PyroClient):
         **kw: Unpack[AskSendKw],
     ) -> ResultT: ...
 
-    # Retries send what the first question edits, so only edit arguments fit both.
+    # A `parse` that returns its `kw` sends them again, so the edit arguments must suit a send too.
     @overload
     async def ask_callback_query_until(
         self,
@@ -1045,8 +1077,9 @@ class Client(PyroClient):
         Like `ask_until`, but each question waits for a press on its own
         buttons, so pass `reply_markup`, and put it in the `kw` of each
         `AskAgain`: a question without buttons cannot be answered, and its wait
-        stays open until `listen_timeout`, or forever without one. A rejected
-        press was taken by the wait like a rejected answer.
+        stays open until `listen_timeout`, or the listener's `timeout`, or
+        forever without either. A rejected press was taken by the wait like a
+        rejected answer.
 
         Args:
             chat_id: As in `ask`.
@@ -1070,7 +1103,8 @@ class Client(PyroClient):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects a press when
                 `attempts` questions were asked; `update` holds that press.
-            Anything else `ask_callback_query` or `parse` raises, at once.
+            Exception: Whatever `ask_callback_query` or `parse` raises, unchanged and
+                at once.
         """
         return await self.ask_repeatedly(
             self.ask_callback_query,
@@ -1169,7 +1203,8 @@ class Client(PyroClient):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects a press when
                 `attempts` questions were asked; `update` holds that press.
-            Anything else `ask_callback_query_rich` or `parse` raises, at once.
+            Exception: Whatever `ask_callback_query_rich` or `parse` raises,
+                unchanged and at once.
         """
         return await self.ask_repeatedly(
             self.ask_callback_query_rich,

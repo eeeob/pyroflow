@@ -39,7 +39,7 @@ else:
 
 
 class DuplicatePolicy(StrEnum):
-    """What to do when a listener is registered under a key that is already taken.
+    """What `UpdateListener.listen` does when the key already has a waiting listener.
 
     Example:
         >>> DuplicatePolicy.REJECT == "reject"
@@ -53,7 +53,7 @@ class DuplicatePolicy(StrEnum):
 
 
 class ListenerScope(StrEnum):
-    """How many of the waits that match an update an action applies to.
+    """Which of the waits that match an update `UpdateListener.resolve` gives it to.
 
     Example:
         >>> ListenerScope.ALL == "all"

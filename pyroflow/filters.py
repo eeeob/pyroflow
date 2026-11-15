@@ -1,16 +1,18 @@
 """Custom text-matching filters, in the same style as `pyrogram.filters`.
 
-Each factory returns a `pyrogram.filters.Filter`, and `registered_command` is
-one itself, so each composes with `&`, `|` and `~` and registers like any
-Pyrogram filter. The text of a `Message` is its `text`, falling back to its
-`caption`; the text of a `CallbackQuery` is its `data`; the text of an
-`InlineQuery` or a `ChosenInlineResult` is its `query`. Any other update raises
-`TypeError`. A `str` pattern matches a `str` text only, and a `bytes` pattern
-`bytes` data only; Pyrogram leaves `data` as `bytes` only when it is not valid UTF-8.
+Each factory returns a `pyrogram.filters.Filter`, and `registered_command` and
+`too_fast` are ones themselves, so each composes with `&`, `|` and `~` and
+registers like any Pyrogram filter. The text of a `Message` is its `text`,
+falling back to its `caption`; the text of a `CallbackQuery` is its `data`; the
+text of an `InlineQuery` or a `ChosenInlineResult` is its `query`. Any other
+update raises `TypeError`. A `str` pattern matches a `str` text only, and a
+`bytes` pattern `bytes` data only; Pyrogram leaves `data` as `bytes` only when
+it is not valid UTF-8.
 
 `too_fast` is not about text: it matches an update that came within an
-interval of the last one with its key, such as a button pressed again quickly
-by the same user, so `on_spam` answers it and the real handler skips it.
+interval of the last one let through with its key, such as a button pressed
+again quickly by the same user, so `on_spam` answers it and the real handler
+skips it.
 """
 
 from __future__ import annotations as _annotations
@@ -60,8 +62,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 """Logger for `too_fast` `on_spam` errors."""
 
-# Not `pytrove.TG_BOT_COMMAND_PATTERN`: it refuses arguments, a name not starting with a
-# letter, as Bot API allows, and captures neither the name nor the username.
+# Not `pytrove.TG_BOT_COMMAND_PATTERN`: it refuses arguments and names starting with a digit
+# or `_`, which Bot API allows, and captures neither the name nor the username.
 _COMMAND_RE: Final[re.Pattern[str]] = re.compile(r"^/([a-zA-Z0-9_]{1,32})(?:@(\w+))?(?:\s|$)")
 """Telegram command syntax: `/name` with an optional `@username`, capturing both."""
 
@@ -101,7 +103,7 @@ class _TooFastState:
     """Per `id()` of an update checked and still in memory: whether it came too soon."""
 
     kept: int = 0
-    """How many keys the last sweep kept; the next one waits for twice as many."""
+    """How many keys the last sweep kept; the next one waits for more than twice as many."""
 
 
 class registered_command(Filter):  # lowercase: used like the factories in this module
@@ -164,7 +166,7 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
         self.ephemeral = ephemeral
         """Whether a command marked `is_ephemeral` counts."""
         self.username_policy = username_policy
-        """Which `@username` after the command name passes; `None` takes any."""
+        """Which `@username` after the command name passes; `None` takes none or any."""
         self.scopes = tuple(scopes)
         """The scopes whose commands are fetched."""
         self.language_codes = tuple(language_codes)
@@ -294,9 +296,9 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
     interval; one that came sooner is matched and does not extend it.
     The arrival is `arrived_at`, which the dispatcher sets when the update
     reaches it, so presses that waited behind a running handler, in the
-    updates queue or in a `CoordinatedDispatcher` lane, still count as the
-    moment they were pressed. An update that did not come through a
-    dispatcher has no `arrived_at` and is never matched.
+    updates queue or in a `CoordinatedDispatcher` lane, still count from the
+    moment the dispatcher received them. An update that did not come through
+    a dispatcher has no `arrived_at` and is never matched.
 
     By default the key is `extract_key`: the chat, the user and the message
     of a button press, or its inline or ephemeral message, so each user is
@@ -305,17 +307,20 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
     the same decision, and `on_spam` runs once at most for it; each decision
     is forgotten when its update is deleted from memory.
 
-    The state is kept per client, in memory, until the interval of each key
-    ends, and is lost on restart, and each filter keeps its own. So make one
-    filter for each update type and use it on every handler of that type,
-    as it is on the handler that takes the fast updates and with `~` on the
-    ones that do the work, not a new one per handler: two filters each let
-    the same update through on their own, so both handlers run, and
-    `on_spam` may run twice for one update.
+    The state is kept per client object, in memory, and each filter keeps its
+    own: a key stops counting once its interval ends and is dropped at a later
+    sweep. It survives the client stopping and starting, and is lost only when
+    the client object is freed or the process ends. So make one filter for
+    each update type and use it on every handler of that type, as it is on
+    the handler that takes the fast updates and with `~` on the ones that do
+    the work, not a new one per handler: two filters each let the same
+    update through on their own, so both handlers run, and `on_spam` may run
+    twice for one update.
 
-    The filter is generic on the update it takes, so `interval` and `key`
-    are typed as taking that update: `too_fast[CallbackQuery](2, key=...)`,
-    or let the type come from the functions passed.
+    The filter is generic on the update it takes, so `interval`, `key` and
+    `on_spam` are typed as taking that update:
+    `too_fast[CallbackQuery](2, key=...)`, or let the type come from the
+    functions passed.
 
     Warning:
         Put it last in `&`: an update it lets through starts the interval even
@@ -435,6 +440,10 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
 
         Returns:
             Whether it came within the interval of the last update let through with its key.
+
+        Raises:
+            Exception: Whatever `key` or `interval` raises on the update, unchanged; what
+                `on_spam` raises is logged instead.
         """
         arrived_at: float | None = getattr(update, "arrived_at", None)
 
@@ -459,7 +468,8 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
         if interval <= 0:
             return False
 
-        # From the lookup above to here nothing is awaited, so no other check decides between.
+        # From the lookup above to here nothing is awaited, so no concurrent check of this
+        # update decides in between.
         now = time.monotonic()
         until = state.until.get(key)
         spam = until is not None and arrived_at < until
@@ -471,7 +481,8 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
         # The id is reused only once the update is freed, after this, so no newer decision is popped.
         weakref.finalize(update, state.is_spam.pop, decision_id, None)
 
-        # Forget the keys whose interval ended, once they doubled since the last time.
+        # Forget the keys whose interval ended, once the keys more than doubled since the
+        # last sweep.
         if len(state.until) > 2 * state.kept:
             state.until = {key: until for key, until in state.until.items() if until > now}
             state.kept = len(state.until)
@@ -668,6 +679,8 @@ def split_text(
             `separator` is empty.
         TypeError: If a rule is neither a container, a string, an `Enum`
             class, a compiled pattern, nor a callable.
+        Exception: Whatever a callable rule raises when the filter checks an
+            update, unchanged.
 
     Example:
         >>> import asyncio

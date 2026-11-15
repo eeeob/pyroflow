@@ -1,7 +1,8 @@
-"""pyroflow.filters: endswith / startswith / equal / split_text / registered_command.
+"""`pyroflow.filters`: `endswith`, `startswith`, `equal`, `split_text`, `registered_command`
+and `too_fast`.
 
-Each filter is exercised through Filter.__call__(client, update) — the exact
-path pyrogram.handlers.Handler.check() uses — so these pin the actual
+Each filter is exercised through `Filter.__call__(client, update)` — the exact
+path `pyrogram.handlers.Handler.check()` uses — so these pin the actual
 contract other code relies on. A few private helpers have tests of their own.
 """
 
@@ -96,7 +97,7 @@ async def test_callback_query_matches_on_data() -> None:
 
 
 def test_filters_are_recognized_as_coroutine_functions() -> None:
-    """Handler.check() inspects `filter.__call__` to decide whether to await
+    """`Handler.check()` inspects `filter.__call__` to decide whether to await
     inline or dispatch to a thread; these are cheap string ops and must take
     the inline path."""
     flt = filters.equal("x")
@@ -287,12 +288,12 @@ def test_normalize_rule_turns_each_kind_into_its_matcher_form() -> None:
     assert filters._normalize_rule(pattern) is pattern
     assert filters._normalize_rule(Command) == frozenset({"ban"})
     assert filters._normalize_rule("ban") == frozenset({"ban"})
-    assert filters._normalize_rule(["a", ("b", ["", 1])]) == frozenset({"a", "b"})  # type: ignore[arg-type]
+    assert filters._normalize_rule(["a", ("b", ["", 1])]) == frozenset({"a", "b"})  # ty: ignore[invalid-argument-type]  # deliberately mixes in a non-`str` item
     assert filters._normalize_rule(str.isdigit) is str.isdigit
     with pytest.raises(TypeError, match="Unsupported split_text rule"):
-        filters._normalize_rule(1.5)  # type: ignore[arg-type]
+        filters._normalize_rule(1.5)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
     with pytest.raises(ValueError, match="must not be empty"):
-        filters._normalize_rule(["", None])  # type: ignore[arg-type]
+        filters._normalize_rule(["", None])  # ty: ignore[invalid-argument-type]  # deliberately mixes in a non-`str` item
 
 
 # --- split_text: rule normalization ------------------------------------------
@@ -343,7 +344,7 @@ def test_split_text_rejects_an_enum_without_string_values() -> None:
 @pytest.mark.parametrize("rule", ["", ["", None, 1], ()])
 def test_split_text_rejects_rules_that_resolve_to_no_strings(rule: object) -> None:
     with pytest.raises(ValueError, match="must not be empty"):
-        filters.split_text(rule)  # type: ignore[arg-type]
+        filters.split_text(rule)  # ty: ignore[invalid-argument-type]  # some cases deliberately hold non-`str` items
 
 
 def test_split_text_validation_messages() -> None:
@@ -354,12 +355,12 @@ def test_split_text_validation_messages() -> None:
     with pytest.raises(ValueError, match="separator must not be empty"):
         filters.split_text("a", "b", separator="")
     with pytest.raises(TypeError, match="Unsupported split_text rule"):
-        filters.split_text(1.5)  # type: ignore[arg-type]
+        filters.split_text(1.5)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
 
 def test_split_text_validates_each_rule_not_only_the_first() -> None:
     with pytest.raises(TypeError):
-        filters.split_text("a", object(), separator=" ")  # type: ignore[arg-type]
+        filters.split_text("a", object(), separator=" ")  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
 
 # --- split_text: matching -----------------------------------------------------
@@ -994,9 +995,6 @@ async def test_a_wider_wait_with_filters_takes_a_command_a_strict_wait_rejected(
     assert await wider is msg
 
 
-# --- module surface -------------------------------------------------------------
-
-
 # --- too_fast ---------------------------------------------------------------------
 
 
@@ -1020,7 +1018,7 @@ def message_after(after: float, *, user: int = 7) -> Message:
 
 async def run(flt: filters.too_fast, *updates: Any, bot: object | None = None) -> list[bool]:
     bot = bot or TooFastBot()
-    return [await flt(bot, update) for update in updates]  # ty: ignore[invalid-argument-type]
+    return [await flt(bot, update) for update in updates]  # ty: ignore[invalid-argument-type]  # a stand-in client, not a `Client`
 
 
 async def test_too_fast_matches_an_update_within_the_interval() -> None:
@@ -1076,7 +1074,7 @@ async def test_too_fast_keys_a_press_on_an_ephemeral_message_by_its_ephemeral_id
 
 def test_too_fast_rejects_a_key_that_is_not_callable() -> None:
     with pytest.raises(TypeError, match="too_fast key must be callable, not int"):
-        filters.too_fast(2, 1)  # ty: ignore[invalid-argument-type]
+        filters.too_fast(2, 1)  # ty: ignore[invalid-argument-type]  # deliberately passes a key that is not callable
 
 
 async def test_too_fast_uses_the_key_function() -> None:
@@ -1259,8 +1257,8 @@ async def test_too_fast_keeps_its_state_per_client() -> None:
 async def test_too_fast_decides_two_concurrent_checks_of_one_key_once() -> None:
     flt, bot = filters.too_fast(2), TooFastBot()
     results = await asyncio.gather(
-        flt(bot, press(0, query_id="a")),  # ty: ignore[invalid-argument-type]
-        flt(bot, press(0.1, query_id="b")),  # ty: ignore[invalid-argument-type]
+        flt(bot, press(0, query_id="a")),  # ty: ignore[invalid-argument-type]  # a stand-in client
+        flt(bot, press(0.1, query_id="b")),  # ty: ignore[invalid-argument-type]  # a stand-in client
     )
 
     assert results == [False, True]
@@ -1280,7 +1278,7 @@ async def test_too_fast_forgets_a_decision_when_its_update_is_deleted() -> None:
 
 async def test_too_fast_forgets_the_keys_whose_interval_ended_once_they_double() -> None:
     flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
-    state = flt.states[bot]  # ty: ignore[invalid-argument-type]
+    state = flt.states[bot]  # ty: ignore[invalid-argument-type]  # a stand-in client
     state.until["old"] = time.monotonic() - 1
 
     await run(flt, press(0, query_id="a"), bot=bot)
@@ -1291,13 +1289,16 @@ async def test_too_fast_forgets_the_keys_whose_interval_ended_once_they_double()
 
 async def test_too_fast_keeps_the_keys_until_they_double() -> None:
     flt, bot = filters.too_fast(2, key=lambda query: query.from_user.id), TooFastBot()
-    state = flt.states[bot]  # ty: ignore[invalid-argument-type]
+    state = flt.states[bot]  # ty: ignore[invalid-argument-type]  # a stand-in client
     state.until["old"] = time.monotonic() - 1
     state.kept = 1
 
     await run(flt, press(0, query_id="a"), bot=bot)
 
     assert set(state.until) == {"old", 7}
+
+
+# --- module surface -------------------------------------------------------------
 
 
 def test_all_lists_the_public_factories() -> None:

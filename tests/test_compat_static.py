@@ -1,7 +1,7 @@
 """Static compatibility analysis against the declared minimum Python (3.10).
 
 These tests parse every source file with the 3.10 grammar
-(``ast.parse(..., feature_version=(3, 10))``) and assert that no typing
+(`ast.parse(..., feature_version=(3, 10))`) and assert that no typing
 feature newer than the declared floor leaks into runtime code unguarded.
 
 They run on any interpreter (they never execute the scanned code), so
@@ -58,8 +58,8 @@ def test_310_grammar_rejects_newer_syntax(source: str) -> None:
 
 
 def test_strenum_import_is_version_guarded() -> None:
-    """``StrEnum`` is 3.11+ — still newer than the 3.10 floor. It must never
-    be imported at module top level; a ``sys.version_info`` fallback has to
+    """`StrEnum` is 3.11+ — still newer than the 3.10 floor. It must never
+    be imported at module top level; a `sys.version_info` fallback has to
     guard it."""
     tree = _parse(PKG_ROOT / "enums.py")
     top_level_imports = [
@@ -84,7 +84,7 @@ def _load_pyproject() -> dict[str, Any]:
 
 
 def test_declared_dependencies_have_floors() -> None:
-    """Every runtime dependency declares a lower bound, as pyproject.toml promises."""
+    """Every runtime dependency declares a lower bound, as `pyproject.toml` promises."""
     deps = _load_pyproject()["project"]["dependencies"]
     reqs = [Requirement(d) for d in deps]
     assert {r.name.lower() for r in reqs} == {"kurigram", "pytrove"}

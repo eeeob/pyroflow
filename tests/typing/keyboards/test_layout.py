@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.keyboards.layout``."""
+"""Static type tests for `pyroflow.keyboards.layout`."""
 
 from __future__ import annotations as _annotations
 
@@ -13,4 +13,4 @@ if TYPE_CHECKING:
 
     def _check_arrange(button: InlineKeyboardButton) -> None:
         assert_type(arrange([button], columns=2), list[list[InlineKeyboardButton]])
-        arrange([button], columns="2")  # ty: ignore[invalid-argument-type]
+        arrange([button], columns="2")  # ty: ignore[invalid-argument-type]  # `columns` takes an `int`

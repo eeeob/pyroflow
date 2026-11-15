@@ -1,4 +1,4 @@
-"""Tests for ``pyroflow.utils.bot_commands``."""
+"""Tests for `pyroflow.utils.bot_commands`."""
 
 from __future__ import annotations as _annotations
 
@@ -35,7 +35,7 @@ def test_mark_bot_commands_stores_entries_on_message_handlers() -> None:
     async def func(client: Any, message: Any) -> None:  # pragma: no cover
         pass
 
-    func.handlers = [(message_handler, 0)]  # type: ignore[attr-defined]
+    func.handlers = [(message_handler, 0)]  # ty: ignore[unresolved-attribute]  # set as Pyrogram's decorators do
 
     assert mark_bot_commands(cmd, scoped)(func) is func
     assert getattr(message_handler, _BOT_COMMANDS_ATTR) == (cmd, scoped)
@@ -48,7 +48,7 @@ def test_stacked_mark_bot_commands_keep_every_entry() -> None:
     async def func(client: Any, message: Any) -> None:  # pragma: no cover
         pass
 
-    func.handlers = [(message_handler, 0)]  # type: ignore[attr-defined]
+    func.handlers = [(message_handler, 0)]  # ty: ignore[unresolved-attribute]  # set as Pyrogram's decorators do
 
     mark_bot_commands(outer)(mark_bot_commands(inner)(func))
 
@@ -61,7 +61,7 @@ def test_mark_bot_commands_marks_business_message_handlers() -> None:
     async def func(client: Any, message: Any) -> None:  # pragma: no cover
         pass
 
-    func.handlers = [(handler, 1)]  # type: ignore[attr-defined]
+    func.handlers = [(handler, 1)]  # ty: ignore[unresolved-attribute]  # set as Pyrogram's decorators do
     cmd = BotCommand("start", "Start")
 
     mark_bot_commands(cmd)(func)
@@ -76,7 +76,7 @@ def test_mark_bot_commands_leaves_other_handlers_untouched() -> None:
     async def func(client: Any, update: Any) -> None:  # pragma: no cover
         pass
 
-    func.handlers = [(callback_handler, 0), (message_handler, 0)]  # type: ignore[attr-defined]
+    func.handlers = [(callback_handler, 0), (message_handler, 0)]  # ty: ignore[unresolved-attribute]  # set as Pyrogram's decorators do
 
     mark_bot_commands(BotCommand("start", "Start"))(func)
 
@@ -100,7 +100,7 @@ def test_mark_bot_commands_above_unbound_on_message() -> None:
     async def on_start(client: Any, message: Any) -> None:  # pragma: no cover
         pass
 
-    [(handler, _)] = on_start.handlers  # type: ignore[attr-defined]
+    [(handler, _)] = on_start.handlers  # ty: ignore[unresolved-attribute]  # Pyrogram's decorator sets it at runtime
     assert getattr(handler, _BOT_COMMANDS_ATTR) == (cmd,)
 
 

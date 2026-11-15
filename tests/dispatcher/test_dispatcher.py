@@ -1,4 +1,4 @@
-"""Dispatcher: listener registry, lifecycle, and the route of an update.
+"""`Dispatcher`: listener registry, lifecycle, and the route of an update.
 
 Each update goes to the listener of its type first; one it takes stops
 there, any other runs through the handler groups as in Pyrogram.
@@ -148,7 +148,7 @@ async def test_start_runs_the_listeners_then_the_original() -> None:
         return "result"
 
     dispatcher.oldstart = oldstart
-    dispatcher.listeners[Message] = FakeListener(order)  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order)  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     assert await dispatcher.start(1, flag=True) == "result"
 
@@ -159,7 +159,7 @@ async def test_start_runs_the_listeners_then_the_original() -> None:
 async def test_start_survives_a_failing_listener() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(order, error=RuntimeError("x"))  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order, error=RuntimeError("x"))  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     await dispatcher.start()
 
@@ -193,7 +193,7 @@ async def test_stop_stops_the_listeners_then_the_original() -> None:
         return "result"
 
     dispatcher.oldstop = oldstop
-    dispatcher.listeners[Message] = FakeListener(order, error=RuntimeError("x"))  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order, error=RuntimeError("x"))  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     assert await dispatcher.stop(clear_handlers=False) == "result"
 
@@ -228,7 +228,7 @@ async def test_register_listener_stores_it_by_update_type() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener()
 
-    dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]
+    dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]  # a stand-in listener
 
     assert dispatcher.listeners == {Message: listener}
 
@@ -270,7 +270,7 @@ def test_register_listener_takes_a_listener_bound_to_the_same_client() -> None:
 async def test_unregister_listener_unbinds_it_even_when_stop_fails() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener(error=RuntimeError("stop broke"))
-    dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]
+    dispatcher.register_listener(listener)  # ty: ignore[invalid-argument-type]  # a stand-in listener
 
     with pytest.raises(RuntimeError, match="stop broke"):
         await dispatcher.unregister_listener(Message)
@@ -282,10 +282,10 @@ async def test_unregister_listener_unbinds_it_even_when_stop_fails() -> None:
 async def test_register_listener_rejects_a_second_for_the_same_type() -> None:
     dispatcher = make_real_dispatcher()
     first = FakeListener()
-    dispatcher.register_listener(first)  # ty: ignore[invalid-argument-type]
+    dispatcher.register_listener(first)  # ty: ignore[invalid-argument-type]  # a stand-in listener
 
     with pytest.raises(ValueError, match="UpdateListener for .* is already registered"):
-        dispatcher.register_listener(FakeListener())  # ty: ignore[invalid-argument-type]
+        dispatcher.register_listener(FakeListener())  # ty: ignore[invalid-argument-type]  # a stand-in listener
 
     assert dispatcher.listeners == {Message: first}
 
@@ -295,7 +295,7 @@ async def test_register_listener_rejects_a_running_dispatcher() -> None:
     dispatcher.is_started = True
 
     with pytest.raises(RuntimeError, match="Cannot register listener while dispatcher"):
-        dispatcher.register_listener(FakeListener())  # ty: ignore[invalid-argument-type]
+        dispatcher.register_listener(FakeListener())  # ty: ignore[invalid-argument-type]  # a stand-in listener
 
     assert dispatcher.listeners == {}
 
@@ -303,7 +303,7 @@ async def test_register_listener_rejects_a_running_dispatcher() -> None:
 async def test_unregister_listener_removes_and_stops_it() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(order)  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(order)  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     await dispatcher.unregister_listener(Message)
 
@@ -315,7 +315,7 @@ async def test_unregister_listener_of_an_unknown_type_is_a_noop() -> None:
     order: list[str] = []
     dispatcher = make_real_dispatcher()
     listener = FakeListener(order)
-    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     await dispatcher.unregister_listener(int)
 
@@ -329,7 +329,7 @@ async def test_unregister_listener_of_an_unknown_type_is_a_noop() -> None:
 async def test_handle_listen_is_true_for_an_update_the_listener_took() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener()
-    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener
     msg = make_message()
 
     assert await dispatcher.handle_listen(msg) is True
@@ -341,7 +341,7 @@ async def test_handle_listen_unmatched_update_propagates_on(
 ) -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener(resolves=False)
-    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener
     msg = make_message()
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher.dispatcher"):
@@ -360,7 +360,7 @@ async def test_handle_listen_lets_an_update_through_an_idle_listener() -> None:
 
 async def test_handle_listen_logs_a_listener_error(caplog: pytest.LogCaptureFixture) -> None:
     dispatcher = make_real_dispatcher()
-    dispatcher.listeners[Message] = FakeListener(error=RuntimeError("boom"))  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = FakeListener(error=RuntimeError("boom"))  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     with caplog.at_level(logging.ERROR, logger="pyroflow.dispatcher.dispatcher"):
         assert await dispatcher.handle_listen(make_message()) is False
@@ -371,7 +371,7 @@ async def test_handle_listen_logs_a_listener_error(caplog: pytest.LogCaptureFixt
 async def test_handle_listen_dispatches_on_the_exact_type() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener()
-    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener
 
     assert await dispatcher.handle_listen(make_callback_query()) is False
     assert listener.resolved == []
@@ -484,7 +484,7 @@ async def test_handle_update_leaves_the_listener_alone() -> None:
     dispatcher = make_real_dispatcher()
     calls: list[tuple[object, ...]] = []
     listener = FakeListener()
-    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener
     dispatcher.groups[0] = [MessageHandler(recording(calls, "a"))]
     msg = make_message()
 
@@ -587,7 +587,7 @@ def test_enqueue_queues_the_packet_as_the_original_does(monkeypatch: pytest.Monk
     dispatcher._accepting_updates = True
     update = FakeRawUpdate()
 
-    dispatcher.enqueue(update, users={1: "u"}, chats={2: "c"})  # ty: ignore[invalid-argument-type]
+    dispatcher.enqueue(update, users={1: "u"}, chats={2: "c"})
 
     assert dispatcher.updates_queue.get_nowait() == (update, {1: "u"}, {2: "c"})
 
@@ -598,7 +598,7 @@ def test_enqueue_notes_when_a_queued_update_arrived(monkeypatch: pytest.MonkeyPa
     update = FakeRawUpdate()
     fixed_clock(monkeypatch, 7.0)
 
-    dispatcher.enqueue(update, users={}, chats={})  # ty: ignore[invalid-argument-type]
+    dispatcher.enqueue(update, users={}, chats={})
 
     assert dispatcher.arrivals == {id(update): 7.0}
 
@@ -607,7 +607,7 @@ def test_enqueue_notes_nothing_for_an_update_the_original_drops() -> None:
     dispatcher = make_real_dispatcher()
     dispatcher._accepting_updates = False
 
-    dispatcher.enqueue(FakeRawUpdate(), users={}, chats={})  # ty: ignore[invalid-argument-type]
+    dispatcher.enqueue(FakeRawUpdate(), users={}, chats={})
 
     assert dispatcher.updates_queue.empty()
     assert dispatcher.arrivals == {}
@@ -623,7 +623,7 @@ async def test_parse_update_sets_the_arrival_on_the_parsed_update() -> None:
     dispatcher.update_parsers = {FakeRawUpdate: parser}
     dispatcher.arrivals[id(update)] = 7.0
 
-    assert await dispatcher.parse_update((update, {}, {})) == (message, MessageHandler)  # ty: ignore[invalid-argument-type]
+    assert await dispatcher.parse_update((update, {}, {})) == (message, MessageHandler)  # ty: ignore[invalid-argument-type]  # a stand-in raw update
     assert message.arrived_at == 7.0
     assert dispatcher.arrivals == {}
 
@@ -634,7 +634,7 @@ async def test_parse_update_forgets_the_arrival_of_an_unknown_update() -> None:
     dispatcher.update_parsers = {}
     dispatcher.arrivals[id(update)] = 7.0
 
-    assert await dispatcher.parse_update((update, {}, {})) == (None, type(None))  # ty: ignore[invalid-argument-type]
+    assert await dispatcher.parse_update((update, {}, {})) == (None, type(None))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
     assert dispatcher.arrivals == {}
 
 
@@ -650,7 +650,7 @@ async def test_parse_update_forgets_the_arrival_when_the_parser_fails() -> None:
     dispatcher.arrivals[id(update)] = 7.0
 
     with pytest.raises(ValueError, match="bad"):
-        await dispatcher.parse_update((update, {}, {}))  # ty: ignore[invalid-argument-type]
+        await dispatcher.parse_update((update, {}, {}))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
     assert dispatcher.arrivals == {}
 
 
@@ -678,7 +678,7 @@ async def test_handler_worker_parses_and_dispatches() -> None:
 async def test_handler_worker_resolves_a_listened_update_before_the_handlers() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener()
-    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[Message] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener
     msg = make_message()
     handled: list[object] = []
 
@@ -702,7 +702,7 @@ async def test_handler_worker_resolves_a_listened_update_before_the_handlers() -
 async def test_handler_worker_offers_no_unparsed_update_to_the_listener() -> None:
     dispatcher = make_real_dispatcher()
     listener = FakeListener()
-    dispatcher.listeners[type(None)] = listener  # ty: ignore[invalid-assignment]
+    dispatcher.listeners[type(None)] = listener  # ty: ignore[invalid-assignment]  # a stand-in listener, under `NoneType`
     dispatcher.update_parsers = {}
     dispatcher.updates_queue.put_nowait((FakeRawUpdate(), {}, {}))
     dispatcher.updates_queue.put_nowait(None)
@@ -872,7 +872,7 @@ async def test_no_policy_lets_waits_take_every_worker() -> None:
         await asyncio.sleep(0.05)
 
         assert "ping" not in results  # the bot is frozen: no worker reads the queue
-        assert client.dispatcher.listener_waits == {}  # no policy tracks nothing
+        assert client.dispatcher.listener_waits == {}  # with no policy, no wait is tracked
     finally:
         await asyncio.wait_for(client.dispatcher.stop(), 2)
 
@@ -1045,7 +1045,7 @@ async def test_every_worker_counts_itself_before_any_takes_an_update() -> None:
     await dispatcher.start()
     try:
         # Queued before any worker runs; `start` drops what comes before it.
-        dispatcher.enqueue(FakeRawUpdate(), users={}, chats={})  # ty: ignore[invalid-argument-type]
+        dispatcher.enqueue(FakeRawUpdate(), users={}, chats={})
         await _until(lambda: seen != [])
     finally:
         await dispatcher.stop()
@@ -1637,13 +1637,13 @@ async def test_a_plain_worker_clears_an_inherited_handler_hold() -> None:
 
     client.add_handler(RawUpdateHandler(record))
     await asyncio.sleep(0)
-    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]
+    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]  # a stand-in hold
     try:
         await client.dispatcher.start()
     finally:
         _HANDLER_HOLD.reset(token)
 
-    client.dispatcher.updates_queue.put_nowait((object(), {}, {}))  # ty: ignore[invalid-argument-type]
+    client.dispatcher.updates_queue.put_nowait((object(), {}, {}))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
     await asyncio.sleep(0.01)
     await asyncio.wait_for(client.dispatcher.stop(), 5)
 

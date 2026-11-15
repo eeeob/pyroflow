@@ -1,4 +1,4 @@
-"""Runtime checks for the type aliases in pyroflow.typings."""
+"""Runtime checks for the type aliases in `pyroflow.typings`."""
 
 from __future__ import annotations as _annotations
 

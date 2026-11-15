@@ -28,7 +28,7 @@ def user_key(update: Any) -> int | None:
 
 def make_entry(message_id: int = 1, chat_id: int = 100, user_id: int = 7) -> _UpdateToRun:
     message = make_message(chat_id, user_id, message_id)
-    return _UpdateToRun(("raw", {}, {}), message, MessageHandler)  # ty: ignore[invalid-argument-type]
+    return _UpdateToRun(("raw", {}, {}), message, MessageHandler)  # ty: ignore[invalid-argument-type]  # a stand-in raw update
 
 
 def drain_offers(dispatcher: CoordinatedDispatcher) -> list[_HandlerHold]:
@@ -43,4 +43,4 @@ def take(dispatcher: CoordinatedDispatcher) -> object:
 
 
 def make_wait() -> ListenerModel:
-    return ListenerModel(MessageKey(1), None)  # ty: ignore[arg-type]
+    return ListenerModel(MessageKey(1), None)  # ty: ignore[invalid-argument-type]  # never resolved, so it needs no future

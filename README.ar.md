@@ -4,7 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/pyroflow)](https://pypi.org/project/pyroflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**محادثات لـ [Kurigram](https://github.com/KurimuzonAkuma/pyrogram) (Pyrogram): انتظر الرد بـ `await`، وشغّل تحديثات المستخدم الواحد واحداً تلو الآخر.**
+**محادثات لـ [Kurigram](https://github.com/KurimuzonAkuma/pyrogram) (Pyrogram): انتظر الرد بـ `await`، وشغّل تحديثات المفتاح الواحد، كالمحادثة الواحدة، واحداً تلو الآخر.**
 
 > هذه ترجمة لـ [README.md](README.md). عند أي اختلاف، النص الإنجليزي هو المرجع.
 
@@ -89,9 +89,9 @@ async def on_order(client, message):
 
 > ⚠️ **ثبّته أولاً**، مباشرة بعد `Client(...)`: ما سُجّل قبله لا يعمل أبداً، وبلا أي خطأ.
 >
-> ⚠️ **مرّر `listen_timeout`.** الانتظار بلا مهلة يجمّد مفتاحه.
+> ⚠️ **مرّر `listen_timeout`.** الانتظار الذي لا يأتيه رد، بلا مهلة، يجمّد مفتاحه.
 
-السلوك الكامل في docstring الـ `CoordinatedDispatcher`. الـ listeners والتنسيق يعيشان في عملية الـ client نفسها: لا شيء مشترك بين الـ sessions.
+السلوك الكامل في docstring الـ `CoordinatedDispatcher`. الـ listeners والتنسيق يعيشان في عملية الـ client نفسها: الـ dispatcher في كل client يحفظ الـ lanes الخاصة به، ولا شيء مشترك بين الـ clients أو الـ sessions.
 
 ---
 
@@ -154,12 +154,13 @@ from pyroflow import MessageListener, filters
 client.register_listener(MessageListener(strict_filter=~filters.registered_command()))
 ```
 
-**الضغط المتكرر.** `filters.too_fast` يطابق الـ update الذي وصل خلال مدة من آخر update بمفتاحه، كزر مضغوط مرة أخرى بسرعة، فيجيب عنه `on_spam`، و`~` يمنع الـ handler من العمل مرة أخرى. أنشئ فلتراً واحداً لكل نوع update واستعمله على كل handlers ذلك النوع، لا فلتراً لكل handler.
+**الضغط المتكرر.** `filters.too_fast` يطابق الـ update الذي وصل خلال مدة من آخر update مُرِّر بمفتاحه، كزر مضغوط مرة أخرى بسرعة، فيجيب عنه `on_spam`، و`~` يمنع الـ handler من العمل مرة أخرى. أنشئ فلتراً واحداً لكل نوع update واستعمله على كل handlers ذلك النوع، لا فلتراً لكل handler.
 
 ```python
 from pyroflow import filters
 
-# A press within 2 seconds of the last one on its message is answered and skipped.
+# A press within 2 seconds of the same user's last press let through on that message
+# is answered and skipped.
 spam = filters.too_fast(2, on_spam=lambda query: query.answer("Slow down"))
 
 @client.on_callback_query(~spam)

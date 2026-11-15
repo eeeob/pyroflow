@@ -80,7 +80,7 @@ class Dispatcher(PyroDispatcher):
         """Whether the dispatcher is running; registration is refused while it is."""
 
         self.listener_waits: dict[ListenerModel, UpdateListener[Any]] = {}
-        """The waits inside handlers that hold their worker, oldest first; `UpdateListener.listen` keeps it."""
+        """Waits counted by `client.workers_policy`: those in a worker's own task, oldest first."""
 
         self.arrivals: dict[int, float] = {}
         """Per raw update queued, by `id()`: when `enqueue` received it, on `time.monotonic()`."""
@@ -112,6 +112,8 @@ class Dispatcher(PyroDispatcher):
 
         The listeners go first: the original `start` already dispatches the
         updates missed while stopped, and a handler among them may `listen`.
+        A listener that fails to start is logged, and the others and the
+        dispatcher still start.
 
         Args:
             *args: Passed directly to the original dispatcher.
@@ -133,6 +135,8 @@ class Dispatcher(PyroDispatcher):
 
         The listeners go first: their waiters fail, so a handler blocked in
         an `ask_*` method returns and the original `stop` can drain the workers.
+        A listener that fails to stop is logged, and the others and the
+        dispatcher still stop.
 
         Args:
             *args: Passed directly to the original dispatcher.

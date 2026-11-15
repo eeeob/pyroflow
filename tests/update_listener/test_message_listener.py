@@ -1,4 +1,4 @@
-"""Tests for ``MessageListener``: its key, ``listen`` and key extraction."""
+"""Tests for `MessageListener`: its key, `listen` and key extraction."""
 
 from __future__ import annotations as _annotations
 

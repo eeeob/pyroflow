@@ -31,7 +31,11 @@ elif TYPE_CHECKING:
 else:
 
     def dataclass_transform(**_: object) -> Callable[[type], type]:
-        """Leave a class as it is on Python 3.10, where only a type checker reads this."""
+        """Return a decorator that leaves a class as it is; on 3.10 only a type checker reads this.
+
+        Returns:
+            The decorator.
+        """
         return lambda cls: cls
 
 
@@ -45,6 +49,7 @@ _FieldsP = ParamSpec("_FieldsP")
 """The fields of the `namedtuple` given to `CallbackData.from_fields`."""
 
 
+# Above the classes: `_FieldsMeta` passes it to `dataclass_transform` at import time.
 def parsed(convert: Callable[[str], _VT], *, default: Any = dataclasses.MISSING) -> _VT:
     """Declare a field of `CallbackFields` with the function that reads it.
 

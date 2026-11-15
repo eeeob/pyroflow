@@ -1,4 +1,4 @@
-"""Tests for the ``@patch_cls`` machinery.
+"""Tests for the `@patch_cls` machinery.
 
 These cover the library's most load-bearing and least obvious mechanism:
 monkey-patching Pyrogram base classes in-place.
@@ -114,12 +114,12 @@ def test_patch_cls_twice_keeps_the_first_original() -> None:
         @patch_cls
         class Patch(Base):
             def greet(self) -> str:
-                return "new " + self.oldgreet()  # ty: ignore[unresolved-attribute]
+                return "new " + self.oldgreet()  # ty: ignore[unresolved-attribute]  # `patch_cls` adds it at runtime
 
     patch()
     patch()
 
-    assert Base().oldgreet() == "old"  # ty: ignore[unresolved-attribute]
+    assert Base().oldgreet() == "old"  # ty: ignore[unresolved-attribute]  # `patch_cls` adds it at runtime
     assert Base().greet() == "new old"
 
 
@@ -136,7 +136,7 @@ def test_patch_cls_twice_adds_no_old_for_a_new_member() -> None:
     patch()
     patch()
 
-    assert Base().added() == "added"  # ty: ignore[unresolved-attribute]
+    assert Base().added() == "added"  # ty: ignore[unresolved-attribute]  # `patch_cls` adds it at runtime
     assert not hasattr(Base, "oldadded")
     assert vars(Base)["_pyroflow_originals"]["added"] is patching._MISSING
 

@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.models.listener_key`: ListenerKey, MessageKey, CallbackQueryKey."""
+"""Tests for `pyroflow.models.listener_key`: `ListenerKey`, `MessageKey`, `CallbackQueryKey`."""
 
 from __future__ import annotations as _annotations
 
@@ -63,11 +63,11 @@ def test_a_key_class_without_its_builders_cannot_be_created() -> None:
             return cls()
 
     with pytest.raises(TypeError, match="from_sent"):
-        ListenerKey()  # ty: ignore[call-non-callable]
+        ListenerKey()  # ty: ignore[call-non-callable]  # instantiates an abstract class on purpose
     with pytest.raises(TypeError, match="from_update"):
-        OnlyFromSent()  # ty: ignore[call-non-callable]
+        OnlyFromSent()  # ty: ignore[call-non-callable]  # instantiates an abstract class on purpose
     with pytest.raises(TypeError, match="from_sent"):
-        OnlyFromUpdate()  # ty: ignore[call-non-callable]
+        OnlyFromUpdate()  # ty: ignore[call-non-callable]  # instantiates an abstract class on purpose
 
 
 def test_a_key_class_without_an_update_type_is_refused() -> None:
@@ -164,7 +164,7 @@ def test_keys_are_frozen_and_slotted() -> None:
     for key in (_ChatKey(1), MessageKey(1), CallbackQueryKey(1)):
         assert not hasattr(key, "__dict__")
         with pytest.raises(dataclasses.FrozenInstanceError):
-            key.chat_id = 2  # ty: ignore[invalid-assignment]
+            key.chat_id = 2  # ty: ignore[invalid-assignment]  # writes a frozen field on purpose
 
 
 def test_keys_of_different_classes_are_never_equal() -> None:

@@ -1,4 +1,4 @@
-"""CoordinatedDispatcher: one handler at a time per key, with real clients and real workers.
+"""`CoordinatedDispatcher`: one handler at a time per key, with real clients and real workers.
 
 Every wait is bounded, so a regression fails instead of hanging. Nothing here
 touches a network: updates go straight into the dispatcher's queue.
@@ -115,7 +115,7 @@ class _GatedListener(MessageListener):
     async def resolve(self, update: Message) -> bool:
         gate = self.before.get(update.id)
         if gate is not None:
-            self.paused[update.id] = asyncio.current_task()  # ty: ignore[invalid-assignment]
+            self.paused[update.id] = asyncio.current_task()  # ty: ignore[invalid-assignment]  # `resolve` always runs in a task
             await gate.wait()
         return await super().resolve(update)
 
@@ -153,7 +153,7 @@ class _Bot:
 
     def send_update(self, parsed: object, handler_type: type = MessageHandler) -> None:
         if self.dispatcher.is_started:
-            self.dispatcher.enqueue(_Packet(parsed, handler_type), users={}, chats={})  # ty: ignore[invalid-argument-type]
+            self.dispatcher.enqueue(_Packet(parsed, handler_type), users={}, chats={})
         else:
             self.pending.append(_Packet(parsed, handler_type))
 
@@ -190,7 +190,7 @@ async def _running(bot: _Bot) -> AsyncIterator[_Bot]:
     await bot.dispatcher.start()
     # Sent before any worker runs, so they wait as a backlog.
     for packet in bot.pending:
-        bot.dispatcher.enqueue(packet, users={}, chats={})  # ty: ignore[invalid-argument-type]
+        bot.dispatcher.enqueue(packet, users={}, chats={})
     bot.pending.clear()
     try:
         yield bot
@@ -831,7 +831,7 @@ async def test_a_worker_cancelled_in_its_handler_hands_over_the_backlog() -> Non
     async def stuck(_: object, message: Message) -> None:
         bot.handled.append(message.id)
         if message.id == 1:
-            workers.append(asyncio.current_task())  # ty: ignore[invalid-argument-type]
+            workers.append(asyncio.current_task())  # ty: ignore[invalid-argument-type]  # a handler always runs in a task
             await asyncio.Event().wait()
 
     bot.on(stuck)
@@ -1095,7 +1095,7 @@ async def test_no_hold_is_set_with_the_base_dispatcher(caplog: pytest.LogCapture
     client.dispatcher.update_parsers[_Packet] = _Bot.parse
     client.add_handler(MessageHandler(probe))
     await client.dispatcher.start()
-    client.dispatcher.updates_queue.put_nowait((_Packet(make_message(), MessageHandler), {}, {}))  # ty: ignore[invalid-argument-type]
+    client.dispatcher.updates_queue.put_nowait((_Packet(make_message(), MessageHandler), {}, {}))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
     await _until(lambda: seen)
     await asyncio.wait_for(client.dispatcher.stop(), 5)
 
@@ -1126,7 +1126,7 @@ async def _parse_slow(update: _SlowParse, users: object, chats: object) -> tuple
 
 def _send_slow(bot: _Bot, update: _SlowParse) -> None:
     bot.dispatcher.update_parsers[_SlowParse] = _parse_slow
-    bot.dispatcher.updates_queue.put_nowait((update, {}, {}))  # ty: ignore[invalid-argument-type]
+    bot.dispatcher.updates_queue.put_nowait((update, {}, {}))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
 
 
 def _recorder(bot: _Bot) -> None:
@@ -1177,7 +1177,7 @@ async def test_a_raw_update_with_no_parser_reaches_raw_handlers() -> None:
     bot.client.add_handler(RawUpdateHandler(raw_handler))
     raw = object()
     async with _running(bot):
-        bot.dispatcher.updates_queue.put_nowait((raw, {}, {}))  # ty: ignore[invalid-argument-type]
+        bot.dispatcher.updates_queue.put_nowait((raw, {}, {}))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
         await _until(lambda: seen)
 
     assert seen == [raw]
@@ -1207,7 +1207,7 @@ async def test_nothing_internal_is_written_to_the_updates_queue() -> None:
         written.append(item)
         put(item)
 
-    queue.put_nowait = spy  # ty: ignore[invalid-assignment]
+    queue.put_nowait = spy  # ty: ignore[invalid-assignment]  # spies on the queue's writes
 
     async def ask(_: object, message: Message) -> None:
         if message.id == 1:
@@ -1218,7 +1218,7 @@ async def test_nothing_internal_is_written_to_the_updates_queue() -> None:
         bot.send(1, 2, 3)
         await bot.settle()
 
-    assert all(item is None or isinstance(item[0], _Packet) for item in written)  # ty: ignore[index,not-subscriptable]
+    assert all(item is None or isinstance(item[0], _Packet) for item in written)  # ty: ignore[not-subscriptable]  # `written` holds the queued tuples, typed `object`
 
 
 async def test_no_reader_runs_with_no_updates() -> None:
@@ -1476,7 +1476,7 @@ async def test_load_keeps_order_and_exclusion_and_loses_nothing(
             user = rng.randrange(6)
             sent.setdefault(user, []).append(number)
             message = make_message(CHAT, user, number)
-            bot.dispatcher.updates_queue.put_nowait((_SlowParse(message), {}, {}))  # ty: ignore[invalid-argument-type]
+            bot.dispatcher.updates_queue.put_nowait((_SlowParse(message), {}, {}))  # ty: ignore[invalid-argument-type]  # a stand-in raw update
             if drip:
                 await asyncio.sleep(0)
         await bot.settle()
@@ -1497,7 +1497,7 @@ async def test_it_takes_nothing_from_the_dispatcher_it_replaces() -> None:
     client.dispatcher.groups[1] = [handler]
     old = client.dispatcher
     packet = (_Packet(make_message(), MessageHandler), {}, {})
-    old.updates_queue.put_nowait(packet)  # ty: ignore[invalid-argument-type]
+    old.updates_queue.put_nowait(packet)  # ty: ignore[invalid-argument-type]  # a stand-in raw update
 
     dispatcher = CoordinatedDispatcher(client, key_functions=[by_user])
 
@@ -1638,7 +1638,7 @@ async def test_a_coordinated_worker_clears_an_inherited_handler_hold() -> None:
             return await super().resolve(update)
 
     bot = _Bot(listener=Spy())
-    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]
+    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]  # a stand-in hold
     try:
         await bot.dispatcher.start()
     finally:
@@ -1743,7 +1743,7 @@ async def test_the_offer_task_clears_an_inherited_handler_hold() -> None:
             await bot.ask()
 
     bot.on(ask)
-    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]
+    token = _HANDLER_HOLD.set(object())  # ty: ignore[invalid-argument-type]  # a stand-in hold
     try:
         await bot.dispatcher.start()
     finally:
@@ -1785,7 +1785,7 @@ async def _parse_one(
     arrival_order = dispatcher.arrival_order
     await arrival_order.read_slots.acquire()
     raw_update = (_Packet(parsed, handler_type), {}, {})
-    update_to_parse = _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]
+    update_to_parse = _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]  # a stand-in raw update
     await dispatcher._parse_and_place(update_to_parse)
 
 
@@ -1806,7 +1806,7 @@ async def test_async_counter_wait_ends_when_the_count_is_back_at_zero() -> None:
 
 def _to_parse(arrival_order: ArrivalOrder, update: object) -> _UpdateToParse:
     raw_update = (update, {}, {})
-    return _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]
+    return _UpdateToParse(arrival_order.give_next_number(), raw_update)  # ty: ignore[invalid-argument-type]  # a stand-in raw update
 
 
 async def test_arrival_is_the_enqueue_moment_for_an_update_that_waited_in_its_lane() -> None:
@@ -2041,7 +2041,7 @@ async def _offer_pass(
         await asyncio.sleep(0)
         return update.id in take
 
-    dispatcher.handle_listen = listen  # ty: ignore[invalid-assignment]
+    dispatcher.handle_listen = listen  # ty: ignore[invalid-assignment]  # stubs the method on this instance
     dispatcher.offer_pass_requests.put_nowait(None)
     await dispatcher._run_offer_passes()
     return offered
@@ -2170,7 +2170,7 @@ async def test_a_cancelled_pass_frees_its_hold() -> None:
     async def cut(_: object) -> bool:
         raise asyncio.CancelledError
 
-    dispatcher.handle_listen = cut  # ty: ignore[invalid-assignment]
+    dispatcher.handle_listen = cut  # ty: ignore[invalid-assignment]  # stubs the method on this instance
 
     with pytest.raises(asyncio.CancelledError):
         await dispatcher._run_offer_passes()

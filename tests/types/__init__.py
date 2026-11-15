@@ -1,1 +1,1 @@
-"""Tests for ``pyroflow.types``."""
+"""Tests for `pyroflow.types`."""

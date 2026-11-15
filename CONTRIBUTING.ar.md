@@ -17,7 +17,7 @@
 
 المتطلبان الوحيدان هما `uv` و`make`. يجهّز `uv` المفسّر والبيئة المقفلة.
 
-كل أمر هو `recipe` في `make`. الـ `Makefile` هو المكان الوحيد الذي تُكتب فيه الأوامر، و`CI` والـ `pre-commit hooks` تستدعي الـ `recipes` نفسها.
+كل أمر للفحص أو الاختبار أو البناء هو `recipe` في `make`. الـ `Makefile` هو المكان الوحيد الذي تُكتب فيه، و`CI` والـ `pre-commit hooks` تستدعي الـ `recipes` نفسها.
 
 ```bash
 make sync    # the locked environment, with every tooling group

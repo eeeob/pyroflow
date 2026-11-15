@@ -7,7 +7,7 @@ from functools import cached_property
 from typing import Any, TYPE_CHECKING
 
 from pyrogram import Client as PyroClient
-from pyrogram.sync import wrap as async_to_sync
+from pyrogram.sync import wrap
 from pyrogram.types import BotCommandScopeDefault
 from pytrove import (
     to_list,
@@ -115,7 +115,8 @@ class BotCommandsMixin(_ClientForTypeCheckers):
 
                     group.extend(to_list(commands))
 
-        # `BotCommand` defines `__eq__` without `__hash__`.
+        # `BotCommand` inherits kurigram `Object`'s value `__eq__` and its `__hash__ = None`,
+        # so it is unhashable.
         return [
             (key, unique)
             for key, commands in declared
@@ -211,7 +212,8 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         return await super().stop(*args, **kw)
 
 
-async_to_sync(BotCommandsMixin)
+# Its `initialize` and `stop` shadow `Client`'s sync-wrapped ones, so wrap its coroutines too.
+wrap(BotCommandsMixin)
 
 
 __all__ = (

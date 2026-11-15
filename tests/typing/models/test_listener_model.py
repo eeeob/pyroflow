@@ -25,4 +25,4 @@ if TYPE_CHECKING:
 
     def _check_model(model: ListenerModel[Message]) -> None:
         assert_type(model.key, ListenerKey[Message])
-        ListenerModel[int]  # ty: ignore[invalid-type-arguments]
+        ListenerModel[int]  # ty: ignore[invalid-type-arguments]  # the update type must be a Pyrogram `Update`

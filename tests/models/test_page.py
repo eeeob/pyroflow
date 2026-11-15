@@ -1,4 +1,4 @@
-"""Tests for `pyroflow.models.page`: Page."""
+"""Tests for `pyroflow.models.page`: `Page`."""
 
 from __future__ import annotations as _annotations
 

@@ -109,7 +109,11 @@ class ListenerModel(Generic[UpdateType]):
             self.done_callbacks.append(fn)
 
     def resolve(self, update: PyroUpdate) -> None:
-        """Complete the listener's future with `update`, then run `done_callbacks`."""
+        """Complete the listener's future with `update`, then run `done_callbacks`.
+
+        Args:
+            update: The update that matched; becomes the future's result.
+        """
         self.future.set_result(update)
         self.run_done_callbacks()
 
@@ -140,7 +144,11 @@ class ListenerModel(Generic[UpdateType]):
             self.on_declined_update(update)
 
     def set_exc(self, exc: Exception) -> None:
-        """Fail the listener's future with `exc`, then run `done_callbacks`."""
+        """Fail the listener's future with `exc`, then run `done_callbacks`.
+
+        Args:
+            exc: The error the future is failed with.
+        """
         self.future.set_exception(exc)
         self.run_done_callbacks()
 

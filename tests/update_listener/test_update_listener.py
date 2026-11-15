@@ -1,7 +1,7 @@
-"""Behavioural tests for UpdateListener.
+"""Behavioural tests for `UpdateListener`.
 
-Covers key matching and the default timeout using the real MessageListener,
-then every UpdateListener element directly through a minimal local subclass.
+Covers key matching and the default timeout using the real `MessageListener`,
+then every `UpdateListener` element directly through a minimal local subclass.
 """
 
 from __future__ import annotations as _annotations
@@ -219,7 +219,7 @@ def test_init_stores_arguments() -> None:
 def test_init_rejects_a_key_of_another_update_type() -> None:
     class Mixed(UpdateListener[Message]):
         __update_type__ = Message
-        __key_type__ = CallbackQueryKey  # ty: ignore[invalid-assignment]
+        __key_type__ = CallbackQueryKey  # ty: ignore[invalid-assignment]  # a key of another type on purpose
 
     with pytest.raises(
         TypeError, match="Mixed.__key_type__ CallbackQueryKey keys CallbackQuery, not Message"
@@ -230,7 +230,7 @@ def test_init_rejects_a_key_of_another_update_type() -> None:
 @pytest.mark.parametrize("timeout", ["5", True])
 def test_init_rejects_a_timeout_that_is_not_a_number(timeout: object) -> None:
     with pytest.raises(TypeError, match="_Listener timeout must be a number or None, not "):
-        _Listener(timeout=timeout)  # ty: ignore[invalid-argument-type]
+        _Listener(timeout=timeout)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
 
 def test_init_computes_the_exact_mask_of_the_key_type() -> None:
@@ -475,7 +475,7 @@ class _MostWaits(dict):
 
 def _as_worker(lis: _Listener, holder: _Holder) -> object:
     """Bind `lis` to the client of `holder`, and mark the running task as its worker."""
-    lis.client = holder.client  # ty: ignore[invalid-assignment]
+    lis.client = holder.client  # ty: ignore[invalid-assignment]  # a stand-in for a `Client`
     return _HANDLER_WORKER.set(asyncio.current_task())
 
 
@@ -508,7 +508,7 @@ async def test_listen_refuses_a_key_of_another_type() -> None:
     with pytest.raises(
         TypeError, match="_Listener.listen needs exactly a MessageKey, not CallbackQueryKey"
     ):
-        await lis.listen(CallbackQueryKey(1))  # ty: ignore[invalid-argument-type]
+        await lis.listen(CallbackQueryKey(1))  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong key
 
     assert lis.listeners == {}
 
@@ -531,7 +531,7 @@ async def test_listen_refuses_a_timeout_that_is_not_a_number(timeout: object) ->
         with pytest.raises(
             TypeError, match="_Listener.listen timeout must be a number or None, not "
         ):
-            await lis.listen(MessageKey(1), timeout=timeout)  # ty: ignore[invalid-argument-type]
+            await lis.listen(MessageKey(1), timeout=timeout)  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
     finally:
         _HANDLER_WORKER.reset(token)
 
@@ -831,7 +831,7 @@ async def test_cleanup_model_removes_the_model() -> None:
 async def test_cleanup_model_frees_the_worker_slot_of_the_model() -> None:
     lis = _make()
     holder = _Holder()
-    lis.client = holder.client  # ty: ignore[invalid-assignment]
+    lis.client = holder.client  # ty: ignore[invalid-assignment]  # a stand-in for a `Client`
     model, other = _model(MessageKey(1)), _model(MessageKey(2))
     holder.listener_waits.update({model: lis, other: lis})
 
@@ -1156,7 +1156,7 @@ async def test_resolve_with_no_waits_skips_extracting_the_key() -> None:
 
 async def test_resolve_with_no_waits_still_rejects_the_wrong_update_type() -> None:
     with pytest.raises(TypeError):
-        await _make().resolve("not a message")  # ty: ignore[invalid-argument-type]
+        await _make().resolve("not a message")  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
 
 async def test_resolve_without_key_is_false_and_skips_listeners() -> None:
@@ -1518,7 +1518,7 @@ async def test_a_key_class_with_a_field_of_its_own_needs_no_listener_change() ->
 
 def test_extract_key_rejects_the_wrong_update_type() -> None:
     with pytest.raises(TypeError):
-        _make().extract_key("not a message")  # ty: ignore[invalid-argument-type]
+        _make().extract_key("not a message")  # ty: ignore[invalid-argument-type]  # deliberately passes a wrong type
 
 
 def test_extract_key_rejects_a_key_of_another_type() -> None:

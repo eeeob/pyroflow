@@ -48,7 +48,9 @@ class Message(PyroMessage):
     The `flow_*` methods (`flow_edit`, `flow_edit_rich`, `flow_reply`,
     `flow_reply_rich`, `flow_respond` and `flow_respond_rich`) are what the
     `ask_*` methods edit and reply with: they reply to an ephemeral message
-    for its receiver, and edit one with `Client.edit_ephemeral_message_text`.
+    ephemerally, for its receiver if it is the client's own (`editable`) and
+    for its sender otherwise, and edit one with
+    `Client.edit_ephemeral_message_text`.
     They take the `ask_*` arguments; for kurigram's full signatures, call
     `edit_text`, `reply` and `reply_rich`.
     """
@@ -118,9 +120,10 @@ class Message(PyroMessage):
         If this message is `editable` and `force_send` is `False`, it is edited
         with `flow_edit`, an ephemeral one too; otherwise a new message is sent
         with `flow_reply`, which fills in the topic, the business connection
-        and, for an ephemeral message, its receiver. The answer is awaited on
-        `from_sent` of the listener's `__key_type__` for the message sent or
-        edited: from `listen_user_id`, or from any user without it.
+        and, for an ephemeral message, the user to reply to (see
+        `flow_reply`). The answer is awaited on `from_sent` of the listener's
+        `__key_type__` for the message sent or edited: from `listen_user_id`,
+        or from any user without it.
 
         Args:
             text: The text to send or edit.
@@ -148,12 +151,19 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `Message`.
             ValueError: If this is an empty message, or an ephemeral one whose
-                receiver is unknown (see `flow_edit` and `flow_reply`).
-                Checked before sending.
+                receiver, or sender for a reply, is unknown (see `flow_edit`
+                and `flow_reply`). Checked before sending.
+            TypeError: If `listen_timeout` is neither a number nor `None`; the
+                message is already sent or edited by then.
             ListenerNotSent: If Telegram returns no message for the question,
                 such as an edit of an ephemeral message it answers with none.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer wait
+                on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `listen_strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: If the wait would start inside a handler with
                 no worker to spare (see `WorkersPolicy`). The message is
                 already sent or edited by then.
@@ -245,9 +255,15 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `Message`.
             ValueError: As in `ask`.
+            TypeError: As in `ask`.
             ListenerNotSent: As in `ask`.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer wait
+                on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `listen_strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -341,9 +357,15 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
             ValueError: As in `ask`.
+            TypeError: As in `ask`.
             ListenerNotSent: As in `ask`.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer wait
+                on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `listen_strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -433,9 +455,15 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
             ValueError: As in `ask`.
+            TypeError: As in `ask`.
             ListenerNotSent: As in `ask`.
             ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is cancelled while waiting.
+            ListenerCancelled: If the listener is stopped or the wait is
+                cancelled; also its subclasses `ListenerReplaced` (a newer wait
+                on the key, under the default `DuplicatePolicy.REPLACE`),
+                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
+                for a wait inside a handler) and `ListenerRejected` (with
+                `listen_strict` or the listener's `strict_filter`).
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -525,8 +553,8 @@ class Message(PyroMessage):
         `ListenerRejected` at once.
 
         On an `editable` message only the first question edits it; after a
-        rejection each question replies, since Telegram refuses an edit that
-        changes nothing.
+        rejection each question replies, so it comes after the rejected reply
+        instead of staying above it.
 
         Args:
             text: The first question.
@@ -549,7 +577,7 @@ class Message(PyroMessage):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects an answer when
                 `attempts` questions were asked; `update` holds that answer.
-            Anything else `ask` or `parse` raises, at once.
+            Exception: Whatever `ask` or `parse` raises, unchanged and at once.
         """
         return await self._client.ask_repeatedly(
             self.ask,
@@ -640,7 +668,7 @@ class Message(PyroMessage):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects an answer when
                 `attempts` questions were asked; `update` holds that answer.
-            Anything else `ask_rich` or `parse` raises, at once.
+            Exception: Whatever `ask_rich` or `parse` raises, unchanged and at once.
         """
         return await self._client.ask_repeatedly(
             self.ask_rich,
@@ -708,8 +736,9 @@ class Message(PyroMessage):
         Like `ask_until`, but each question waits for a press on its own
         buttons, so pass `reply_markup`, and put it in the `kw` of each
         `AskAgain`: a question without buttons cannot be answered, and its wait
-        stays open until `listen_timeout`, or forever without one. A rejected
-        press was taken by the wait like a rejected answer.
+        stays open until `listen_timeout`, or the listener's `timeout`, or
+        forever without either. A rejected press was taken by the wait like a
+        rejected answer.
 
         Args:
             text: The first question.
@@ -732,7 +761,8 @@ class Message(PyroMessage):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects a press when
                 `attempts` questions were asked; `update` holds that press.
-            Anything else `ask_callback_query` or `parse` raises, at once.
+            Exception: Whatever `ask_callback_query` or `parse` raises, unchanged
+                and at once.
         """
         return await self._client.ask_repeatedly(
             self.ask_callback_query,
@@ -825,7 +855,8 @@ class Message(PyroMessage):
             ValueError: If `attempts` is not positive; nothing is sent then.
             ListenerAttemptsExhausted: If `parse` rejects a press when
                 `attempts` questions were asked; `update` holds that press.
-            Anything else `ask_callback_query_rich` or `parse` raises, at once.
+            Exception: Whatever `ask_callback_query_rich` or `parse` raises,
+                unchanged and at once.
         """
         return await self._client.ask_repeatedly(
             self.ask_callback_query_rich,

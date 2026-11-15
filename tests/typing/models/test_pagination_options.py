@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 
     def _check_options() -> None:
         PageArrangement(layout=[1, 2], repeat=True, per_page=4)
-        PageArrangement(columns="1")  # ty: ignore[invalid-argument-type]
-        BarStyle(nav="red")  # ty: ignore[invalid-argument-type]
-        NumberedBarTexts(first=1)  # ty: ignore[invalid-argument-type]
+        PageArrangement(columns="1")  # ty: ignore[invalid-argument-type]  # `columns` must be an int
+        BarStyle(nav="red")  # ty: ignore[invalid-argument-type]  # `nav` must be callable
+        NumberedBarTexts(first=1)  # ty: ignore[invalid-argument-type]  # `first` must be a str
         ArrowBarTexts(counter=None)
-        ArrowBarTexts(back=None)  # ty: ignore[invalid-argument-type]
+        ArrowBarTexts(back=None)  # ty: ignore[invalid-argument-type]  # `back` must be a str
         SlidingBar(size=4, page="{page}", current="[{page}]")
-        SlidingBar(size="4")  # ty: ignore[invalid-argument-type]
+        SlidingBar(size="4")  # ty: ignore[invalid-argument-type]  # `size` must be an int
         ItemCount(3, strict=False)
-        ItemCount("3")  # ty: ignore[invalid-argument-type]
+        ItemCount("3")  # ty: ignore[invalid-argument-type]  # the count must be an int or a function

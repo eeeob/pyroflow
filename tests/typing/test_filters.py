@@ -1,4 +1,4 @@
-"""Static type tests for ``pyroflow.filters``."""
+"""Static type tests for `pyroflow.filters`."""
 
 from __future__ import annotations as _annotations
 
@@ -34,20 +34,20 @@ if TYPE_CHECKING:
         assert_type(flt.language_codes, tuple[str, ...])
         filters.registered_command(scopes=[BotCommandScopeChat(1)], language_codes={"ar"})
         _as_filter: Filter = flt
-        filters.registered_command(False)  # ty: ignore[too-many-positional-arguments]
-        filters.registered_command(ephemeral="no")  # ty: ignore[invalid-argument-type]
-        filters.registered_command(username_policy="any")  # ty: ignore[invalid-argument-type]
-        filters.registered_command(scopes=["default"])  # ty: ignore[invalid-argument-type]
-        filters.registered_command(language_codes=[1])  # ty: ignore[invalid-argument-type]
+        filters.registered_command(False)  # ty: ignore[too-many-positional-arguments]  # its options are keyword-only
+        filters.registered_command(ephemeral="no")  # ty: ignore[invalid-argument-type]  # `ephemeral` takes a `bool`
+        filters.registered_command(username_policy="any")  # ty: ignore[invalid-argument-type]  # `username_policy` takes a `CommandUsernamePolicy` or `None`
+        filters.registered_command(scopes=["default"])  # ty: ignore[invalid-argument-type]  # `scopes` takes `BotCommandScope`s
+        filters.registered_command(language_codes=[1])  # ty: ignore[invalid-argument-type]  # `language_codes` takes `str`s
 
     def _check_too_fast() -> None:
         flt = filters.too_fast(2)
         _as_filter: Filter = flt
         filters.too_fast(0.5, key=lambda update: 1, on_spam=None)
         filters.too_fast(lambda update: 2)
-        filters.too_fast("2")  # ty: ignore[invalid-argument-type]
-        filters.too_fast(2, 1)  # ty: ignore[invalid-argument-type]
-        filters.too_fast(2, on_spam=1)  # ty: ignore[invalid-argument-type]
+        filters.too_fast("2")  # ty: ignore[invalid-argument-type]  # `interval` takes a number or a function
+        filters.too_fast(2, 1)  # ty: ignore[invalid-argument-type]  # `key` takes a function
+        filters.too_fast(2, on_spam=1)  # ty: ignore[invalid-argument-type]  # `on_spam` takes a function or `None`
 
         def _by_user(query: CallbackQuery) -> int:
             return query.from_user.id
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
         assert_type(filters.too_fast(2, key=_by_user), filters.too_fast[CallbackQuery])
         assert_type(filters.too_fast(_interval), filters.too_fast[Message])
         assert_type(filters.too_fast[Message](_interval), filters.too_fast[Message])
-        filters.too_fast[Message](2, key=_by_user)  # ty: ignore[invalid-argument-type]
+        filters.too_fast[Message](2, key=_by_user)  # ty: ignore[invalid-argument-type]  # `key` takes a `Message`, not a `CallbackQuery`
 
     def _check_factories() -> None:
         assert_type(filters.startswith("a", ["b", ("c",)]), Filter)

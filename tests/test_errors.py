@@ -1,4 +1,4 @@
-"""Tests for pyroflow.errors."""
+"""Tests for `pyroflow.errors`."""
 
 from __future__ import annotations as _annotations
 

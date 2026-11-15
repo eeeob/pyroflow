@@ -50,7 +50,7 @@ def test_ask_edit_kw_covers_edit_message_text() -> None:
 
 
 def test_ask_edit_kw_fits_the_send_of_a_retry() -> None:
-    # `Client.ask_until` sends its retries with the arguments the first question edited with.
+    # A `parse` that returns its `kw` sends them again, so the edit arguments must suit a send too.
     assert AskEditKw.__optional_keys__ <= AskSendKw.__optional_keys__
 
 

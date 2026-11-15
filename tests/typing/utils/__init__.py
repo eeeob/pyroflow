@@ -1,1 +1,1 @@
-"""Static type tests for ``pyroflow.utils``."""
+"""Static type tests for `pyroflow.utils`."""

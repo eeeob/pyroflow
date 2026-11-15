@@ -1,5 +1,5 @@
-# The one place the development commands are written down: CI, pre-commit and
-# CONTRIBUTING.md call these recipes rather than repeating them.
+# The one place the check, test and build commands are written down: CI,
+# pre-commit and CONTRIBUTING.md call these recipes rather than repeating them.
 
 UV := uv
 RUN := $(UV) run
@@ -7,11 +7,11 @@ RUN := $(UV) run
 PYTHON_FLOOR := 3.10
 PYTHON_CEIL := 3.14
 
+# The main environment, where `uv sync` puts it; `clean` deletes it.
+VENV := $(or $(UV_PROJECT_ENVIRONMENT),$(CURDIR)/.venv)
 # Throwaway environments built from pyproject.toml, never from uv.lock;
 # `.gitignore` covers `.venv*`. `uv sync` is unusable for them: asked for
 # another resolution, it rewrites uv.lock.
-# The main environment, where `uv sync` puts it; `clean` deletes it.
-VENV := $(or $(UV_PROJECT_ENVIRONMENT),$(CURDIR)/.venv)
 VENV_MIN := $(CURDIR)/.venv-minimal
 VENV_FLOOR := $(CURDIR)/.venv-floor
 VENV_CEIL := $(CURDIR)/.venv-ceil

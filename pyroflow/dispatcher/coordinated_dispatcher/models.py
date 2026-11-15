@@ -74,7 +74,10 @@ class _HandlerHold:
     """What the waits of this handler declined, by `id`, for its later waits to skip; weak."""
 
     def handler_ended(self) -> bool:
-        """Whether the handler ended: the lane no longer names this hold; its later waits do not count."""
+        """Return whether the handler ended: the lane no longer names this hold.
+
+        Its later waits do not count.
+        """
         return self.lane.handler_hold is not self
 
     def request_offer_pass(self, offer_pass_requests: asyncio.Queue[_HandlerHold | None]) -> None:
@@ -114,7 +117,8 @@ class _HandlerHold:
 
         A declined update is not a reply, as with a plain `Dispatcher`: it runs
         its handlers in its turn. And a handler that asks again with `strict`
-        is not refused the same queued update forever.
+        after a rejection is not rejected by the same queued update again and
+        again; its later waits skip it.
 
         Args:
             update: The update declined; one that cannot be weakly referenced
