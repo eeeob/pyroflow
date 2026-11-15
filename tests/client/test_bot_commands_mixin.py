@@ -5,6 +5,7 @@ from __future__ import annotations as _annotations
 import asyncio
 import inspect
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pyroflow
 import pytest
@@ -20,6 +21,9 @@ import pyroflow.client.bot_commands_mixin as module
 import pyroflow.utils.bot_commands as bot_commands_module
 from pyroflow.client.bot_commands_mixin import BotCommandsMixin, _ClientForTypeCheckers
 from pyroflow.utils.bot_commands import _BOT_COMMANDS_ATTR
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 
 class ExcA(Exception):
@@ -41,7 +45,7 @@ class _MixinBase(pyroflow.Client):
         self.calls: list[tuple[object, ...]] = []
         self.set_error: Exception | None = None
         self.delete_error: Exception | None = None
-        self.stop_error: Exception | None = None
+        self.while_terminating: Callable[[], Awaitable[object]] | None = None
 
     async def set_bot_commands(self, commands: list[BotCommand], **kw: object) -> bool:
         self.calls.append(("set", commands, kw))
@@ -58,15 +62,31 @@ class _MixinBase(pyroflow.Client):
     async def initialize(self, *args: object, **kw: object) -> None:
         self.calls.append(("initialize", args, kw) if args or kw else ("initialize",))
 
+    async def terminate(self, *args: object, **kw: object) -> None:
+        # Stands in for the dispatcher draining: a handler still running may act meanwhile.
+        if self.while_terminating is not None:
+            await self.while_terminating()
+        self.calls.append(("terminate", args, kw))
+
     async def stop(self, *args: object, **kw: object) -> str:
+        # As kurigram's `stop`: terminate, then disconnect.
         self.calls.append(("stop", args, kw))
-        if self.stop_error is not None:
-            raise self.stop_error
+        await self.terminate()
+        self.calls.append(("disconnect",))
         return "stopped"
 
 
 class _MixedFake(BotCommandsMixin, _MixinBase):
     pass
+
+
+def test_init_finds_the_mixin_after_its_module_name_is_rebound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A reload of the module rebinds the name to a new class, missing from `_MixedFake`'s MRO.
+    monkeypatch.setattr(module, "BotCommandsMixin", type("Reloaded", (), {}))
+
+    assert isinstance(_MixedFake(), BotCommandsMixin)
 
 
 class _MixedClient(BotCommandsMixin, pyroflow.Client):
@@ -130,7 +150,7 @@ def test_bot_commands_mixin_is_a_plain_object_at_runtime() -> None:
 
 
 def test_bot_commands_mixin_public_coroutines_carry_the_sync_wrapper() -> None:
-    for name in ("push_bot_commands", "remove_bot_commands", "initialize", "stop"):
+    for name in ("push_bot_commands", "remove_bot_commands", "initialize", "terminate", "stop"):
         method = getattr(BotCommandsMixin, name)
         assert inspect.iscoroutinefunction(method.__wrapped__), name
 
@@ -357,7 +377,7 @@ async def test_initialize_logs_a_failed_publish_and_still_initializes(
     assert "boom" in caplog.text
 
 
-async def test_stop_deletes_the_sent_commands_then_stops() -> None:
+async def test_stop_deletes_the_sent_commands_once_terminated_and_before_disconnecting() -> None:
     c = _MixedFake()
     _declare(c, [_cmd("a")])
     await c.push_bot_commands()
@@ -367,7 +387,37 @@ async def test_stop_deletes_the_sent_commands_then_stops() -> None:
     result = await c.stop(1, flag=True)
 
     assert result == "stopped"
-    assert c.calls == [("delete", {}), ("stop", (1,), {"flag": True})]
+    assert c.calls == [
+        ("stop", (1,), {"flag": True}),
+        ("terminate", (), {}),
+        ("delete", {}),
+        ("disconnect",),
+    ]
+
+
+async def test_stop_leaves_no_commands_when_a_handler_pushes_during_the_drain() -> None:
+    c = _MixedFake()
+    a = _cmd("a")
+    _declare(c, [a])
+    await c.push_bot_commands()
+    c.while_terminating = c.push_bot_commands
+
+    await c.stop()
+
+    assert c.calls[-2:] == [("delete", {}), ("disconnect",)]
+    assert c.bot_command_groups == []
+
+
+async def test_terminate_deletes_the_commands_after_terminating_and_resets_the_choice() -> None:
+    c = _MixedFake()
+    c.bot_command_groups.append(((None, None), [_cmd("a")]))
+    c._remove_commands = False
+
+    await c.terminate()
+    assert c.calls == [("terminate", (), {})]
+
+    await c.terminate(1, flag=True)
+    assert c.calls[1:] == [("terminate", (1,), {"flag": True}), ("delete", {})]
 
 
 async def test_stop_logs_a_failed_delete_and_still_stops(
@@ -388,5 +438,5 @@ async def test_stop_with_remove_commands_false_keeps_them_on_telegram() -> None:
 
     await c.stop(remove_commands=False)
 
-    assert c.calls == [("stop", (), {})]
+    assert c.calls == [("stop", (), {}), ("terminate", (), {}), ("disconnect",)]
     assert c.bot_command_groups == [((None, None), [a])]

@@ -45,7 +45,9 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     first, as in `class MyClient(BotCommandsMixin, Client)`. `start` publishes
     the commands of every registered handler once the `plugins` are loaded
     and the client is connected, and before the dispatcher starts (so the first
-    updates already see them), and `stop` deletes them before disconnecting. Each
+    updates already see them), and `stop` deletes them once the dispatcher has
+    stopped (so no handler still running publishes them again) and before
+    disconnecting. Each
     `(language_code, scope)` group is one Telegram call, so different scopes
     never overwrite each other.
 
@@ -70,11 +72,16 @@ class BotCommandsMixin(_ClientForTypeCheckers):
             """
             mro = type(self).__mro__
 
-            if PyroClient not in mro[mro.index(BotCommandsMixin) + 1 :]:
+            # `__class__`, not the module's name for it, which a reload of this module rebinds
+            # to a class missing from the MRO of a client made before.
+            if PyroClient not in mro[mro.index(__class__) + 1 :]:
                 msg = f"{type(self).__name__} must inherit Client after BotCommandsMixin"
                 raise TypeError(msg)
 
             super().__init__(*args, **kw)
+
+    _remove_commands: bool = True
+    """Whether the next `terminate` deletes the published commands; `stop` sets it for its own."""
 
     @cached_property
     def bot_command_groups(self) -> list[tuple[BotCommandGroupKeyT, list[BotCommand]]]:
@@ -162,8 +169,8 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     async def remove_bot_commands(self) -> None:
         """Delete every group `push_bot_commands` recorded with `delete_bot_commands`.
 
-        The groups are forgotten once deleted. Called by `stop` unless
-        `remove_commands` is `False`.
+        The groups are forgotten once deleted. Called by `terminate`, which
+        `stop` runs, unless `stop` was given `remove_commands=False`.
         """
         async with self.bot_command_groups_lock:
             await gather_abort(
@@ -192,11 +199,27 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         await safe_await(self.push_bot_commands(), return_exc=True, log_exc=True)
         await super().initialize(*args, **kw)
 
-    async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
-        """Delete the published commands, then stop the client as usual.
+    async def terminate(self, *args: Any, **kw: Any) -> None:
+        """Terminate the client as usual, then delete the published commands.
 
-        A failure to delete them, such as a lost connection, is logged and
-        does not keep the client from stopping.
+        `stop` calls this before it disconnects. The commands are deleted once
+        the dispatcher has stopped, so a handler still running cannot publish
+        them again after they are gone. A failure to delete them, such as a
+        lost connection, is logged and does not fail the stop. A `stop` with
+        `remove_commands=False` keeps them, for that stop only.
+
+        Args:
+            *args: Passed to `pyrogram.Client.terminate`.
+            **kw: Passed to `pyrogram.Client.terminate`.
+        """
+        remove, self._remove_commands = self._remove_commands, True
+        await super().terminate(*args, **kw)
+
+        if remove:
+            await safe_await(self.remove_bot_commands(), return_exc=True, log_exc=True)
+
+    async def stop(self, *args: Any, remove_commands: bool = True, **kw: Any) -> PyroClient:
+        """Stop the client as usual; its `terminate` deletes the published commands.
 
         Args:
             *args: Passed to `pyrogram.Client.stop`.
@@ -206,13 +229,12 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         Returns:
             The client, as `pyrogram.Client.stop` returns it.
         """
-        if remove_commands:
-            await safe_await(self.remove_bot_commands(), return_exc=True, log_exc=True)
-
+        self._remove_commands = remove_commands
         return await super().stop(*args, **kw)
 
 
-# Its `initialize` and `stop` shadow `Client`'s sync-wrapped ones, so wrap its coroutines too.
+# Its `initialize`, `terminate` and `stop` shadow `Client`'s sync-wrapped ones, so wrap its
+# coroutines too.
 wrap(BotCommandsMixin)
 
 
