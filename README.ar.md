@@ -52,6 +52,7 @@ client.run()
 
 - **طرق أخرى للسؤال.** `ask_callback_query` ينتظر ضغطة زر، ولكليهما نسخة rich. وكلها موجودة على `Client` أيضاً. أما `listen_message` و`listen_callback_query` فينتظران دون إرسال شيء.
 - **حدّد مَن يجيب وكم تنتظر.** مرّر `listen_user_id` في المجموعات، وإلا أجاب أي عضو. ومرّر `listen_timeout` دائماً.
+- **ألغِ انتظاراً.** `cancel_listen` ينهي الانتظار على مفتاح واحد، و`cancel_listens` كل انتظار يحمل الحقول التي تعطيها، كما يفعل أمر `/cancel`.
 - **الانتظار يحجز worker.** `workers_policy` يقرر ما يحدث حين تقلّ الـ workers. راجع docstring الـ `WorkersPolicy`.
 - **أنواع update من عندك.** كلاس `ListenerKey` وكلاس `UpdateListener` يكفيان لانتظار أي update. راجع docstring الـ `UpdateListener`.
 

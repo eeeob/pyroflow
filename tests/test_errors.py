@@ -2,6 +2,10 @@
 
 from __future__ import annotations as _annotations
 
+import copy
+import pickle
+from typing import TYPE_CHECKING
+
 import pytest
 
 import pyroflow.errors
@@ -9,6 +13,7 @@ from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerAttemptsExhausted,
     ListenerCancelled,
+    ListenerClosed,
     ListenerError,
     ListenerEvicted,
     ListenerNotSent,
@@ -18,6 +23,9 @@ from pyroflow.errors import (
     ListenerWorkersBusy,
     PyroflowError,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def test_pyroflow_error_default_message_and_value() -> None:
@@ -58,6 +66,28 @@ def test_listener_rejected_message_and_family() -> None:
     assert str(err) == "Listener for k was rejected by its filters"
     assert err.value == "k"
     assert isinstance(err, ListenerCancelled)
+
+
+def test_listener_closed_message_needs_no_key() -> None:
+    err = ListenerClosed()
+    assert str(err) == "The listener is closed: it was stopped and not started again"
+    assert err.value is None
+    assert isinstance(err, ListenerCancelled)
+
+
+@pytest.mark.parametrize(
+    "err",
+    [ListenerTimeout(5), ListenerClosed(), ListenerAttemptsExhausted(3, "update")],
+)
+# The pickle round trip only loads what the test itself just dumped.
+@pytest.mark.parametrize("duplicate", [copy.copy, lambda err: pickle.loads(pickle.dumps(err))])
+def test_pyroflow_error_reduce_keeps_the_message_and_attributes(
+    err: PyroflowError, duplicate: Callable[[PyroflowError], PyroflowError]
+) -> None:
+    copied = duplicate(err)
+    assert type(copied) is type(err)
+    assert str(copied) == str(err)
+    assert vars(copied) == vars(err)
 
 
 def test_listener_cancelled_defaults() -> None:
@@ -124,6 +154,7 @@ def test_errors_all() -> None:
         "ListenerError",
         "ListenerCancelled",
         "ListenerReplaced",
+        "ListenerClosed",
         "ListenerRejected",
         "ListenerTimeout",
         "ListenerEvicted",

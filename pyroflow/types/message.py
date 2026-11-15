@@ -880,8 +880,13 @@ class Message(PyroMessage):
 
         An ephemeral message of the client's own is editable too, with
         `flow_edit` or `flow_edit_rich`; kurigram's `edit` cannot edit it.
+        In a business chat only what this bot sent for the account counts:
+        a message the account's owner typed is outgoing too, but it is theirs.
         """
-        return bool(self.outgoing) or getattr(self.from_user, "is_self", False)
+        if self.business_connection_id is not None:
+            return bool(getattr(self.sender_business_bot, "is_self", False))
+
+        return bool(self.outgoing or getattr(self.from_user, "is_self", False))
 
     async def flow_edit(self, text: str, **kw: Unpack[MessageAskEditKw]) -> Message | None:
         """Edit the text of this message, an ephemeral one too.

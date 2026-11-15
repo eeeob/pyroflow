@@ -15,6 +15,7 @@ from ..utils import UpdateBound, call_maybe_async, get_update_executor
 from ..errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
+    ListenerClosed,
     ListenerError,
     ListenerEvicted,
     ListenerRejected,
@@ -302,11 +303,52 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         self.is_closed = False
 
     async def stop(self) -> None:
-        """Refuse new `listen` calls and cancel every waiting listener."""
+        """Refuse new `listen` calls and cancel every waiting listener.
+
+        A wait whose task was cancelled just before has its done callbacks
+        run here, so its worker slot is freed while the listener is still
+        bound to its client.
+        """
         self.is_closed = True
 
         for key in list(self.listeners):
             self.cancel(key)
+
+    def _end(
+        self,
+        key: ListenerKey[UpdateType],
+        error: type[ListenerCancelled],
+        model: ListenerModel[UpdateType] | None = None,
+    ) -> bool:
+        """End the listener waiting on `key`: fail its waiter with `error(key)`, or clean up a done one.
+
+        A wait whose task was cancelled is done without its done callbacks,
+        which its `listen` runs only once the task resumes; they run here
+        instead, so its worker slot is freed now, while the listener is still
+        bound to its client.
+
+        Args:
+            key: The key identifying the listener.
+            error: The error class the waiter gets.
+            model: End only this registered wait, not a newer one on the same
+                key; `None` ends whichever waits.
+
+        Returns:
+            Whether a listener was ended.
+        """
+        listener = self.listeners.get(key)
+
+        if listener is None or (model is not None and listener is not model):
+            return False
+
+        self._remove(key)
+
+        if listener.done():
+            listener.run_done_callbacks()
+        else:
+            listener.set_exc(error(key))
+
+        return True
 
     def cancel(self, key: ListenerKey[UpdateType]) -> bool:
         """Cancel the listener waiting on `key`; its waiter gets `ListenerCancelled`.
@@ -335,15 +377,66 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             True
         """
-        listener = self._remove(key)
+        return self._end(key, ListenerCancelled)
 
-        if listener is None:
-            return False
+    def cancel_matching(self, key: ListenerKey[UpdateType]) -> int:
+        """Cancel every listener whose key holds the values `key` sets; each waiter gets `ListenerCancelled`.
 
-        if not listener.done():
-            listener.set_exc(ListenerCancelled(key))
+        A `None` field of `key` matches any value, and an `exact` field, such
+        as `ephemeral`, always has to be equal, as when an update is matched.
+        So `MessageKey(chat_id=1, user_id=5)` cancels user 5's waits in chat 1
+        whatever their topic, but not a wait on any user of the chat.
 
-        return True
+        Args:
+            key: The values to match, a `__key_type__`.
+
+        Returns:
+            How many listeners were cancelled.
+
+        Raises:
+            TypeError: If `key` is not exactly a `__key_type__`.
+
+        Example:
+            >>> from pyroflow import Client
+            >>> from pyroflow.models import MessageKey
+            >>> from pyroflow.update_listener import MessageListener
+            >>> async def main():
+            ...     listener = MessageListener()
+            ...     client = Client("doc", api_id=1, api_hash="x", in_memory=True)
+            ...     client.register_listener(listener)
+            ...     waiters = [
+            ...         asyncio.create_task(listener.listen(MessageKey(1, user_id))) for user_id in (5, 6)
+            ...     ]
+            ...     await asyncio.sleep(0)
+            ...     cancelled = listener.cancel_matching(MessageKey(user_id=5))
+            ...     left = len(listener.listeners)
+            ...     waiters[1].cancel()
+            ...     await asyncio.gather(*waiters, return_exceptions=True)
+            ...     return cancelled, left
+            >>> asyncio.run(main())
+            (1, 1)
+        """
+        if type(key) is not self.__key_type__:
+            msg = (
+                f"{self.__class__.__name__}.cancel_matching needs exactly a "
+                f"{self.__key_type__.__name__}, not {type(key).__name__}"
+            )
+            raise TypeError(msg)
+
+        wanted = [
+            (index, value)
+            for index, value in enumerate(key.to_tuple())
+            if value is not None or self._exact_mask >> index & 1
+        ]
+        matching = []
+
+        for listener_key in self.listeners:
+            values = listener_key.to_tuple()
+
+            if all(values[index] == value for index, value in wanted):
+                matching.append(listener_key)
+
+        return sum(self.cancel(listener_key) for listener_key in matching)
 
     def evict(
         self,
@@ -364,17 +457,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         Returns:
             Whether a listener was evicted.
         """
-        listener = self.listeners.get(key)
-
-        if listener is None or (model is not None and listener is not model):
-            return False
-
-        self._remove(key)
-
-        if not listener.done():
-            listener.set_exc(ListenerEvicted(key))
-
-        return True
+        return self._end(key, ListenerEvicted, model)
 
     def reject(self, key: ListenerKey[UpdateType]) -> bool:
         """End the listener waiting on `key` because an update failed its filter.
@@ -405,15 +488,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             >>> asyncio.run(main())
             True
         """
-        listener = self._remove(key)
-
-        if listener is None:
-            return False
-
-        if not listener.done():
-            listener.set_exc(ListenerRejected(key))
-
-        return True
+        return self._end(key, ListenerRejected)
 
     async def listen(
         self,
@@ -463,9 +538,11 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 `duplicate_policy` is `DuplicatePolicy.REJECT`.
             ListenerTimeout: If the timeout expires before the update arrives.
             ListenerCancelled: If the listener is stopped, or is cancelled while
-                waiting; `ListenerReplaced` when a newer listener replaces it.
-                `ListenerReplaced`, `ListenerRejected` and `ListenerEvicted`
-                are its subclasses: catch them before `ListenerCancelled`.
+                waiting; `ListenerClosed` when it is stopped before the wait
+                starts, `ListenerReplaced` when a newer listener replaces it.
+                `ListenerClosed`, `ListenerReplaced`, `ListenerRejected` and
+                `ListenerEvicted` are its subclasses: catch them before
+                `ListenerCancelled`.
             ListenerRejected: If `strict` is true, or `strict_filter` applies,
                 and an update whose key matches fails the filter.
             ListenerEvicted: If `WorkersPolicy.CANCEL_OLDEST` ended this
@@ -499,6 +576,13 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             handler, or in a task or `asyncio.to_thread` it started, is
             offered the updates queued for the handler's key, in order, from
             the moment it starts.
+
+            A timeout or cancel from outside the wait, such as
+            `asyncio.timeout` or a `TaskGroup` around it, that lands once the
+            wait ended loses what it ended with: an update it took, which no
+            handler runs then, or its own error, which `on_error_func` does not
+            get. Either is logged as a warning. Bound a wait with `timeout`
+            instead.
 
         Example:
             >>> from pyroflow import Client
@@ -549,12 +633,15 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             await hold.wait_offer_lock(handler_active_required=True)
 
         if self.is_closed:
-            raise ListenerCancelled(key)
+            raise ListenerClosed(key)
 
         current = self.listeners.get(key)
 
-        # A finished listener whose `listen` has not returned yet is no longer waiting.
+        # A finished listener whose `listen` has not returned yet is no longer waiting. One whose
+        # task was cancelled is done without its done callbacks: run them now, so its worker slot
+        # is freed and not taken over by this wait.
         if current is not None and current.done():
+            current.run_done_callbacks()
             current = None
 
         if current is not None and self.duplicate_policy is DuplicatePolicy.REJECT:
@@ -591,9 +678,10 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if current is not None:
             current.set_exc(ListenerReplaced(key))
 
+        loop = asyncio.get_running_loop()
         listener = ListenerModel(
             key,
-            future := asyncio.get_running_loop().create_future(),
+            future := loop.create_future(),
             context,
             filters=filters,
             strict=strict,
@@ -609,12 +697,9 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         if timeout is None:
             timeout = self.timeout
 
-        timer = (
-            asyncio.get_running_loop().call_later(timeout, self._time_out, listener)
-            if timeout is not None
-            else None
-        )
+        timer = loop.call_later(timeout, self._time_out, listener) if timeout is not None else None
         error: ListenerError | None = None
+        outer_error: BaseException | None = None
 
         try:
             # A hold comes only from a `CoordinatedDispatcher`.
@@ -625,12 +710,27 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         except ListenerError as exc:
             error = exc
             raise
+        except BaseException as exc:
+            # Not the wait's own outcome: a cancel or timeout from outside it.
+            outer_error = exc
+            raise
         finally:
             if timer is not None:
                 timer.cancel()
 
             # A cancelled task leaves its future done without running the done callbacks.
             listener.run_done_callbacks()
+
+            # A future cancelled with its task ended with nothing; one that is not done had no
+            # outcome yet, and the done callbacks above already removed it.
+            if outer_error is not None and future.done() and not future.cancelled():
+                log.warning(
+                    "The wait for %s was stopped from outside by %r after it ended, "
+                    "so what it ended with is lost: %r",
+                    key,
+                    outer_error,
+                    future.exception() or future.result(),
+                )
 
             if error is not None and (on_error := self.on_error_func) is not None:
                 try:
@@ -641,7 +741,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             # The error's traceback keeps this frame: drop what links back to it, so the
             # wait, its message and the client are freed without waiting for the cyclic GC.
             # `current`, the wait this one replaced, would chain every replaced wait.
-            del future, listener, error, current, hold
+            del future, listener, error, outer_error, current, hold
 
     __call__ = listen
     """Alias of `listen`, so a listener can be awaited as `listener(...)`."""

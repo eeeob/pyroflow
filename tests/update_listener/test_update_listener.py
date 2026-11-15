@@ -27,6 +27,7 @@ from pyroflow.enums import DuplicatePolicy, ListenerScope, WorkersPolicy
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerCancelled,
+    ListenerClosed,
     ListenerEvicted,
     ListenerRejected,
     ListenerReplaced,
@@ -259,14 +260,31 @@ async def test_stop_cancels_every_listener_and_refuses_listen_until_start() -> N
     assert lis._shapes == {}
     assert lis._shape_order == ()
     assert lis.is_closed is True
-    with pytest.raises(ListenerCancelled):
+    with pytest.raises(ListenerClosed) as closed:
         await lis.listen(MessageKey(1))
+    assert closed.value.value == MessageKey(1)
 
     await lis.start()
 
     assert lis.is_closed is False
     with pytest.raises(ListenerTimeout):
         await lis.listen(MessageKey(1), timeout=0.01)
+
+
+async def test_stop_frees_the_slot_of_a_wait_whose_task_was_cancelled_just_before() -> None:
+    lis = _make()
+    holder = _Holder()
+    task = await _pending_on_a_worker(lis, holder, 100)
+
+    # The task has not resumed when `stop` runs, so its done callbacks are still to run.
+    task.cancel()
+    await lis.stop()
+    lis.client = None  # as `Dispatcher.unregister_listener` does right after `stop`
+
+    # `listen`'s `finally` runs the done callbacks too, but with no client left to reach.
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert holder.listener_waits == {}
 
 
 # --- shapes -------------------------------------------------------------------
@@ -447,6 +465,57 @@ async def test_evict_spares_a_newer_wait_and_a_missing_key() -> None:
         assert not task.done()
     finally:
         await _drain(task)
+
+
+async def test_end_fails_the_wait_with_the_error_given_unless_another_model_waits() -> None:
+    lis = _make()
+    task = await _pending(lis, MessageKey(1))
+    model = lis.listeners[MessageKey(1)]
+
+    assert lis._end(MessageKey(1), ListenerRejected, _model(MessageKey(1))) is False
+    assert lis._end(MessageKey(1), ListenerRejected, model) is True
+    assert lis._end(MessageKey(1), ListenerRejected) is False
+    with pytest.raises(ListenerRejected) as exc:
+        await task
+    assert exc.value.value == MessageKey(1)
+
+
+async def test_end_runs_the_done_callbacks_of_a_wait_done_without_them() -> None:
+    lis = _make()
+    lis._add(model := _model(MessageKey(1)))
+    seen: list[ListenerModel] = []
+    model.add_done_callback(seen.append)
+    model.future.cancel()  # as a cancelled task leaves it: done, its callbacks not run
+
+    assert lis._end(MessageKey(1), ListenerCancelled) is True
+    assert seen == [model]
+    assert model.future.cancelled()
+
+
+async def test_cancel_matching_cancels_the_waits_holding_the_values_set() -> None:
+    lis = _make()
+    keys = [
+        MessageKey(1, 5),
+        MessageKey(1, 5, message_thread_id=3),
+        MessageKey(1),
+        MessageKey(2, 5),
+        MessageKey(1, 5, ephemeral=True),
+        MessageKey(1, 5, business_connection_id="b"),
+    ]
+    tasks = [await _pending(lis, key) for key in keys]
+    try:
+        assert lis.cancel_matching(MessageKey(1, 5)) == 2
+        assert set(lis.listeners) == set(keys[2:])
+        for task in tasks[:2]:
+            with pytest.raises(ListenerCancelled):
+                await task
+    finally:
+        await _drain(*tasks)
+
+
+def test_cancel_matching_rejects_a_key_of_another_type() -> None:
+    with pytest.raises(TypeError, match="needs exactly a MessageKey, not CallbackQueryKey"):
+        _make().cancel_matching(CallbackQueryKey(1))  # ty: ignore[invalid-argument-type]  # the wrong key type is the point
 
 
 # --- listen ---------------------------------------------------------------------
@@ -815,6 +884,96 @@ async def test_listen_on_a_worker_with_its_task_cancelled_frees_the_slot() -> No
         await task
 
     assert holder.listener_waits == {}
+
+
+async def test_listen_logs_an_update_lost_to_a_cancel_from_outside(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lis = _make()
+    task = await _pending(lis, MessageKey(1))
+
+    # Taken and cancelled in one loop iteration, as by an outer timeout due just then.
+    lis.listeners[MessageKey(1)].resolve("the answer")
+    task.cancel()
+
+    with (
+        caplog.at_level(logging.WARNING, logger=update_listener_module.__name__),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await task
+    assert "stopped from outside" in caplog.text
+    assert "'the answer'" in caplog.text
+
+
+async def test_listen_logs_an_error_lost_to_a_cancel_from_outside(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lis = _make()
+    task = await _pending(lis, MessageKey(1))
+
+    lis.listeners[MessageKey(1)].set_exc(ListenerTimeout(MessageKey(1)))
+    task.cancel()
+
+    with (
+        caplog.at_level(logging.WARNING, logger=update_listener_module.__name__),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await task
+    assert "ListenerTimeout" in caplog.text
+
+
+async def test_listen_logs_an_update_lost_to_its_coroutine_being_closed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lis = _make()
+    coroutine = lis.listen(MessageKey(1))
+    coroutine.send(None)  # registers the wait, then suspends on its future
+    lis.listeners[MessageKey(1)].resolve("the answer")
+
+    with caplog.at_level(logging.WARNING, logger=update_listener_module.__name__):
+        coroutine.close()
+    assert "'the answer'" in caplog.text
+
+
+async def test_listen_frees_the_slot_of_a_cancelled_wait_it_replaces() -> None:
+    lis = _make()
+    holder = _Holder()
+    old = await _pending_on_a_worker(lis, holder, 100)
+    old_model = lis.listeners[MessageKey(100)]
+
+    old.cancel()  # done at once; its done callbacks wait for its task to resume
+    _as_worker(lis, holder)
+    replacing = lis.listen(MessageKey(100))
+    replacing.send(None)  # registers in the same loop iteration, before `old` resumes
+    try:
+        assert old_model not in holder.listener_waits
+        assert len(holder.listener_waits) == 1
+    finally:
+        replacing.close()
+        await _drain(old)
+
+
+async def test_listen_logs_nothing_for_a_plain_cancel(caplog: pytest.LogCaptureFixture) -> None:
+    lis = _make()
+    task = await _pending(lis, MessageKey(1))
+    task.cancel()
+
+    with (
+        caplog.at_level(logging.WARNING, logger=update_listener_module.__name__),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await task
+    assert caplog.records == []
+
+
+async def test_listen_closed_while_waiting_removes_its_wait() -> None:
+    lis = _make()
+    coroutine = lis.listen(MessageKey(1))
+    coroutine.send(None)  # registers the wait, then suspends on its future
+
+    assert MessageKey(1) in lis.listeners
+    coroutine.close()
+    assert lis.listeners == {}
 
 
 async def test_cleanup_model_removes_the_model() -> None:

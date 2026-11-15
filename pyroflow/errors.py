@@ -7,10 +7,17 @@ docstring is the message template, formatted with the value at raise time.
 
 from __future__ import annotations as _annotations
 
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import sys
+
     from pyrogram.types import Update as PyroUpdate
+
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
     from .models import ListenerKey
 
@@ -35,6 +42,19 @@ class PyroflowError(Exception):
         template = self.__class__.__doc__ or (self.__class__.__name__ + " {value}")
         super().__init__(template.format(value=value))
 
+    def __reduce__(self) -> tuple[type[Self], tuple[object], dict[str, Any]]:
+        """Rebuild the error from `value`, so `copy` and `pickle` do not format the message twice.
+
+        Returns:
+            The class, `(value,)` and the attributes, as `copy` and `pickle` take them.
+
+        Example:
+            >>> import copy
+            >>> str(copy.copy(ListenerTimeout(5)))
+            'Listener for 5 timed out'
+        """
+        return type(self), (self.value,), self.__dict__
+
 
 class ListenerError(PyroflowError):
     """Listener error"""  # noqa: D415  # the docstring is the runtime message template
@@ -49,6 +69,10 @@ class ListenerCancelled(ListenerError):
 
 class ListenerReplaced(ListenerCancelled):
     """Listener for {value} was replaced by a newer one on the same key"""  # noqa: D415  # the docstring is the runtime message template
+
+
+class ListenerClosed(ListenerCancelled):
+    """The listener is closed: it was stopped and not started again"""  # noqa: D415  # the docstring is the runtime message template
 
 
 class ListenerRejected(ListenerCancelled):
@@ -102,6 +126,7 @@ __all__ = (
     "ListenerError",
     "ListenerCancelled",
     "ListenerReplaced",
+    "ListenerClosed",
     "ListenerRejected",
     "ListenerTimeout",
     "ListenerEvicted",

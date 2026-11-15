@@ -52,6 +52,7 @@ client.run()
 
 - **More ways to ask.** `ask_callback_query` waits for a button press, and both have rich versions. All of them are on `Client` too. `listen_message` and `listen_callback_query` wait without sending anything.
 - **Say who and for how long.** Pass `listen_user_id` in groups, or any member can answer. Always pass `listen_timeout`.
+- **Cancel a wait.** `cancel_listen` ends the wait on one key, and `cancel_listens` every wait with the fields you give, as a `/cancel` command would.
 - **A wait holds a worker.** `workers_policy` decides what happens when the workers run short. See the `WorkersPolicy` docstring.
 - **Your own update types.** A `ListenerKey` class and an `UpdateListener` class are enough to wait for any update. See the `UpdateListener` docstring.
 

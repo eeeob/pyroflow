@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _annotations
 
-import copy
 from typing import Any, cast, overload, TYPE_CHECKING
 
 from pyrogram import (
@@ -11,7 +10,7 @@ from pyrogram import (
 )
 
 from ..enums import WorkersPolicy
-from ..errors import ListenerAttemptsExhausted, ListenerNotSent
+from ..errors import ListenerAttemptsExhausted, ListenerClosed, ListenerNotSent
 from ..models import AskAgain, ListenerContext
 from pytrove import call_sync_or_await
 
@@ -114,6 +113,9 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `update_type`.
+            ListenerClosed: If the listener is stopped, as while the client
+                stops; the `ask_*` methods call this before sending, so a
+                question is never sent that no wait could take.
         """
         listener = self.get_listener(update_type)
 
@@ -124,7 +126,48 @@ class Client(PyroClient):
             )
             raise RuntimeError(msg)
 
+        if listener.is_closed:
+            raise ListenerClosed
+
         return listener
+
+    def cancel_listen(self, key: ListenerKey[UpdateType]) -> bool:
+        """Cancel the wait on exactly `key`, on the listener of its update type.
+
+        Its waiter gets `ListenerCancelled`; see `UpdateListener.cancel`.
+
+        Args:
+            key: The key the wait was started with.
+
+        Returns:
+            Whether a wait was cancelled; `False` also when no listener is
+            registered for the update type of `key`.
+        """
+        listener = self.get_listener(key.__update_type__)
+        return listener is not None and listener.cancel(key)
+
+    def cancel_listens(self, key: ListenerKey[UpdateType]) -> int:
+        """Cancel every wait whose key holds the values `key` sets, on the listener of its update type.
+
+        A `None` field matches any value, except an `exact` one, such as
+        `ephemeral` or `business_connection_id`, which always has to be equal.
+        So `MessageKey(chat_id=1, user_id=5)` cancels user 5's ordinary waits in
+        chat 1, as a `/cancel` command would; in a business chat, give the key
+        the `business_connection_id` of the message. See
+        `UpdateListener.cancel_matching`.
+
+        Args:
+            key: The values to match.
+
+        Returns:
+            How many waits were cancelled; `0` also when no listener is
+            registered for the update type of `key`.
+
+        Raises:
+            TypeError: If `key` is not exactly the `__key_type__` of that listener.
+        """
+        listener = self.get_listener(key.__update_type__)
+        return 0 if listener is None else listener.cancel_matching(key)
 
     async def listen(self, key: ListenerKey[UpdateType], **kw: Unpack[ListenKw]) -> UpdateType:
         """Wait for the next update matching `key`, on the listener of its update type.
@@ -322,10 +365,12 @@ class Client(PyroClient):
         if context.message is not None:
             return context
 
-        context = copy.copy(context)
-        context.message = sent
+        # Not `copy.copy`: it rebuilds a `SimpleNamespace` by calling its class with no
+        # arguments, which fails for a subclass whose `__init__` needs some.
+        copied = type(context).__new__(type(context))
+        vars(copied).update(vars(context), message=sent)
 
-        return context
+        return copied
 
     async def ask_repeatedly(
         self,

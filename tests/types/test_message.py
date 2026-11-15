@@ -13,6 +13,7 @@ from pyrogram.types import Chat, EphemeralMessageParameters, ReplyParameters
 
 from pyroflow.errors import (
     ListenerAttemptsExhausted,
+    ListenerClosed,
     ListenerNotSent,
     ListenerRejected,
     ListenerReplaced,
@@ -41,9 +42,11 @@ def make_client() -> pyroflow.Client:
     client = pyroflow.Client("probe", api_id=1, api_hash="x", in_memory=True)
     client.setup_pyroflow(ask_context_message=True)
     listen = AsyncMock(return_value=SENTINEL)
-    client.dispatcher.listeners[Message] = SimpleNamespace(listen=listen, __key_type__=MessageKey)
+    client.dispatcher.listeners[Message] = SimpleNamespace(
+        listen=listen, __key_type__=MessageKey, is_closed=False
+    )
     client.dispatcher.listeners[CallbackQuery] = SimpleNamespace(
-        listen=listen, __key_type__=CallbackQueryKey
+        listen=listen, __key_type__=CallbackQueryKey, is_closed=False
     )
     return client
 
@@ -104,6 +107,35 @@ def test_not_editable_without_sender_when_not_outgoing() -> None:
     m = make_msg()
     m.from_user = None
     assert m.editable is False
+
+
+def test_not_editable_when_the_sender_is_not_known_to_be_self() -> None:
+    m = make_msg()
+    m.from_user = User(id=7)  # `is_self` left as `None`, as on a hand-built `User`
+    assert m.editable is False
+
+
+@pytest.mark.parametrize(
+    ("fields", "editable"),
+    [
+        pytest.param({"outgoing": True}, False, id="typed-by-the-owner"),
+        pytest.param(
+            {"outgoing": True, "sender_business_bot": User(id=ME_ID, is_self=True)},
+            True,
+            id="sent-by-this-bot",
+        ),
+        pytest.param(
+            {"outgoing": True, "sender_business_bot": User(id=1, is_self=False)},
+            False,
+            id="sent-by-another-bot",
+        ),
+        pytest.param({}, False, id="from-the-customer"),
+    ],
+)
+def test_editable_in_a_business_chat_only_for_what_this_bot_sent(
+    fields: dict[str, Any], editable: bool
+) -> None:
+    assert make_msg(business_connection_id="bc", **fields).editable is editable
 
 
 # --- Message.flow_* --------------------------------------------------------
@@ -530,6 +562,22 @@ async def test_ask_sends_nothing_without_a_listener(
         await getattr(m, method)(content)
 
     getattr(m._client, sender).assert_not_awaited()
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_on_a_stopped_listener_sends_nothing(
+    method: str, sender: str, content_kw: str, content: object, key_type: type
+) -> None:
+    m = make_ask_msg(is_self=True)
+    for listener in m._client.dispatcher.listeners.values():
+        listener.is_closed = True
+
+    with pytest.raises(ListenerClosed):
+        await getattr(m, method)(content)
+
+    getattr(m._client, sender).assert_not_awaited()
+    m._client.edit_message_text.assert_not_awaited()
+    wait_of(m).assert_not_awaited()
 
 
 @pytest.mark.parametrize(ASK_ARGS, ASK_METHODS[:2])

@@ -21,6 +21,8 @@ from pyroflow.enums import DuplicatePolicy, WorkersPolicy
 from pyroflow.errors import (
     ListenerAlreadyExists,
     ListenerAttemptsExhausted,
+    ListenerCancelled,
+    ListenerClosed,
     ListenerNotSent,
     ListenerRejected,
     ListenerReplaced,
@@ -28,6 +30,7 @@ from pyroflow.errors import (
 )
 from pyroflow.models import AskAgain, CallbackQueryKey, ListenerContext, MessageKey
 from pyroflow.types import CallbackQuery, Message
+from pyroflow.update_listener import MessageListener
 
 from ..conftest import CALLBACK_MARKUP, make_callback_query, make_message
 
@@ -75,6 +78,8 @@ def test_ask_context_message_defaults_to_false() -> None:
 
 class _RecordingListener:
     """Stands in for a registered `UpdateListener`: records its wait, returns a sentinel."""
+
+    is_closed = False
 
     def __init__(self, key_type: type = MessageKey) -> None:
         self.__key_type__ = key_type
@@ -162,7 +167,7 @@ def test_get_listener_returns_none_when_unregistered() -> None:
 
 def test_require_listener_returns_the_registered_listener() -> None:
     c = make_client()
-    listener = object()
+    listener = _RecordingListener()
     c.dispatcher.listeners[Message] = listener
 
     assert c.require_listener(Message) is listener
@@ -171,6 +176,75 @@ def test_require_listener_returns_the_registered_listener() -> None:
 def test_require_listener_raises_without_one() -> None:
     with pytest.raises(RuntimeError, match="No listener registered for CallbackQuery"):
         make_client().require_listener(CallbackQuery)
+
+
+def test_require_listener_refuses_a_stopped_listener() -> None:
+    c = make_client()
+    listener = _RecordingListener()
+    listener.is_closed = True
+    c.dispatcher.listeners[Message] = listener
+
+    with pytest.raises(ListenerClosed) as exc:
+        c.require_listener(Message)
+    assert exc.value.value is None
+
+
+@pytest.mark.parametrize(ASK_ARGS, ASK_METHODS)
+async def test_ask_on_a_stopped_listener_sends_nothing(
+    method: str, sender: str, content_arg: str, update_type: type, key_type: type
+) -> None:
+    c, listener, _, _ = _ask_client(update_type=update_type)
+    listener.is_closed = True
+    sent = getattr(c, sender)
+
+    with pytest.raises(ListenerClosed):
+        await getattr(c, method)(100, "hi")
+    assert sent.calls == []
+    assert listener.calls == []
+
+
+async def test_cancel_listen_cancels_the_wait_on_exactly_the_key() -> None:
+    c = make_client()
+    listener = MessageListener()
+    c.register_listener(listener)
+    exact = asyncio.ensure_future(listener.listen(MessageKey(1, 5)))
+    wider = asyncio.ensure_future(listener.listen(MessageKey(1)))
+    await asyncio.sleep(0)
+    try:
+        assert c.cancel_listen(MessageKey(1, 5)) is True
+        assert c.cancel_listen(MessageKey(1, 5)) is False
+        with pytest.raises(ListenerCancelled):
+            await exact
+        assert not wider.done()
+    finally:
+        for task in (exact, wider):
+            task.cancel()
+        await asyncio.gather(exact, wider, return_exceptions=True)
+
+
+async def test_cancel_listens_cancels_every_wait_holding_the_values() -> None:
+    c = make_client()
+    listener = MessageListener()
+    c.register_listener(listener)
+    tasks = [
+        asyncio.ensure_future(listener.listen(key))
+        for key in (MessageKey(1, 5), MessageKey(1, 5, message_thread_id=3), MessageKey(1))
+    ]
+    await asyncio.sleep(0)
+    try:
+        assert c.cancel_listens(MessageKey(1, 5)) == 2
+        assert set(listener.listeners) == {MessageKey(1)}
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def test_cancel_listen_and_cancel_listens_without_a_listener_cancel_nothing() -> None:
+    c = make_client()
+
+    assert c.cancel_listen(MessageKey(1)) is False
+    assert c.cancel_listens(MessageKey(1)) == 0
 
 
 def test_context_with_message_leaves_the_context_when_off() -> None:
@@ -199,6 +273,21 @@ def test_context_with_message_copies_a_context_without_a_message() -> None:
     assert result.message is sent
     assert result.step == 1
     assert context.message is None
+
+
+def test_context_with_message_copies_a_subclass_whose_init_needs_arguments() -> None:
+    class _OrderContext(ListenerContext):
+        def __init__(self, order_id: int) -> None:
+            super().__init__(order_id=order_id)
+
+    c = make_client().setup_pyroflow(ask_context_message=True)
+    sent = make_message()
+
+    result = c.context_with_message(sent, _OrderContext(5))
+
+    assert type(result) is _OrderContext
+    assert result.order_id == 5
+    assert result.message is sent
 
 
 def test_context_with_message_keeps_a_message_already_there() -> None:
@@ -587,6 +676,7 @@ async def test_ask_raises_the_listener_error_unchanged(
 
     class _RaisingListener:
         __key_type__ = key_type
+        is_closed = False
 
         async def listen(self, key: object, **kw: object) -> None:
             raise error
