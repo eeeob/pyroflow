@@ -34,11 +34,11 @@ if TYPE_CHECKING:
         StrInt,
     )
 
-    from .._internal import AskEditKw, AskRichEditKw, AskRichSendKw, AskSendKw
+    from .._internal import AskEditKw, AskRichEditKw, AskRichSendKw, AskSendKw, ListenKw
     from ..dispatcher import Dispatcher
     from ..models import AskParser, CallbackQueryKey, ListenerKey, MessageKey
     from ..typings import QuestionT, ResultT, UpdateType
-    from ..update_listener import ListenKw, UpdateListener
+    from ..update_listener import UpdateListener
 
 
 @patch_cls

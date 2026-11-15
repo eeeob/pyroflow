@@ -5,7 +5,7 @@ from __future__ import annotations as _annotations
 import asyncio
 import logging
 from abc import ABC
-from typing import Any, TYPE_CHECKING, TypedDict, cast
+from typing import Any, TYPE_CHECKING, cast
 
 from pytrove import call_sync_or_await
 
@@ -39,19 +39,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 """Logger for errors of listener filters and `on_error_func`."""
-
-
-class ListenKw(TypedDict, total=False):
-    """The arguments of a wait that every `listen` accepts besides its key."""
-
-    context: ListenerContext | None
-    """Values attached to the wait; `None` attaches none."""
-    filters: Filter | None
-    """A Pyrogram filter the update must pass besides its key."""
-    strict: bool
-    """Whether an update that matches the key but fails `filters` ends the wait."""
-    timeout: Number | None
-    """Seconds to wait; `None` falls back to the listener's own `timeout`."""
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -796,7 +783,4 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         return key
 
 
-__all__ = (
-    "ListenKw",
-    "UpdateListener",
-)
+__all__ = ("UpdateListener",)

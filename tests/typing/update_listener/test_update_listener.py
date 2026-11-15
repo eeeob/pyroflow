@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         MessageListener,
         UpdateListener,
     )
-    from pyroflow.update_listener import ListenKw
+    from pyroflow._internal import ListenKw
 
     def _check_listen_kw() -> None:
         kw: ListenKw = {"context": ListenerContext(), "strict": True}

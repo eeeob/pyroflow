@@ -167,14 +167,7 @@ def _chat_key(update: Message) -> MessageKey:
 
 
 def test_module_exports() -> None:
-    assert update_listener_module.__all__ == ("ListenKw", "UpdateListener")
-
-
-def test_listen_kw_holds_the_optional_arguments_of_a_wait() -> None:
-    listen_kw = update_listener_module.ListenKw
-
-    assert listen_kw.__required_keys__ == frozenset()
-    assert list(listen_kw.__annotations__) == ["context", "filters", "strict", "timeout"]
+    assert update_listener_module.__all__ == ("UpdateListener",)
 
 
 def test_module_logger() -> None:
