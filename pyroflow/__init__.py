@@ -7,7 +7,7 @@ Import it before creating any `Client`: a client built earlier lacks
 pyroflow's state and fails on `start()`.
 """
 
-__version__ = "0.2.1"
+__version__ = "1.0.0"
 """The installed release, as a PEP 440 version string."""
 
 from .update_listener import *
