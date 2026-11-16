@@ -3,6 +3,8 @@
 A new error lives here and subclasses its family: `ListenerError` for waits
 and the `ask_*` methods, or `PyroflowError` when it does not fit. Its class
 docstring is the message template, formatted with the value at raise time.
+Any `__init__` parameter after `value` needs a default, as `copy` and
+`pickle` rebuild the error from `value` alone.
 """
 
 from __future__ import annotations as _annotations

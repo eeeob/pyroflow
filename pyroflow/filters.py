@@ -125,7 +125,8 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
             none or one of the bot's, and with `None` none or any.
         scopes: The scopes whose commands count; by default `DEFAULT_SCOPES`.
         language_codes: The languages whose commands count in each scope; by
-            default `""`, the commands of users with no language of their own.
+            default `""`, the list for users whose language has no list of
+            its own.
 
     Example:
         >>> import asyncio
@@ -162,7 +163,7 @@ class registered_command(Filter):  # lowercase: used like the factories in this 
         scopes: Iterable[BotCommandScope] = DEFAULT_SCOPES,
         language_codes: Iterable[str] = ("",),
     ) -> None:
-        """Initialise the filter with nothing fetched; see the class docstring for the parameters."""
+        """Initialize the filter with nothing fetched; see the class docstring for the parameters."""
         self.ephemeral = ephemeral
         """Whether a command marked `is_ephemeral` counts."""
         self.username_policy = username_policy
@@ -308,12 +309,13 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
     is forgotten when its update is deleted from memory.
 
     The state is kept per client object, in memory, and each filter keeps its
-    own: a key stops counting once its interval has ended both from the
-    arrival of its last update let through and from that update's check, and
-    is dropped at a later sweep. So a press checked later than the interval
-    after that check, as behind a handler slower than the interval, may be let
-    through. It survives the client stopping and starting, and is lost only when
-    the client object is freed or the process ends. So make one filter for
+    own: a key is kept until its interval has ended both from the arrival of
+    its last update let through and from that update's check, and is dropped
+    at a later sweep; only the arrival end decides a match. So a press checked
+    later than the interval after that check, as behind a handler slower than
+    the interval, may be let through. It survives the client stopping and
+    starting, and is lost only when the client object is freed or the
+    process ends. So make one filter for
     each update type and use it on every handler of that type, as it is on
     the handler that takes the fast updates and with `~` on the ones that do
     the work, not a new one per handler: two filters each let the same
@@ -342,7 +344,8 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
             `extract_key`, which keys button presses only.
         on_spam: A function (sync or async) called with each update it
             matches, once per update; what it raises is logged, and the update
-            still counts as too soon.
+            still counts as too soon. A sync one runs on the event loop, so
+            keep it light.
             By default `answer_press`, which answers a button press with no
             text to end its loading indicator; `None` calls nothing.
 
@@ -420,7 +423,7 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
         key: Callable[[UpdateType], Hashable | None] = extract_key,
         on_spam: MaybeAwaitableCallable[[UpdateType], object] | None = answer_press,
     ) -> None:
-        """Initialise the filter with nothing kept; see the class docstring for the parameters."""
+        """Initialize the filter with nothing kept; see the class docstring for the parameters."""
         if not callable(key):
             msg = f"too_fast key must be callable, not {type(key).__name__}"
             raise TypeError(msg)
@@ -518,8 +521,8 @@ class too_fast(Filter, Generic[UpdateType]):  # lowercase: used like the factori
         # The id is reused only once the update is freed, after this, so no newer decision is popped.
         weakref.finalize(update, state.is_spam.pop, decision_id, None)
 
-        # Forget the keys whose interval ended, once the keys more than doubled since the
-        # last sweep.
+        # Forget the keys whose interval ended both by this update's arrival and by now, once
+        # the keys more than doubled since the last sweep.
         if len(state.until) > 2 * state.kept:
             state.until = {
                 key: ends

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class AskSendKw(TypedDict, total=False):
-    """What `Client.ask` and `ask_callback_query` accept when they send a text."""
+    """What `Client.ask`, `ask_callback_query` and their `*_until` variants accept when they send a text."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -36,7 +36,7 @@ class AskSendKw(TypedDict, total=False):
     effect_id: int | None
     """Message effect to apply."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram
-    """Show the caption above the media."""
+    """Show the link preview above the text; use `link_preview_options` instead."""
     reply_parameters: pyro_types.ReplyParameters | None
     """Reply options."""
     protect_content: bool | None
@@ -74,7 +74,7 @@ class AskSendKw(TypedDict, total=False):
 
 
 class AskEditKw(TypedDict, total=False):
-    """What `Client.ask` and `ask_callback_query` accept when they edit a text."""
+    """What `Client.ask`, `ask_callback_query` and their `*_until` variants accept when they edit a text."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -87,13 +87,13 @@ class AskEditKw(TypedDict, total=False):
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram
-    """Show the caption above the media."""
+    """Show the link preview above the text; use `link_preview_options` instead."""
     disable_web_page_preview: bool | None  # deprecated in Pyrogram
     """Disable the link preview."""
 
 
 class AskRichSendKw(TypedDict, total=False):
-    """What the `Client.ask_*_rich` methods accept when they send a rich message."""
+    """What `Client.ask_rich`, `ask_callback_query_rich` and their `*_until` variants accept when they send a rich message."""
 
     disable_notification: bool | None
     """Send the message silently."""
@@ -126,7 +126,7 @@ class AskRichSendKw(TypedDict, total=False):
 
 
 class AskRichEditKw(TypedDict, total=False):
-    """What the `Client.ask_*_rich` methods accept when they edit to a rich message."""
+    """What `Client.ask_rich`, `ask_callback_query_rich` and their `*_until` variants accept when they edit to a rich message."""
 
     link_preview_options: pyro_types.LinkPreviewOptions | None
     """Link preview options for the message."""
@@ -135,7 +135,7 @@ class AskRichEditKw(TypedDict, total=False):
     reply_markup: pyro_types.InlineKeyboardMarkup | None
     """Keyboard to attach."""
     show_caption_above_media: bool | None  # deprecated in Pyrogram
-    """Show the caption above the media."""
+    """Show the link preview above the text; use `link_preview_options` instead."""
     disable_web_page_preview: bool | None  # deprecated in Pyrogram
     """Disable the link preview."""
 

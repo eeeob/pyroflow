@@ -45,11 +45,10 @@ class BotCommandsMixin(_ClientForTypeCheckers):
     first, as in `class MyClient(BotCommandsMixin, Client)`. `start` publishes
     the commands of every registered handler once the `plugins` are loaded
     and the client is connected, and before the dispatcher starts (so the first
-    updates already see them), and `stop` deletes them once the dispatcher has
-    stopped (so no handler still running publishes them again) and before
-    disconnecting. Each
-    `(language_code, scope)` group is one Telegram call, so different scopes
-    never overwrite each other.
+    updates already see them), and `stop` deletes them in `terminate`, once
+    the dispatcher has stopped (so no handler still running publishes them
+    again) and before disconnecting. Each `(language_code, scope)` group is
+    one Telegram call, so different scopes never overwrite each other.
 
     Raises:
         TypeError: If `Client` does not come after this mixin in the class's MRO.
@@ -61,14 +60,18 @@ class BotCommandsMixin(_ClientForTypeCheckers):
         the other still uses. Stop with `remove_commands=False` there.
     """
 
+    # Hidden from type checkers, so they keep the signature of `Client.__init__`.
     if not TYPE_CHECKING:
 
         def __init__(self, *args: object, **kw: object) -> None:
-            """Refuse a class without `Client` after this mixin, then initialise as usual.
+            """Refuse a class without `Client` after this mixin, then initialize as usual.
 
             Args:
                 *args: Passed to the next class in the MRO.
                 **kw: Passed to the next class in the MRO.
+
+            Raises:
+                TypeError: If `Client` does not come after this mixin in the class's MRO.
             """
             mro = type(self).__mro__
 

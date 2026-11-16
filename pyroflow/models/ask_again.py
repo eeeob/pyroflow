@@ -29,7 +29,7 @@ AskParser: TypeAlias = Callable[
     [UpdateType, dict[str, Any]],
     AskAgain[QuestionT] | ResultT | Awaitable[AskAgain[QuestionT] | ResultT],
 ]
-"""The `parse` of the `ask_*_until` methods: `AskAgain` asks again, anything else is returned; light, as it runs on the loop."""
+"""The `parse(answer, kw)` of the `ask_*_until` methods, `kw` being the question's keyword arguments: `AskAgain` asks again, anything else is returned; light, as it runs on the loop."""
 
 
 __all__ = (

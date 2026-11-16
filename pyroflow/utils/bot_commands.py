@@ -56,7 +56,7 @@ def mark_bot_commands(*entries: BotCommandEntryT) -> Callable[[_FT], _FT]:
     """
 
     def decorator(func: _FT) -> _FT:
-        """Store `entries` on each message handler in `func.handlers`."""
+        """Store `entries` on each message handler in `func.handlers`, and return `func`."""
         for handler, _ in getattr(func, "handlers", []):
             if not isinstance(handler, _MESSAGES_HANDLER):
                 continue

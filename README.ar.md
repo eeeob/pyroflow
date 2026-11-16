@@ -4,7 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/pyroflow)](https://pypi.org/project/pyroflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**محادثات لـ [Kurigram](https://github.com/KurimuzonAkuma/pyrogram) (Pyrogram): انتظر الرد بـ `await`، وشغّل تحديثات المفتاح الواحد، كالمحادثة الواحدة، واحداً تلو الآخر.**
+**محادثات لـ [Kurigram](https://github.com/kurigram-org/kurigram) (Pyrogram): انتظر الرد بـ `await`، وشغّل تحديثات المفتاح الواحد، كالمحادثة الواحدة، واحداً تلو الآخر.**
 
 > هذه ترجمة لـ [README.md](README.md). عند أي اختلاف، النص الإنجليزي هو المرجع.
 

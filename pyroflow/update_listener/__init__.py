@@ -1,8 +1,9 @@
 """Per-update-type listeners that resolve `listen` and `ask_*` waits.
 
 Support for a new update type is an `XListener` subclass of `UpdateListener`
-that sets `__update_type__` and `__key_type__`, plus its key `XKey(ListenerKey)`
-in `pyroflow/models/listener_key.py` with the same `__update_type__`,
+that sets `__update_type__` and `__key_type__`, plus its key `XKey(ListenerKey)`,
+a `@dataclass(frozen=True, slots=True)` (without it the key has no fields), in
+`pyroflow/models/listener_key.py` with the same `__update_type__`,
 `from_update` and `from_sent`.
 """
 

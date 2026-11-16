@@ -29,7 +29,7 @@ class ZeroWaitCounter:
     """Counts the updates under way, and lets a task wait until none is left."""
 
     def __init__(self) -> None:
-        """Initialise the counter at zero."""
+        """Initialize the counter at zero."""
         self._count = 0
         """How many updates are under way."""
         self._is_zero = asyncio.Event()
@@ -61,7 +61,7 @@ class ArrivalOrder:
     """
 
     def __init__(self, workers: int) -> None:
-        """Initialise the order; see the class docstring for the parameters."""
+        """Initialize the order; see the class docstring for the parameters."""
         self.read_slots = asyncio.Semaphore(workers)
         """Taken to read an update and freed on its admission, so a slow parse holds back little."""
         self.all_admitted = asyncio.Event()
@@ -167,7 +167,8 @@ class CoordinatedDispatcher(Dispatcher):
 
     Example:
         >>> def chat_key(update):
-        ...     return update.chat.id
+        ...     chat = getattr(update, "chat", None)
+        ...     return None if chat is None else chat.id
         >>> import pyroflow
         >>> client = pyroflow.Client("doc", api_id=1, api_hash="x", in_memory=True)
         >>> dispatcher = CoordinatedDispatcher(client, key_functions=[chat_key])
@@ -181,7 +182,7 @@ class CoordinatedDispatcher(Dispatcher):
         key_functions: Iterable[Callable[[PyroUpdate], CoordinationKeyT | None]] = (),
         **kw: object,
     ) -> None:
-        """Initialise the dispatcher; see the class docstring for the parameters."""
+        """Initialize the dispatcher; see the class docstring for the parameters."""
         super().__init__(*args, **kw)
 
         self.key_functions = tuple(key_functions)

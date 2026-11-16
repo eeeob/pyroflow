@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger(__name__)
-"""Logger for errors of listener filters and `on_error_func`."""
+"""Logger for errors of listener filters and `on_error_func`, and for what a wait loses to a cancel from outside."""
 
 
 class UpdateListener(ABC, UpdateBound[UpdateType]):
@@ -72,7 +72,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             rejection), after the wait is removed and before `listen` raises
             the error. Errors raised before a wait starts,
             `ListenerAlreadyExists`, `ListenerWorkersBusy` and the
-            `ListenerCancelled` of a stopped listener, are not reported. A
+            `ListenerClosed` of a stopped listener, are not reported. A
             failing callback is logged and never hides the error.
         timeout: Default seconds `listen` waits; `None` waits indefinitely.
         resolve_scope: Which matching waits `resolve` gives an update to:
@@ -89,6 +89,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
     Raises:
         TypeError: If `__key_type__` keys another update type than `__update_type__`,
             or `timeout` is neither a number nor `None`.
+        AttributeError: If a subclass sets no `__key_type__`.
 
     Example:
         >>> from pyrogram.types import Chat, Message
@@ -153,7 +154,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
         filters_timeout: Number | None = None,
         **kw: object,
     ) -> None:
-        """Initialise the listener; see the class docstring for the parameters."""
+        """Initialize the listener; see the class docstring for the parameters."""
         super().__init__(**kw)
 
         key_update_type = self.__key_type__.__update_type__
@@ -357,7 +358,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             key: The key identifying the listener.
 
         Returns:
-            Whether a listener was cancelled.
+            Whether a wait was registered on `key` and is now ended, including
+            one its own task had cancelled, which is only cleaned up.
 
         Example:
             >>> from pyroflow import Client
@@ -391,7 +393,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             key: The values to match, a `__key_type__`.
 
         Returns:
-            How many listeners were cancelled.
+            How many registered waits it ended, counting those their own task
+            had cancelled, which are only cleaned up.
 
         Raises:
             TypeError: If `key` is not exactly a `__key_type__`.
@@ -622,7 +625,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
             raise RuntimeError(msg)
 
         # Read here alone, with no `current_task` check: a wait in a sync handler or a
-        # spawned task counts.
+        # spawned task gets the handler's hold.
         hold = _HANDLER_HOLD.get()
 
         # A wait of a coordinated handler starts between two offers of its lane, never during
@@ -671,8 +674,8 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                 # The evicted handler may go on working, uncounted like any handler not waiting.
                 oldest = next(iter(waits))
                 waits[oldest].evict(oldest.key, model=oldest)
-                # A pending wait frees its slot through its done callback; one whose task was
-                # cancelled, and so is done without it, does here.
+                # `evict` runs the callbacks of the wait it ends; this catches the oldest wait
+                # when `evict` returns `False`, as it is no longer registered under its key.
                 oldest.run_done_callbacks()
 
         if current is not None:
@@ -832,7 +835,7 @@ class UpdateListener(ABC, UpdateBound[UpdateType]):
                     log.exception("Error in the filter of the listener for %s", sub)
                     passed = False
 
-                # The filter may yield; another update or a newer `listen` may have taken the slot.
+                # The filter may yield; another update or a newer `listen` may have taken the key.
                 if self.listeners.get(sub) is not listener or listener.done():
                     continue
 

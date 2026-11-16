@@ -104,8 +104,9 @@ class CallbackFields(metaclass=_FieldsMeta):
 class CallbackData(Generic[_P, _T]):
     """A layout of `callback_data`: a prefix and the fields of a class.
 
-    The fields of `schema` show as type hints on `pack` and `button`, and
-    `unpack` returns `schema`, with the fields written with `parsed` converted.
+    The fields of `schema` show as type hints on `pack`, `button`, `filter`
+    and `filter_equal`, and `unpack` returns an instance of `schema`, with the
+    fields written with `parsed` converted.
 
     Args:
         prefix: Marks the data as this layout's.
@@ -215,10 +216,11 @@ class CallbackData(Generic[_P, _T]):
     def pack(self, /, *args: _P.args, **kwargs: _P.kwargs) -> str:
         """Build the `callback_data` of the values, as `schema` takes them.
 
+        An `Enum` member is packed by its value, and anything else with `str`.
+
         Args:
             *args: The values, in field order.
-            **kwargs: The values, by field name. An `Enum` member goes in by
-                its value, and anything else with `str`.
+            **kwargs: The values, by field name.
 
         Returns:
             The data.
@@ -270,8 +272,8 @@ class CallbackData(Generic[_P, _T]):
             data: What `pack` built, or the same as `bytes`.
 
         Returns:
-            `schema`, each field written with `parsed` read by its function
-            and the others left as text.
+            An instance of `schema`, each field written with `parsed` read by
+            its function and the others left as text.
 
         Raises:
             ValueError: If the prefix or the number of parts does not match, or
@@ -421,6 +423,8 @@ class CallbackData(Generic[_P, _T]):
             TypeError: If a name is not a field, or a rule is of no supported
                 kind.
             ValueError: If a rule resolves to no strings.
+            Exception: Whatever a callable rule raises when the filter checks
+                an update, unchanged.
         """
         unknown = rules.keys() - set(self.fields)
 

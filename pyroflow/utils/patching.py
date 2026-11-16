@@ -5,12 +5,14 @@ Methods and properties added to Pyrogram types (`Client`, `Message`, `User`,
 users keep using Pyrogram's own classes.
 
 An override that calls its kurigram original takes `*args, **kw` and passes
-them on, with pyroflow's own parameters keyword-only between them
-(`def __init__(self, *args, key_functions=(), **kw)`), so a kurigram
-signature change needs no change here. One that replaces the original
-without calling it (`Dispatcher.handler_worker(self)`) and a filter's
-`__call__(self, client, update)` keep kurigram's signature; change one only
-after checking it against the installed `kurigram`.
+them on as `self.old<name>(*args, **kw)` (`Dispatcher.__init__`), since
+zero-argument `super()` raises `TypeError` once the method is copied onto the
+base. pyroflow's own parameters are keyword-only between them, as in the
+subclass `CoordinatedDispatcher.__init__(self, *args, key_functions=(), **kw)`,
+so a kurigram signature change needs no change here. One that replaces the
+original without calling it (`Dispatcher.handler_worker(self)`) and a
+filter's `__call__(self, client, update)` keep kurigram's signature; change
+one only after checking it against the installed `kurigram`.
 """
 
 from __future__ import annotations as _annotations

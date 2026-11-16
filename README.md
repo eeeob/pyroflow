@@ -4,7 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/pyroflow)](https://pypi.org/project/pyroflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Conversations for [Kurigram](https://github.com/KurimuzonAkuma/pyrogram) (Pyrogram): `await` the reply, and run one key's updates, such as one chat's, one at a time.**
+**Conversations for [Kurigram](https://github.com/kurigram-org/kurigram) (Pyrogram): `await` the reply, and run one key's updates, such as one chat's, one at a time.**
 
 > Arabic translation: [README.ar.md](README.ar.md). If the two differ, this English text is the reference.
 

@@ -232,9 +232,10 @@ class Dispatcher(PyroDispatcher):
     ) -> None:
         """Run the first matching handler of each group.
 
-        The listener already had the update (see `handler_worker`). A handler
-        error is passed to `handle_update_handler_exception` and does not stop
-        the other groups.
+        A handler that raises `ContinuePropagation` passes the update to the
+        next handler of its group. The listener already had the update (see
+        `handler_worker`). A handler error is passed to
+        `handle_update_handler_exception` and does not stop the other groups.
 
         Args:
             packet: The raw `(update, users, chats)` tuple from Pyrogram.
@@ -293,7 +294,8 @@ class Dispatcher(PyroDispatcher):
         """Parse a packet from `updates_queue`, and set when it arrived on the parsed update.
 
         The arrival is taken out of `arrivals` whether the parse succeeds or
-        not, so nothing is left behind.
+        not, so nothing is left behind. Only an `Update` gets it; a parsed
+        list, such as deleted messages, has nowhere to keep it.
 
         Args:
             packet: The raw `(update, users, chats)` tuple from Pyrogram.

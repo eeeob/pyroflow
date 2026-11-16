@@ -6,7 +6,8 @@ fills in and without what does not suit `ask`: scheduling, since `ask`
 waits for the answer to a question asked now.
 
 There is one class for each of plain and rich text, editing
-(`force_send=False`) and sending (`force_send=True`). The classes are
+(`force_send=False`, which edits only an `editable` message and otherwise
+replies) and sending (`force_send=True`). The classes are
 kept in sync with every kurigram release, and `tests/_internal` fails
 when they drift from their counterparts.
 """
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class MessageAskSendKw(TypedDict, total=False):
-    """What `Message.ask`, `ask_callback_query` and `flow_reply` accept to reply with a text: `Message.reply` without `text` and scheduling."""
+    """What `Message.ask`, `ask_callback_query`, their `*_until` variants and `flow_reply` accept to reply with a text: `Message.reply` without `text` and scheduling."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -51,7 +52,7 @@ class MessageAskSendKw(TypedDict, total=False):
 
 
 class MessageAskEditKw(TypedDict, total=False):
-    """What `Message.ask`, `ask_callback_query` and `flow_edit` accept to edit a text: `Message.edit_text` without `text` and `rich_message`."""
+    """What `Message.ask`, `ask_callback_query`, their `*_until` variants and `flow_edit` accept to edit a text: `Message.edit_text` without `text` and `rich_message`."""
 
     parse_mode: pyro_enums.ParseMode | None
     """How the text is parsed; `None` uses the client default."""
@@ -64,7 +65,7 @@ class MessageAskEditKw(TypedDict, total=False):
 
 
 class MessageAskRichSendKw(TypedDict, total=False):
-    """What the `Message.ask_*_rich` methods and `flow_reply_rich` accept to reply: `Message.reply_rich` without `rich_message`."""
+    """What `Message.ask_rich`, `ask_callback_query_rich`, their `*_until` variants and `flow_reply_rich` accept to reply: `Message.reply_rich` without `rich_message`."""
 
     disable_notification: bool | None
     """Send the message silently."""
@@ -87,7 +88,7 @@ class MessageAskRichSendKw(TypedDict, total=False):
 
 
 class MessageAskRichEditKw(TypedDict, total=False):
-    """What the `Message.ask_*_rich` methods and `flow_edit_rich` accept to edit: `Message.edit_text` without `rich_message` and what only a text takes."""
+    """What `Message.ask_rich`, `ask_callback_query_rich`, their `*_until` variants and `flow_edit_rich` accept to edit: `Message.edit_text` without `rich_message` and what only a text takes."""
 
     link_preview_options: pyro_types.LinkPreviewOptions | None
     """Link preview options for the message."""

@@ -113,9 +113,10 @@ class Client(PyroClient):
 
         Raises:
             RuntimeError: If no listener is registered for `update_type`.
-            ListenerClosed: If the listener is stopped, as while the client
-                stops; the `ask_*` methods call this before sending, so a
-                question is never sent that no wait could take.
+            ListenerClosed: If the listener is stopped, as once the client
+                stops; the `ask_*` methods call this before sending, so no
+                question is sent once the listener is stopped. If it stops
+                while the question is being sent, the wait raises it instead.
         """
         listener = self.get_listener(update_type)
 
@@ -185,8 +186,9 @@ class Client(PyroClient):
                 or `timeout` is neither a number nor `None`.
             ListenerTimeout: If the timeout expires before an update arrives.
             ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer
-                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                cancelled; also its subclasses `ListenerClosed` (the listener
+                is stopped), `ListenerReplaced` (a newer wait on the key,
+                under the default `DuplicatePolicy.REPLACE`),
                 `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
                 for a wait inside a handler) and `ListenerRejected` (with
                 `strict` or the listener's `strict_filter`).
@@ -235,8 +237,9 @@ class Client(PyroClient):
             TypeError: If `timeout` is neither a number nor `None`.
             ListenerTimeout: If the timeout expires before a message arrives.
             ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer
-                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                cancelled; also its subclasses `ListenerClosed` (the listener
+                is stopped), `ListenerReplaced` (a newer wait on the key,
+                under the default `DuplicatePolicy.REPLACE`),
                 `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
                 for a wait inside a handler) and `ListenerRejected` (with
                 `strict` or the listener's `strict_filter`).
@@ -295,8 +298,9 @@ class Client(PyroClient):
             TypeError: If `timeout` is neither a number nor `None`.
             ListenerTimeout: If the timeout expires before a press arrives.
             ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer
-                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                cancelled; also its subclasses `ListenerClosed` (the listener
+                is stopped), `ListenerReplaced` (a newer wait on the key,
+                under the default `DuplicatePolicy.REPLACE`),
                 `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
                 for a wait inside a handler) and `ListenerRejected` (with
                 `strict` or the listener's `strict_filter`).
@@ -529,13 +533,16 @@ class Client(PyroClient):
         Raises:
             RuntimeError: If no listener is registered for `Message`.
             ListenerNotSent: If Telegram returns no message for the question,
-                which `send_message` allows.
+                which `send_message` and `send_rich_message` allow.
             TypeError: If `listen_timeout` is neither a number nor `None`; the
                 question is already sent or edited by then.
             ListenerTimeout: If the timeout expires before the answer arrives.
             ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer
-                wait on the key, under the default `DuplicatePolicy.REPLACE`),
+                cancelled; also its subclasses `ListenerClosed` (the listener
+                is stopped: raised before sending, or from the wait if it
+                stops while the question is sent), `ListenerReplaced` (a
+                newer wait on the key, under the default
+                `DuplicatePolicy.REPLACE`),
                 `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
                 for a wait inside a handler) and `ListenerRejected` (with
                 `listen_strict` or the listener's `strict_filter`).
@@ -986,7 +993,8 @@ class Client(PyroClient):
         **kw: Unpack[AskRichSendKw],
     ) -> ResultT: ...
 
-    # A retry sends only the `kw` in `AskAgain`, so these need not fit `send_rich_message`.
+    # Unlike `AskEditKw`, these hold edit-only arguments `send_rich_message` refuses; a `parse`
+    # that returns them in `AskAgain` gets `TypeError` (see the docstring).
     @overload
     async def ask_rich_until(
         self,
@@ -1184,7 +1192,8 @@ class Client(PyroClient):
         **kw: Unpack[AskRichSendKw],
     ) -> ResultT: ...
 
-    # A retry sends only the `kw` in `AskAgain`, so these need not fit `send_rich_message`.
+    # Unlike `AskEditKw`, these hold edit-only arguments `send_rich_message` refuses; a `parse`
+    # that returns them in `AskAgain` gets `TypeError` (see the docstring).
     @overload
     async def ask_callback_query_rich_until(
         self,

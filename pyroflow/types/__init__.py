@@ -1,4 +1,4 @@
-"""Pyrogram update types patched with conversation helpers such as `Message.ask`."""
+"""Pyrogram types patched by pyroflow: `Message` with the `ask_*` and `flow_*` methods, `User.lang_code`, `Update.arrived_at`, and `CallbackQuery` typed with the patched classes."""
 
 from .update import *
 from .user import *

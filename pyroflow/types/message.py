@@ -151,16 +151,20 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `Message`.
             ValueError: If this is an empty message, or an ephemeral one whose
-                receiver, or sender for a reply, is unknown (see `flow_edit`
-                and `flow_reply`). Checked before sending.
+                user is unknown: its `receiver_user` for an edit or a reply to
+                the client's own message, else its `from_user` (see
+                `flow_edit` and `flow_reply`). Checked before sending.
             TypeError: If `listen_timeout` is neither a number nor `None`; the
                 message is already sent or edited by then.
             ListenerNotSent: If Telegram returns no message for the question,
                 such as an edit of an ephemeral message it answers with none.
-            ListenerTimeout: If no matching update arrives within `listen_timeout`.
+            ListenerTimeout: If the timeout expires before the answer arrives.
             ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer wait
-                on the key, under the default `DuplicatePolicy.REPLACE`),
+                cancelled; also its subclasses `ListenerClosed` (the listener
+                is stopped: raised before sending, or from the wait if it
+                stops while the question is sent), `ListenerReplaced` (a
+                newer wait on the key, under the default
+                `DuplicatePolicy.REPLACE`),
                 `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
                 for a wait inside a handler) and `ListenerRejected` (with
                 `listen_strict` or the listener's `strict_filter`).
@@ -247,7 +251,10 @@ class Message(PyroMessage):
             **kw: Passed to `flow_edit_rich` or `flow_reply_rich`: the
                 arguments of kurigram's `edit_text` or `reply_rich` without what
                 those fill in and without scheduling; for the full signatures,
-                call kurigram's methods.
+                call kurigram's methods. On a message that is not `editable`
+                the question is a reply, so an edit-only argument such as
+                `link_preview_options` raises `TypeError`; pass it only with
+                an `editable` message.
 
         Returns:
             The answer.
@@ -255,15 +262,12 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `Message`.
             ValueError: As in `ask`.
-            TypeError: As in `ask`.
+            TypeError: As in `ask`, or if the question is a reply and `kw`
+                holds an edit-only argument, which `send_rich_message` does
+                not take; nothing is sent then.
             ListenerNotSent: As in `ask`.
-            ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer wait
-                on the key, under the default `DuplicatePolicy.REPLACE`),
-                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
-                for a wait inside a handler) and `ListenerRejected` (with
-                `listen_strict` or the listener's `strict_filter`).
+            ListenerTimeout: If the timeout expires before the answer arrives.
+            ListenerCancelled: As in `ask`.
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -359,13 +363,8 @@ class Message(PyroMessage):
             ValueError: As in `ask`.
             TypeError: As in `ask`.
             ListenerNotSent: As in `ask`.
-            ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer wait
-                on the key, under the default `DuplicatePolicy.REPLACE`),
-                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
-                for a wait inside a handler) and `ListenerRejected` (with
-                `listen_strict` or the listener's `strict_filter`).
+            ListenerTimeout: If the timeout expires before the press arrives.
+            ListenerCancelled: As in `ask`.
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -447,7 +446,9 @@ class Message(PyroMessage):
             **kw: Passed to `flow_edit_rich` or `flow_reply_rich`: the
                 arguments of kurigram's `edit_text` or `reply_rich` without what
                 those fill in and without scheduling; for the full signatures,
-                call kurigram's methods.
+                call kurigram's methods. As in `ask_rich`, an edit-only
+                argument raises `TypeError` on a message that is not
+                `editable`.
 
         Returns:
             The press.
@@ -455,15 +456,10 @@ class Message(PyroMessage):
         Raises:
             RuntimeError: If no listener is registered for `CallbackQuery`.
             ValueError: As in `ask`.
-            TypeError: As in `ask`.
+            TypeError: As in `ask_rich`.
             ListenerNotSent: As in `ask`.
-            ListenerTimeout: If no matching update arrives within `listen_timeout`.
-            ListenerCancelled: If the listener is stopped or the wait is
-                cancelled; also its subclasses `ListenerReplaced` (a newer wait
-                on the key, under the default `DuplicatePolicy.REPLACE`),
-                `ListenerEvicted` (`WorkersPolicy.CANCEL_OLDEST`, the default,
-                for a wait inside a handler) and `ListenerRejected` (with
-                `listen_strict` or the listener's `strict_filter`).
+            ListenerTimeout: If the timeout expires before the press arrives.
+            ListenerCancelled: As in `ask`.
             ListenerWorkersBusy: As in `ask`.
             ListenerAlreadyExists: As in `ask`.
         """
@@ -645,9 +641,10 @@ class Message(PyroMessage):
         Like `ask_until`, but each question is a rich message and a new
         question from `parse` is an `InputRichMessage`.
 
-        A retry with the `kw` it was given raises `TypeError` when that `kw`
-        holds an edit-only argument such as `link_preview_options`, which
-        `flow_reply_rich` does not take.
+        A question sent as a reply, the first one on a message that is not
+        `editable` or a retry with the `kw` it was given, raises `TypeError`
+        when that `kw` holds an edit-only argument such as
+        `link_preview_options`, which `flow_reply_rich` does not take.
 
         Args:
             rich_message: The first question.
@@ -830,9 +827,10 @@ class Message(PyroMessage):
         Like `ask_callback_query_until`, but each question is a rich message
         and a new question from `parse` is an `InputRichMessage`.
 
-        A retry with the `kw` it was given raises `TypeError` when that `kw`
-        holds an edit-only argument such as `link_preview_options`, which
-        `flow_reply_rich` does not take.
+        A question sent as a reply, the first one on a message that is not
+        `editable` or a retry with the `kw` it was given, raises `TypeError`
+        when that `kw` holds an edit-only argument such as
+        `link_preview_options`, which `flow_reply_rich` does not take.
 
         Args:
             rich_message: The first question.

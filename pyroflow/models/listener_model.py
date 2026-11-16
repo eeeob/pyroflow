@@ -51,8 +51,9 @@ class ListenerModel(Generic[UpdateType]):
     is set, with the model as their one argument: at once, not on the next loop
     iteration as `asyncio.Future.add_done_callback` does. A cancelled task leaves
     the future done without them, so `run_done_callbacks` runs them then. They
-    run once, as running drops them. A failing callback is logged, and the next
-    one still runs.
+    run once, as running drops them. A callback that `run_done_callbacks` runs
+    is logged if it fails, and the next one still runs; one `add_done_callback`
+    runs at once on a done listener is not.
 
     Example:
         >>> from pyroflow.models import MessageKey
@@ -89,6 +90,8 @@ class ListenerModel(Generic[UpdateType]):
     def add_done_callback(self, fn: Callable[[ListenerModel[UpdateType]], object]) -> None:
         """Call `fn(self)` as soon as the listener is done; at once if it already is.
 
+        On a done listener `fn` runs at once, and what it raises propagates.
+
         Args:
             fn: The callback; its result is ignored.
 
@@ -113,6 +116,9 @@ class ListenerModel(Generic[UpdateType]):
 
         Args:
             update: The update that matched; becomes the future's result.
+
+        Raises:
+            asyncio.InvalidStateError: If the listener is already done.
         """
         self.future.set_result(update)
         self.run_done_callbacks()
@@ -148,6 +154,9 @@ class ListenerModel(Generic[UpdateType]):
 
         Args:
             exc: The error the future is failed with.
+
+        Raises:
+            asyncio.InvalidStateError: If the listener is already done.
         """
         self.future.set_exception(exc)
         self.run_done_callbacks()
